@@ -1,3 +1,17 @@
+import {
+  sleep,
+  delays,
+  fields,
+  getStorageDataLocal,
+  base64ToArrayBuffer,
+  changeEvent,
+  inputEvent,
+  keyDownEvent,
+  keyUpEvent,
+  setNativeValue,
+  monthToNumber,
+} from './utils.js';
+
 function getCurStageWorkday(form) {
   if (!form) return null;
   let progressBar = form.querySelector('[data-automation-id="progressBar"]');
@@ -56,7 +70,7 @@ function workdayQueryAll(jobParam, form, type) {
 
   return res;
 }
-async function workDayAutofill(res) {
+export async function workDayAutofill(res) {
   await sleep(delays.initial);
 
   let wrkDayFields = Object.assign({}, fields.workday);
@@ -104,7 +118,8 @@ async function workDayAutofill(res) {
           workdayQuery(jobParam, document, "input"),
           jobParam,
           param,
-          fillValue
+          fillValue,
+          res
         );
         if (inputElement) {
           delete wrkDayFields[curStage][jobParam];
@@ -302,7 +317,7 @@ async function handleWorkExperience(jobParam) {
 
   return false;
 }
-async function handleInputElement(inputElement, jobParam,param, fillValue) {
+async function handleInputElement(inputElement, jobParam, param, fillValue, res) {
   if (inputElement != undefined) {
     //text fields
     if (jobParam == "month-input") {

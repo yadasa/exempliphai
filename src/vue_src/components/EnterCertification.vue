@@ -1,5 +1,10 @@
 <template>
     <div v-if='isOn' class="explanationBg">
+        <button class="modalCloseBtn" @click="exit" aria-label="Close">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
+            </svg>
+        </button>
         <h1 class="explanation">Add Certification</h1>
         <div class="inputFieldDiv">
             <h2>Certification Name</h2>
