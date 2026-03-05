@@ -1,0 +1,45 @@
+{
+  "name": "SmartApply",
+  "version": "1.0.0",
+  "manifest_version": 3,
+  "description": "Fills in annoying job forms for you, with data from your resume & more.",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "permissions": [
+    "storage",
+    "contextMenus"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "contentScripts/utils.js",
+        "contentScripts/workday.js",
+        "contentScripts/autofill.js"
+      ],
+      "type": "module",
+      "matches": [
+        "https://job-boards.greenhouse.io/*",
+        "https://boards.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://app.dover.com/*",
+        "https://*.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.oraclecloud.com/*",
+        "https://*.successfactors.eu/*",
+        "https://*.successfactors.com/*",
+        "https://*.recruitee.com/*"
+      ],
+      "world": "ISOLATED",
+      "run_at": "document_end"
+    }
+  ]
+}
