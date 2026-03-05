@@ -1,17 +1,9 @@
 /*
-  utils.js
-  Utility variables / functions used by contentScripts/autofill.js (and workday.js).
-
-  v2 regression fix:
-  - Restore the original robust field mapping + filling helpers.
-  - Keep the extension as MV3 content-script ES modules (export/import).
-  - Add optional v2 improvements (shadow/iframe pierce hooks, highlight/scroll, randomFill helpers).
+    Utility variables / functions used by autofill.
 */
 
 /**
- * Fields per job board map to the stored params array in the extension.
- * Key = jobParam (substring we look for in input attributes/labels)
- * Value = stored profile key (human-readable label used in storage)
+ Fields per job board map to the stored params array in the extension
  */
 const fields = {
   greenhouse: {
@@ -21,7 +13,7 @@ const fields = {
     "Preferred Name": "Full Name",
     email: "Email",
     phone: "Phone",
-    cover_letter: "Resume",
+    "cover_letter": "Resume",
     "cover letter": "Resume",
     LinkedIn: "LinkedIn",
     Github: "Github",
@@ -30,8 +22,8 @@ const fields = {
     "candidate-location": "Location (City)",
     Website: "Personal Website",
     Portfolio: "Personal Website",
-    LeetCode: "LeetCode",
-    Medium: "Medium",
+    "LeetCode": "LeetCode",
+    "Medium": "Medium",
     Blog: "Medium",
     Employer: "Current Employer",
     "Current Company": "Current Employer",
@@ -53,14 +45,14 @@ const fields = {
     "experience years": "Years of Experience",
     "total experience": "Years of Experience",
     "relevant experience": "Years of Experience",
-    authorized: "Legally Authorized to Work",
-    sponsorship: "Requires Sponsorship",
-    notice: "Job Notice Period",
-    salary: "Expected Salary",
-    language: "Languages",
+    "authorized": "Legally Authorized to Work",
+    "sponsorship": "Requires Sponsorship",
+    "notice": "Job Notice Period",
+    "salary": "Expected Salary",
+    "language": "Languages",
     "address line": "Location (Street)",
-    street: "Location (Street)",
-    skills: "Skills",
+    "street": "Location (Street)",
+    "skills": "Skills"
   },
   lever: {
     resume: "Resume",
@@ -92,14 +84,14 @@ const fields = {
     "experience years": "Years of Experience",
     "total experience": "Years of Experience",
     "relevant experience": "Years of Experience",
-    authorized: "Legally Authorized to Work",
-    sponsorship: "Requires Sponsorship",
-    notice: "Job Notice Period",
-    salary: "Expected Salary",
-    language: "Languages",
+    "authorized": "Legally Authorized to Work",
+    "sponsorship": "Requires Sponsorship",
+    "notice": "Job Notice Period",
+    "salary": "Expected Salary",
+    "language": "Languages",
     "address line": "Location (Street)",
-    street: "Location (Street)",
-    skills: "Skills",
+    "street": "Location (Street)",
+    "skills": "Skills"
   },
   dover: {
     firstName: "First Name",
@@ -114,14 +106,14 @@ const fields = {
     "experience years": "Years of Experience",
     "total experience": "Years of Experience",
     "relevant experience": "Years of Experience",
-    authorized: "Legally Authorized to Work",
-    sponsorship: "Requires Sponsorship",
-    notice: "Job Notice Period",
-    salary: "Expected Salary",
-    language: "Languages",
+    "authorized": "Legally Authorized to Work",
+    "sponsorship": "Requires Sponsorship",
+    "notice": "Job Notice Period",
+    "salary": "Expected Salary",
+    "language": "Languages",
     "address line": "Location (Street)",
-    street: "Location (Street)",
-    skills: "Skills",
+    "street": "Location (Street)",
+    "skills": "Skills"
   },
   workday: {
     "My Information": {
@@ -150,14 +142,14 @@ const fields = {
       "years of experience": "Years of Experience",
       "experience years": "Years of Experience",
       "total experience": "Years of Experience",
-      "relevant experience": "Years of Experience",
+      "relevant experience": "Years of Experience"
     },
     "Application Questions": {
-      authorized: "Legally Authorized to Work",
-      sponsorship: "Requires Sponsorship",
-      notice: "Job Notice Period",
-      salary: "Expected Salary",
-      language: "Languages",
+      "authorized": "Legally Authorized to Work",
+      "sponsorship": "Requires Sponsorship",
+      "notice": "Job Notice Period",
+      "salary": "Expected Salary",
+      "language": "Languages"
     },
     "Voluntary Disclosures": {
       ethnicity: "Race",
@@ -188,12 +180,12 @@ const fields = {
     "experience years": "Years of Experience",
     "total experience": "Years of Experience",
     "relevant experience": "Years of Experience",
-    authorized: "Legally Authorized to Work",
-    sponsorship: "Requires Sponsorship",
-    notice: "Job Notice Period",
-    salary: "Expected Salary",
-    language: "Languages",
-    skills: "Skills",
+    "authorized": "Legally Authorized to Work",
+    "sponsorship": "Requires Sponsorship",
+    "notice": "Job Notice Period",
+    "salary": "Expected Salary",
+    "language": "Languages",
+    "skills": "Skills"
   },
   recruitee: {
     "candidate[name]": "Full Name",
@@ -201,115 +193,119 @@ const fields = {
     "candidate[phone]": "Phone",
     "candidate[cv]": "Resume",
     "candidate[cover_letter]": "Resume",
-    name: "Full Name",
-    email: "Email",
-    phone: "Phone",
-    cv: "Resume",
-    cover_letter: "Resume",
-    resume: "Resume",
-    github: "Github",
-    linkedin: "LinkedIn",
-    portfolio: "Personal Website",
-    website: "Personal Website",
-    city: "Location (City)",
+    "name": "Full Name",
+    "email": "Email",
+    "phone": "Phone",
+    "cv": "Resume",
+    "cover_letter": "Resume",
+    "resume": "Resume",
+    "github": "Github",
+    "linkedin": "LinkedIn",
+    "portfolio": "Personal Website",
+    "website": "Personal Website",
+    "city": "Location (City)",
     "address line": "Location (Street)",
-    street: "Location (Street)",
-    zip: "Postal/Zip Code",
-    language: "Languages",
-    salary: "Expected Salary",
-    notice: "Job Notice Period",
+    "street": "Location (Street)",
+    "zip": "Postal/Zip Code",
+    "language": "Languages",
+    "salary": "Expected Salary",
+    "notice": "Job Notice Period"
   },
   successfactors: {
-    firstName: "First Name",
-    lastName: "Last Name",
-    cellPhone: "Phone",
-    contactEmail: "Email",
+    "firstName": "First Name",
+    "lastName": "Last Name",
+    "cellPhone": "Phone",
+    "contactEmail": "Email",
     "address line": "Location (Street)",
-    street: "Location (Street)",
-    city: "Location (City)",
-    zip: "Postal/Zip Code",
-    country: "Location (Country)",
-    state: "Location (State/Region)",
-    resume: "Resume",
-    coverLetter: "Resume",
-    cv: "Resume",
-    jobTitle: "Job Title",
-    company: "Current Employer",
-    school: "School",
-    major: "Discipline",
-    degree: "Degree",
+    "street": "Location (Street)",
+    "city": "Location (City)",
+    "zip": "Postal/Zip Code",
+    "country": "Location (Country)",
+    "state": "Location (State/Region)",
+    "resume": "Resume",
+    "coverLetter": "Resume",
+    "cv": "Resume",
+    "jobTitle": "Job Title",
+    "company": "Current Employer",
+    "school": "School",
+    "major": "Discipline",
+    "degree": "Degree",
     "start date": "Start Date Month",
     "end date": "End Date Month",
-    authorized: "Legally Authorized to Work",
-    sponsorship: "Requires Sponsorship",
-    notice: "Job Notice Period",
-    salary: "Expected Salary",
-    language: "Languages",
+    "authorized": "Legally Authorized to Work",
+    "sponsorship": "Requires Sponsorship",
+    "notice": "Job Notice Period",
+    "salary": "Expected Salary",
+    "language": "Languages",
     "years of experience": "Years of Experience",
-    skills: "Skills",
+    "skills": "Skills"
   },
   generic: {
     "first name": "First Name",
     "middle name": "Middle Name",
     "last name": "Last Name",
     "full name": "Full Name",
-    email: "Email",
-    phone: "Phone",
-    linkedin: "LinkedIn",
-    github: "Github",
-    leetcode: "LeetCode",
-    medium: "Medium",
-    portfolio: "Personal Website",
-    website: "Personal Website",
-    blog: "Medium",
-    other: "Other URL",
-    resume: "Resume",
-    cv: "Resume",
-    "cover letter": null,
-    generic_address_street: "Location (Street)",
+    "email": "Email",
+    "phone": "Phone",
+    "linkedin": "LinkedIn",
+    "github": "Github",
+    "linkedin": "LinkedIn",
+    "github": "Github",
+    "leetcode": "LeetCode",
+    "medium": "Medium",
+    "portfolio": "Personal Website",
+    "website": "Personal Website",
+    "blog": "Medium", // Heuristic: often blog == medium for devs
+    "other": "Other URL",
+    "resume": "Resume",
+    "cv": "Resume",
+    "cover letter": null, // Intentionally null or generic
+    "generic_address_street": "Location (Street)", // Renamed to avoid partial match with "email address"
     "street address": "Location (Street)",
     "address line": "Location (Street)",
-    address1: "Location (Street)",
-    city: "Location (City)",
-    zip: "Postal/Zip Code",
-    country: "Location (Country)",
-    employer: "Current Employer",
-    university: "School",
-    school: "School",
-    degree: "Degree",
-    major: "Discipline",
-    discipline: "Discipline",
-    gpa: "GPA",
-    "job title": "Job Title",
-    company: "Current Employer",
-    "start date": "Date Available",
+    "address1": "Location (Street)",
+    "city": "Location (City)",
+    "zip": "Postal/Zip Code",
+    "country": "Location (Country)",
+    "employer": "Current Employer",
+    "university": "School",
+    "school": "School",
+    "degree": "Degree",
+    "major": "Discipline",
+    "discipline": "Discipline",
+    "gpa": "GPA",
+    "job title": "Job Title", // Might correspond to a specific input if tracked
+    "company": "Current Employer",
+    "start date": "Start Date Month", // Heuristic mapping, might need refinement
     "end date": "End Date Month",
-    authorized: "Legally Authorized to Work",
-    sponsorship: "Requires Sponsorship",
-    notice: "Job Notice Period",
-    salary: "Expected Salary",
-    language: "Languages",
+    "authorized": "Legally Authorized to Work",
+    "sponsorship": "Requires Sponsorship",
+    "notice": "Job Notice Period",
+    "salary": "Expected Salary",
+    "language": "Languages",
     "years of experience": "Years of Experience",
     "relevant experience": "Years of Experience",
     "phone type": "Phone Type",
-    skills: "Skills",
-    certification: "Certification Name",
+    "skills": "Skills",
+    "certification": "Certification Name",
     "certification name": "Certification Name",
     "issuing organization": "Issuing Organization",
-    issuer: "Issuing Organization",
-    "issue date": "Issue Date Month",
-    "expiration date": "Expiration Date Month",
+    "issuer": "Issuing Organization",
+    "issue date": "Issue Date Month", // Heuristic
+    "expiration date": "Expiration Date Month", // Heuristic
     "credential id": "Credential ID",
     "credential url": "Credential URL",
     "license number": "Credential ID",
-    pronouns: "Pronouns",
-    relocate: "Willing to Relocate",
-    relocation: "Willing to Relocate",
-    available: "Date Available",
-    availability: "Date Available",
-    security: "Security Clearance",
-    clearance: "Security Clearance",
-  },
+    "pronouns": "Pronouns",
+    "relocate": "Willing to Relocate",
+    "relocation": "Willing to Relocate",
+    "available": "Date Available",
+    "availability": "Date Available",
+    "start date": "Date Available", // Be careful not to conflict with job history start date. Job history usually inside container.
+    "security": "Security Clearance",
+    "clearance": "Security Clearance",
+    "cover letter": "Resume"
+  }
 };
 
 const keyDownEvent = new KeyboardEvent("keydown", {
@@ -336,7 +332,9 @@ const inputEvent = new Event("input", { bubbles: true });
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
+/** 
+Get current date as string in day/month/year format.
+*/
 function curDateStr() {
   return `${new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
@@ -344,21 +342,32 @@ function curDateStr() {
     year: "numeric",
   }).format(new Date())}`;
 }
-
+/**
+Scroll to top of window. 
+*/
 function scrollToTop() {
-  window.scrollTo({ top: 0, behavior: "auto" });
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
-
+/**
+ Turns base64 string (w/o prefix) to array buffer.
+*/
 function base64ToArrayBuffer(base64) {
   const binaryString = atob(base64);
+
+  // Create a new ArrayBuffer and copy the binary string into it
   const arrayBuffer = new ArrayBuffer(binaryString.length);
   const view = new Uint8Array(arrayBuffer);
+
+  // Convert binary string to an array of bytes
   for (let i = 0; i < binaryString.length; i++) {
     view[i] = binaryString.charCodeAt(i);
   }
+
   return arrayBuffer;
 }
-
+/**
+ Turns month string into corresponding integer (ex: december -> 12).
+ */
 function monthToNumber(month) {
   const months = {
     jan: 1,
@@ -385,269 +394,104 @@ function monthToNumber(month) {
     dec: 12,
     december: 12,
   };
-  const normalizedMonth = String(month ?? "").toLowerCase().trim();
+  const normalizedMonth = month.toLowerCase().trim();
   return months[normalizedMonth] || null;
 }
-
+/**
+ Debug function to show runtime.
+ */
 function getTimeElapsed(startTime) {
-  const cur = Date.now();
+  let cur = new Date().getTime();
   return ((cur - startTime) / 1000).toFixed(3);
 }
-
+/**
+ Data retreival for chrome local storage.
+ */
 const getStorageDataLocal = (key) => {
   return new Promise((resolve) => {
-    if (key === undefined) chrome.storage.local.get(null, resolve);
-    else chrome.storage.local.get(key, resolve);
+    if (key === undefined) {
+      // If no key is passed, fetch all data
+      chrome.storage.local.get(null, resolve);
+    } else {
+      // If a key is passed, fetch only the value for that key
+      chrome.storage.local.get(key, resolve);
+    }
   });
 };
-
+/**
+ Data retreival for chrome sync storage.
+ */
 const getStorageDataSync = (key) => {
   return new Promise((resolve) => {
-    if (key === undefined) chrome.storage.sync.get(null, resolve);
-    else chrome.storage.sync.get(key, resolve);
+    if (key === undefined) {
+      // If no key is passed, fetch all data
+      chrome.storage.sync.get(null, resolve);
+    } else {
+      // If a key is passed, fetch only the value for that key
+      chrome.storage.sync.get(key, resolve);
+    }
   });
 };
-
-async function getStorageValue(area, key, defaultValue) {
-  const store = area === "local" ? chrome.storage.local : chrome.storage.sync;
-  return new Promise((resolve) => {
-    store.get([key], (result) => resolve(result?.[key] ?? defaultValue));
-  });
-}
-
 function setNativeValue(el, value) {
-  if (!el) return;
-
-  // Checkboxes/radios: click when needed.
   if (el.type === "checkbox" || el.type === "radio") {
     const valLower = String(value).toLowerCase();
-    let shouldCheck = !!value;
+    let shouldCheck = !!value; // Default truthy check
 
-    if (["no", "false", "0"].includes(valLower)) shouldCheck = false;
-    else if (["yes", "true", "1"].includes(valLower)) shouldCheck = true;
+    // Explicitly handle "no", "false", "0" as false
+    if (["no", "false", "0"].includes(valLower)) {
+      shouldCheck = false;
+    }
+    // Explicitly handle "yes", "true", "1" as true
+    else if (["yes", "true", "1"].includes(valLower)) {
+      shouldCheck = true;
+    }
 
-    if (
-      (shouldCheck && !el.checked) ||
-      (!shouldCheck && el.checked && el.type === "checkbox")
-    ) {
+    // Only click if the state needs changing.
+    // For radios, we typically only click to SET to true. 
+    // We avoid clicking if we intend to set to false (unchecking a radio by clicking it usually does nothing or re-checks it).
+    if ((shouldCheck && !el.checked) || (!shouldCheck && el.checked && el.type === "checkbox")) {
       el.click();
     }
-    return;
-  }
-
-  // Selects: try to match by option text/value substring.
-  if (el instanceof HTMLSelectElement) {
+  } else if (el instanceof HTMLSelectElement) {
     const valLower = String(value).toLowerCase();
-    const yesSyn = ["yes", "true", "1"];
-    const noSyn = ["no", "false", "0"];
+    const yesSynonyms = ["yes", "true", "1"];
+    const noSynonyms = ["no", "false", "0"];
 
-    for (const o of Array.from(el.options)) {
-      const optVal = String(o.value ?? "").toLowerCase();
-      const optText = String(o.textContent ?? "").toLowerCase();
+    for (let o of el.children) {
+      const optVal = o.value.toLowerCase();
+      const optText = o.textContent.toLowerCase();
 
+      // Check 1: Direct inclusion (e.g. "United States" in "United States of America")
       if (optVal.includes(valLower) || optText.includes(valLower)) {
         el.value = o.value;
-        el.dispatchEvent(changeEvent);
-        return;
+        break;
       }
 
-      if (
-        yesSyn.includes(valLower) &&
-        (yesSyn.includes(optVal) || yesSyn.includes(optText))
-      ) {
+      // Check 2: Boolean Synonym Matching
+      // If user stores "Yes", match "True" or "1" options
+      if (yesSynonyms.includes(valLower) && (yesSynonyms.includes(optVal) || yesSynonyms.includes(optText))) {
         el.value = o.value;
-        el.dispatchEvent(changeEvent);
-        return;
+        break;
       }
-      if (
-        noSyn.includes(valLower) &&
-        (noSyn.includes(optVal) || noSyn.includes(optText))
-      ) {
+      // If user stores "No", match "False" or "0" options
+      if (noSynonyms.includes(valLower) && (noSynonyms.includes(optVal) || noSynonyms.includes(optText))) {
         el.value = o.value;
-        el.dispatchEvent(changeEvent);
-        return;
+        break;
       }
     }
-
-    // Fallback: set direct.
-    el.value = value;
-    el.dispatchEvent(changeEvent);
-    return;
-  }
-
-  // Text-like inputs/textareas (React-safe).
-  const previousValue = el.value;
-  try {
-    const proto = Object.getPrototypeOf(el);
-    const desc = Object.getOwnPropertyDescriptor(proto, "value");
-    if (desc?.set) desc.set.call(el, value);
-    else el.value = value;
-  } catch {
-    el.value = value;
-  }
-
-  // React 16+ value tracker.
+  } else el.value = value;
   const tracker = el._valueTracker;
-  if (tracker) tracker.setValue(previousValue);
-
+  if (tracker) {
+    tracker.setValue(previousValue);
+  }
+  // 'change' instead of 'input', see https://github.com/facebook/react/issues/11488#issuecomment-381590324
   el.setAttribute("value", value);
-  el.dispatchEvent(inputEvent);
-  el.dispatchEvent(changeEvent);
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  el.value = value;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
 }
-
 const delays = {
   initial: 1000,
   short: 200,
   long: 600,
-};
-
-function highlightElement(el, ms = 900) {
-  if (!el || !el.style) return;
-  const prevOutline = el.style.outline;
-  const prevOutlineOffset = el.style.outlineOffset;
-  const prevTransition = el.style.transition;
-
-  el.style.transition = "outline 120ms ease";
-  el.style.outline = "3px solid rgba(34, 197, 94, 0.95)";
-  el.style.outlineOffset = "2px";
-
-  window.setTimeout(() => {
-    el.style.outline = prevOutline;
-    el.style.outlineOffset = prevOutlineOffset;
-    el.style.transition = prevTransition;
-  }, ms);
-}
-
-function safeScrollIntoView(el) {
-  try {
-    el?.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "auto" });
-  } catch {
-    // ignore
-  }
-}
-
-/**
- * Shadow DOM + same-origin iframe query helper.
- * Returns a *flat* array of matches across document, shadow roots, and same-origin iframes.
- */
-function querySelectorAllDeep(selector, root = document) {
-  const results = [];
-  const queue = [root];
-  const seen = new Set();
-
-  while (queue.length) {
-    const curRoot = queue.shift();
-    if (!curRoot || seen.has(curRoot)) continue;
-    seen.add(curRoot);
-
-    // Collect matches
-    try {
-      if (curRoot.querySelectorAll) {
-        results.push(...curRoot.querySelectorAll(selector));
-      }
-    } catch {
-      // invalid selector or non-queryable root
-    }
-
-    // Walk descendants to find shadow roots + iframes
-    let elements = [];
-    try {
-      if (curRoot.querySelectorAll) elements = Array.from(curRoot.querySelectorAll("*"));
-    } catch {
-      elements = [];
-    }
-
-    for (const el of elements) {
-      if (el?.shadowRoot) queue.push(el.shadowRoot);
-      if (el?.tagName === "IFRAME") {
-        try {
-          const doc = el.contentDocument;
-          if (doc) queue.push(doc);
-        } catch {
-          // cross-origin
-        }
-      }
-    }
-  }
-
-  return results;
-}
-
-function isControlFilled(el) {
-  if (!el) return false;
-  if (el.type === "checkbox" || el.type === "radio") return !!el.checked;
-  if (el instanceof HTMLSelectElement) return !!el.value;
-  return String(el.value ?? "").trim().length > 0;
-}
-
-async function randomFill(el, { onlyIfRequired = true } = {}) {
-  if (!el) return false;
-
-  const enabled = await getStorageValue("sync", "randomFillEnabled", true);
-  if (!enabled) return false;
-
-  const required =
-    !!el.required ||
-    el.getAttribute("aria-required") === "true" ||
-    el.getAttribute("required") === "true";
-  if (onlyIfRequired && !required) return false;
-
-  if (el instanceof HTMLSelectElement) {
-    const options = Array.from(el.options).filter(
-      (o) => o && String(o.value ?? "").trim() !== ""
-    );
-    if (!options.length) return false;
-    const pick = options[Math.floor(Math.random() * options.length)];
-    el.value = pick.value;
-    el.dispatchEvent(changeEvent);
-    return true;
-  }
-
-  if (el.type === "radio") {
-    const name = el.name;
-    if (!name) return false;
-    const radios = querySelectorAllDeep(`input[type="radio"][name="${CSS.escape(name)}"]`);
-    if (!radios.length) return false;
-    radios[Math.floor(Math.random() * radios.length)].click();
-    return true;
-  }
-
-  if (el.type === "checkbox") {
-    el.click();
-    return true;
-  }
-
-  // Text/textarea: keep conservative (only fill if explicitly enabled).
-  const fillText = await getStorageValue("sync", "randomFillTextEnabled", false);
-  if (!fillText) return false;
-
-  const fillers = ["N/A", "Yes", "No", "Other"]; // intentionally short
-  const val = fillers[Math.floor(Math.random() * fillers.length)];
-  setNativeValue(el, val);
-  return true;
-}
-
-export {
-  fields,
-  keyDownEvent,
-  keyUpEvent,
-  mouseUpEvent,
-  changeEvent,
-  inputEvent,
-  sleep,
-  curDateStr,
-  scrollToTop,
-  base64ToArrayBuffer,
-  monthToNumber,
-  getTimeElapsed,
-  delays,
-  getStorageDataLocal,
-  getStorageDataSync,
-  getStorageValue,
-  setNativeValue,
-  highlightElement,
-  safeScrollIntoView,
-  querySelectorAllDeep,
-  isControlFilled,
-  randomFill,
 };
