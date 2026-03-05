@@ -205,129 +205,164 @@ export default {
 
 <style scoped>
 .jobTracker {
-    padding: 1rem;
+    padding: 0.25rem 0;
     color: var(--text-primary);
 }
+
 .no-jobs {
     text-align: center;
     color: var(--text-secondary);
     margin-top: 2rem;
 }
+
 .job-list {
     display: flex;
     flex-direction: column;
     gap: 1rem;
     margin-top: 1rem;
-    max-height: 400px;
-    overflow-y: auto;
+    max-height: 420px;
+    overflow: auto;
+    padding-bottom: 0.25rem;
 }
+
 .job-card {
     background: var(--card-bg);
     padding: 1rem;
-    border-radius: 8px;
+    border-radius: 14px;
     border: 1px solid var(--card-border);
+    box-shadow: var(--shadow-1);
 }
+
 .job-header {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     margin-bottom: 0.5rem;
 }
+
 .job-company {
-    font-weight: bold;
-    font-size: 1.1rem;
+    font-weight: 700;
+    font-size: 1.05rem;
     color: var(--text-primary);
 }
+
 .job-date {
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     color: var(--text-secondary);
 }
+
 .job-role {
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.6rem;
+    color: var(--text-secondary);
+    font-weight: 500;
 }
+
 .job-link {
     font-size: 0.9rem;
-    color: #4CAF50;
+    color: var(--accent-color);
     text-decoration: none;
+    font-weight: 600;
 }
+
 .job-link:hover {
     text-decoration: underline;
 }
+
 .tracker-actions {
-    margin-top: 1.5rem;
+    margin-top: 1.25rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
     align-items: center;
 }
+
 .backup-actions {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.75rem;
     width: 100%;
     justify-content: center;
 }
+
 .secondary-btn {
-    background: var(--input-bg);
+    background: var(--card-bg);
     color: var(--text-primary);
     border: 1px solid var(--card-border);
-    padding: 0.4rem 0.8rem;
-    border-radius: 4px;
+    padding: 0.55rem 0.85rem;
+    border-radius: 12px;
     cursor: pointer;
     font-size: 0.85rem;
+    font-weight: 700;
+    box-shadow: var(--shadow-1);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
+
 .secondary-btn:hover {
-    background: var(--card-border);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-2);
 }
+
 .company-section {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
     flex: 1;
 }
+
 .edit-input {
     background: var(--input-bg);
     border: 1px solid var(--input-border);
     color: var(--text-primary);
-    padding: 0.2rem 0.5rem;
-    border-radius: 4px;
+    padding: 0.45rem 0.65rem;
+    border-radius: 12px;
     font-family: inherit;
-    font-size: 1rem;
-    width: 150px;
+    font-size: 0.95rem;
+    width: 170px;
 }
+
 .edit-actions {
     display: flex;
-    gap: 0.3rem;
+    gap: 0.35rem;
 }
+
 .icon-btn {
     cursor: pointer;
     font-size: 1rem;
-    opacity: 0.6;
-    transition: opacity 0.2s;
+    opacity: 0.7;
+    transition: opacity 0.12s ease, transform 0.12s ease;
     user-select: none;
 }
+
 .icon-btn:hover {
     opacity: 1;
+    transform: translateY(-1px);
 }
-.save-btn { color: var(--accent-color); font-weight: bold; }
-.cancel-btn { color: #ff4444; font-weight: bold; }
-.edit-btn { font-size: 0.9rem; } /* Pencil slightly smaller */
+
+.save-btn { color: var(--accent-2); font-weight: 800; }
+.cancel-btn { color: #ef4444; font-weight: 800; }
+.edit-btn { font-size: 0.92rem; }
 
 .clear-btn {
-    background: #ff4444;
+    background: linear-gradient(135deg, #ef4444, #b91c1c);
     color: white;
     border: none;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
+    padding: 0.6rem 1rem;
+    border-radius: 12px;
     cursor: pointer;
     font-size: 0.9rem;
-    opacity: 0.8;
+    font-weight: 800;
+    box-shadow: 0 16px 30px rgba(239, 68, 68, 0.25);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
+
 .clear-btn:hover {
-    background: #cc0000;
-    opacity: 1;
+    transform: translateY(-1px);
+    box-shadow: 0 20px 45px rgba(239, 68, 68, 0.35);
 }
+
 .tracker-footer {
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     color: var(--text-secondary);
     margin: 0;
+    text-align: center;
 }
 </style>

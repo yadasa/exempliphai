@@ -41,14 +41,14 @@ const setTab = async (tab: string) => {
   
   <div class="app-container">
       <div class="headerDiv">
-        <h1 class="aSelfTop">SmartApply</h1>
-        <div class="aRight gM mTs" style="flex-direction: row; align-items: center;">
-        <ThemeToggle/>
-        <PrivacyToggle/>
+        <h1 class="aSelfTop">Exempliphai</h1>
+        <div class="aRight gap-2">
+          <ThemeToggle />
+          <PrivacyToggle />
         </div>
       </div>
       
-      <div class="content-area">
+      <div class="content-area px-4">
           <!-- Profile Tab -->
           <div v-if="activeTab === 'profile'">
               <InputField label="First Name" placeHolder="John" />
@@ -174,48 +174,61 @@ const setTab = async (tab: string) => {
 
 <style scoped>
 .app-container {
-    display: flex;
-    flex-direction: column;
-    height: 600px; /* Fixed height for extension popup */
-    width: 400px;
+  display: flex;
+  flex-direction: column;
+  height: 600px; /* Fixed height for extension popup */
+  width: 400px;
+  background: var(--bg-primary);
 }
+
 .content-area {
-    flex: 1;
-    overflow-y: auto;
-    padding-bottom: 60px; /* Space for tab bar */
-    padding-inline: 1.5rem; /* Restore side spacing */
+  flex: 1;
+  overflow: auto;
+  padding-top: 0.25rem;
+  /* Fix cut-off (e.g., Disability Status) behind fixed tab bar */
+  padding-bottom: calc(var(--tab-bar-height) + 28px);
 }
-.headerDiv {
-    padding-inline: 1.5rem; /* Restore header spacing */
-    padding-top: 1rem;
-}
+
 .tab-bar {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    background: var(--tab-bar-bg);
-    display: flex;
-    justify-content: space-around;
-    padding: 10px 0;
-    border-top: 1px solid var(--tab-border-top);
-    z-index: 100;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: var(--tab-bar-height);
+  background: var(--tab-bar-bg);
+  backdrop-filter: blur(10px);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--tab-border-top);
+  z-index: 100;
+  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.10);
 }
+
 .tab-bar button {
-    background: none;
-    border: none;
-    color: var(--tab-text-inactive);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    font-size: 0.8rem;
+  background: none;
+  border: none;
+  color: var(--tab-text-inactive);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: transform 0.12s ease, color 0.12s ease;
 }
+
+.tab-bar button:hover {
+  transform: translateY(-1px);
+}
+
 .tab-bar button.active {
-    color: var(--accent-color);
+  color: var(--accent-color);
 }
+
 .tab-icon {
-    font-size: 1.2rem;
-    margin-bottom: 2px;
+  font-size: 1.15rem;
+  margin-bottom: 2px;
 }
 </style>

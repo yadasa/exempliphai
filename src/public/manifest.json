@@ -1,8 +1,8 @@
 {
-  "name": "SmartApply",
+  "name": "Exempliphai",
   "version": "1.0.0",
   "manifest_version": 3,
-  "description": "Fills in annoying job forms for you, with data from your resume & more.",
+  "description": "Autofill annoying job applications using your saved profile + resume data.",
   "action": {
     "default_popup": "index.html"
   },

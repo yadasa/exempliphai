@@ -1,57 +1,145 @@
-@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@100..900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&display=swap');
+/*
+  Exempliphai UI (light-first, MV3-safe)
+  - No remote @import to avoid extension CSP issues.
+  - Uses system SF Pro when available.
+*/
+
+/* SF Pro (system/local) */
+@font-face {
+  font-family: "SF Pro";
+  font-style: normal;
+  font-weight: 400;
+  src: local("SF Pro Text"), local("SF Pro Display"), local("San Francisco"), local("SFProText-Regular"), local("SFProDisplay-Regular");
+}
+@font-face {
+  font-family: "SF Pro";
+  font-style: normal;
+  font-weight: 500;
+  src: local("SF Pro Text Medium"), local("SF Pro Display Medium"), local("SFProText-Medium"), local("SFProDisplay-Medium");
+}
+@font-face {
+  font-family: "SF Pro";
+  font-style: normal;
+  font-weight: 600;
+  src: local("SF Pro Text Semibold"), local("SF Pro Display Semibold"), local("SFProText-Semibold"), local("SFProDisplay-Semibold");
+}
+@font-face {
+  font-family: "SF Pro";
+  font-style: normal;
+  font-weight: 700;
+  src: local("SF Pro Text Bold"), local("SF Pro Display Bold"), local("SFProText-Bold"), local("SFProDisplay-Bold");
+}
 
 :root {
-  /* Dark Theme (Default) */
-  --bg-primary: #1a1a1a;
-  --bg-secondary: rgba(255, 255, 255, 0.05);
-  --text-primary: #f0f0f0;
-  --text-secondary: #aaaaaa;
-  --accent-color: #66bb6a;
-  --border-color: rgba(255, 255, 255, 0.1);
-  --input-bg: rgba(255, 255, 255, 0.05);
-  --input-border: rgba(255, 255, 255, 0.1);
-  --card-bg: rgba(255, 255, 255, 0.05);
-  --card-border: rgba(255, 255, 255, 0.1);
-  --tab-bar-bg: #111;
-  --tab-text-inactive: #888;
-  --tab-border-top: rgba(255, 255, 255, 0.1);
+  /* Theme tokens */
+  --font-sans: "SF Pro", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+
+  --bg-primary: #0b1220; /* dark default */
+  --bg-secondary: rgba(255, 255, 255, 0.06);
+
+  --surface-1: rgba(255, 255, 255, 0.06);
+  --surface-2: rgba(255, 255, 255, 0.10);
+
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.65);
+
+  --accent-color: #7c3aed; /* violet */
+  --accent-2: #22c55e;
+
+  --border-color: rgba(255, 255, 255, 0.12);
+  --input-bg: rgba(255, 255, 255, 0.06);
+  --input-border: rgba(255, 255, 255, 0.14);
+
+  --card-bg: rgba(255, 255, 255, 0.06);
+  --card-border: rgba(255, 255, 255, 0.12);
+
+  --tab-bar-bg: rgba(10, 16, 28, 0.92);
+  --tab-text-inactive: rgba(255, 255, 255, 0.6);
+  --tab-border-top: rgba(255, 255, 255, 0.12);
+
+  --shadow-1: 0 10px 30px rgba(0, 0, 0, 0.25);
+  --shadow-2: 0 18px 50px rgba(0, 0, 0, 0.35);
+
+  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-thumb: linear-gradient(180deg, rgba(102, 126, 234, 0.95), rgba(118, 75, 162, 0.95));
+
+  --radius-lg: 16px;
+  --radius-md: 12px;
+
+  --tab-bar-height: 72px;
 }
 
 [data-theme='light'] {
-  /* Light Theme */
-  --bg-primary: rgb(233, 227, 216);
-  --bg-secondary: rgba(0, 0, 0, 0.05);
-  --text-primary: rgb(45, 67, 51);
-  --text-secondary: rgba(45, 67, 51, 0.7);
-  --accent-color: #4CAF50;
-  --border-color: rgba(0, 0, 0, 0.1);
-  --input-bg: transparent;
-  --input-border: rgba(0, 0, 0, 0.1);
-  --card-bg: rgba(255, 255, 255, 0.05);
-  --card-border: rgba(0, 0, 0, 0.1);
-  --tab-bar-bg: rgb(220, 214, 203);
-  --tab-text-inactive: #666;
-  --tab-border-top: rgba(0, 0, 0, 0.1);
+  /* Light mode — white background + modern gradients */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f7fb;
+
+  --surface-1: rgba(255, 255, 255, 0.95);
+  --surface-2: rgba(255, 255, 255, 0.75);
+
+  --text-primary: #0f172a; /* slate-900 */
+  --text-secondary: rgba(15, 23, 42, 0.65);
+
+  --accent-color: #6d28d9; /* violet-700 */
+  --accent-2: #16a34a;
+
+  --border-color: rgba(15, 23, 42, 0.10);
+  --input-bg: rgba(15, 23, 42, 0.04);
+  --input-border: rgba(15, 23, 42, 0.12);
+
+  --card-bg: rgba(255, 255, 255, 0.9);
+  --card-border: rgba(15, 23, 42, 0.10);
+
+  --tab-bar-bg: rgba(255, 255, 255, 0.92);
+  --tab-text-inactive: rgba(15, 23, 42, 0.60);
+  --tab-border-top: rgba(15, 23, 42, 0.08);
+
+  --shadow-1: 0 10px 30px rgba(15, 23, 42, 0.10);
+  --shadow-2: 0 18px 50px rgba(15, 23, 42, 0.16);
 }
 
-/* User's system preference fallback if needed, but we prefer explicit control */
+/* System light fallback if no explicit data-theme */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
-     --bg-primary: rgb(233, 227, 216);
-     --bg-secondary: rgba(0, 0, 0, 0.05);
-     --text-primary: rgb(45, 67, 51);
-     --text-secondary: rgba(45, 67, 51, 0.7);
-     --accent-color: #4CAF50;
-     --border-color: rgba(0, 0, 0, 0.1);
-     --input-bg: transparent;
-     --input-border: rgba(0, 0, 0, 0.1);
-     --card-bg: rgba(255, 255, 255, 0.05);
-     --card-border: rgba(0, 0, 0, 0.1);
-     --tab-bar-bg: rgb(220, 214, 203);
-     --tab-text-inactive: #666;
-     --tab-border-top: rgba(0, 0, 0, 0.1);
+    --bg-primary: #ffffff;
+    --bg-secondary: #f6f7fb;
+    --surface-1: rgba(255, 255, 255, 0.95);
+    --surface-2: rgba(255, 255, 255, 0.75);
+    --text-primary: #0f172a;
+    --text-secondary: rgba(15, 23, 42, 0.65);
+    --accent-color: #6d28d9;
+    --accent-2: #16a34a;
+    --border-color: rgba(15, 23, 42, 0.10);
+    --input-bg: rgba(15, 23, 42, 0.04);
+    --input-border: rgba(15, 23, 42, 0.12);
+    --card-bg: rgba(255, 255, 255, 0.9);
+    --card-border: rgba(15, 23, 42, 0.10);
+    --tab-bar-bg: rgba(255, 255, 255, 0.92);
+    --tab-text-inactive: rgba(15, 23, 42, 0.60);
+    --tab-border-top: rgba(15, 23, 42, 0.08);
+    --shadow-1: 0 10px 30px rgba(15, 23, 42, 0.10);
+    --shadow-2: 0 18px 50px rgba(15, 23, 42, 0.16);
   }
+}
+
+/* Scrollbars (thin + gradient thumb) */
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--gradient-thumb);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  filter: brightness(1.05);
+}
+
+html, body {
+  height: 100%;
 }
 
 body {
@@ -60,59 +148,93 @@ body {
   padding: 0;
   margin: 0;
   border: 0;
-  overflow: hidden;
-  /* Fix double scrollbar */
-  background-color: var(--bg-primary);
-  /* Ensure body matches theme */
+  overflow: hidden; /* avoid double scrollbar; content areas scroll */
+  background: var(--bg-primary);
   color: var(--text-primary);
+  font-family: var(--font-sans);
 }
 
 #app {
   min-width: 400px;
-
-  margin: 0;
-  border: 0;
-  padding: 0;
-  /* Removed global padding to fix layout */
-  background-color: var(--bg-primary);
+  height: 100vh;
+  background: var(--bg-primary);
   display: flex;
   flex-direction: column;
-  align-items: left;
+  align-items: stretch;
   gap: 1rem;
-  --c1: var(--text-primary);
-  --c2: rgb(225, 163, 163);
-  /* Keep pink accent or variabilize if needed */
-  font-family: "Lexend";
-  font-weight: 100;
-  height: 100vh;
-  /* Ensure full height */
   color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-weight: 400;
 }
 
+/* Tailwind-ish micro-utilities (kept tiny + explicit) */
+.p-4 { padding: 1rem; }
+.px-4 { padding-left: 1rem; padding-right: 1rem; }
+.py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+.gap-4 { gap: 1rem; }
+.gap-2 { gap: 0.5rem; }
+.mt-4 { margin-top: 1rem; }
+.mb-4 { margin-bottom: 1rem; }
+.rounded-xl { border-radius: var(--radius-lg); }
+
+/* Existing layout helpers */
 .aRight {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   flex-grow: 0;
   flex-shrink: 0;
-  align-items: end;
+  align-items: center;
+  justify-content: flex-end;
+}
+.aSelfTop { align-self: flex-start; }
+.gS { gap: 0.25rem; }
+.gM { gap: 0.5rem; }
+.mTs { margin-top: 0.5rem; }
+
+/* Typography */
+h1, h2, h3 {
+  margin: 0;
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
 }
 
-.aSelfTop {
-  align-self: flex-start;
+h1 {
+  font-size: 1.6rem;
+  font-weight: 700;
 }
 
-.gS {
-  gap: 0.25rem;
+.subheading {
+  margin-top: 2.25rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1.2;
+  background: var(--gradient-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-.gM {
-  gap: 0.5rem;
+/* Header */
+.headerDiv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0.75rem 1rem 1rem 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-lg);
+  background: var(--gradient-primary);
+  box-shadow: var(--shadow-1);
+  color: white;
 }
 
-.mTs {
-  margin-top: 0.5rem;
+.headerDiv h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: white;
 }
 
+/* Explanation modal */
 .explanationBg {
   width: 100%;
   height: 100%;
@@ -123,220 +245,193 @@ body {
   justify-content: flex-start;
   flex-direction: column;
   position: fixed;
-  backdrop-filter: blur(15px);
-  background-color: var(--bg-primary);
-  /* Using theme variable instead of hardcoded rgba */
+  backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
   gap: 1rem;
-  overflow-y: auto;
-  padding-block: 2rem;
+  overflow: auto;
+  padding: 2rem 1.25rem;
   z-index: 1000;
 }
 
 .explanation {
-  font-family: "Lexend";
-  font-weight: 300;
-  font-size: 1.5rem;
-  max-width: 70%;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 1.05rem;
+  max-width: 92%;
   text-align: center;
+  color: var(--text-primary);
 }
 
-.inputFieldDiv {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.gridFieldDivHolder {
-  display: flex;
-  gap: 1rem;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.gridFieldDiv {
-  display: flex;
-  gap: 0.5rem;
-  width: 15rem;
-  flex-wrap: wrap;
-  flex: 0 0 auto;
-  background-color: transparent;
-  border-radius: 1rem;
-  border: 0.2rem solid var(--input-border);
-  outline: 0;
-  font-family: "Lexend";
-  padding: 0.5rem;
-  padding-bottom: 1rem;
-  margin: 0;
-  height: fit-content;
-  text-overflow: ellipsis;
-  max-width: 15rem;
-  color: var(--c1);
-  caret-shape: block;
-  caret-color: var(--c1);
-}
-
-.gridDataItem {
-  flex: 0 0 auto;
-  background-color: var(--c1);
-  color: var(--bg-primary);
-  font-size: 1rem;
-  width: fit-content;
-  padding: 0.25rem 0.6rem;
-  border-radius: 0.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-}
-
-.gridDataItem svg {
-  flex-shrink: 0;
-}
-
-.gridDataItem h1 {
-  font-size: 1rem;
-  font-family: "Lexend";
-  font-weight: 300;
-}
-
+/* Form rows */
+.inputFieldDiv,
+.gridFieldDivHolder,
 .textAreaDiv {
   display: flex;
-  gap: 1rem;
+  gap: 0.85rem;
   align-items: center;
   justify-content: space-between;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.25) inset, var(--shadow-1);
+  margin-bottom: 0.6rem;
 }
 
+.inputFieldDiv h2,
+.gridFieldDivHolder h2,
+.textAreaDiv h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Inputs/selects (2nd child in row) */
+.inputFieldDiv :nth-child(2),
 .textAreaDiv :nth-child(2) {
-  width: 18rem;
-  background-color: transparent;
-  border-radius: 1rem;
-  border: 0.2rem solid var(--input-border);
+  width: 15rem;
+  max-width: 15rem;
+  background: var(--input-bg);
+  border-radius: 0.9rem;
+  border: 1px solid var(--input-border);
   outline: 0;
-  font-family: "Lexend";
-  padding: 0.5rem;
-  margin: 0;
-  overflow-y: scroll;
-  text-wrap: wrap;
-  max-width: 20rem;
-  height: 5rem;
-  max-height: 15rem;
-  color: var(--c1);
-  caret-shape: block;
-  caret-color: var(--c1);
-}
-
-.inputFieldDiv :nth-child(2) {
-  width: fit-content;
-  background-color: var(--input-bg);
-  border-radius: 1rem;
-  border: 0.2rem solid var(--input-border);
-  outline: 0;
-  font-family: "Lexend";
-  padding: 0.5rem;
+  font-family: var(--font-sans);
+  padding: 0.55rem 0.7rem;
   margin: 0;
   height: fit-content;
   text-overflow: ellipsis;
-  max-width: 15rem;
-  color: var(--c1);
-  caret-shape: block;
-  caret-color: var(--c1);
+  color: var(--text-primary);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.inputFieldDiv :nth-child(2):focus,
+.textAreaDiv :nth-child(2):focus {
+  border-color: color-mix(in srgb, var(--accent-color) 65%, var(--input-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 20%, transparent), 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+}
+
+.inputFieldDiv :nth-child(2)::placeholder {
+  color: color-mix(in srgb, var(--text-secondary) 80%, transparent);
 }
 
 select.password {
   color: transparent !important;
-  background-image: radial-gradient(var(--c1) 60%, transparent 0%);
+  background-image: radial-gradient(var(--text-primary) 60%, transparent 0%);
   background-size: 0.3rem 0.3rem;
   background-position: 0.5rem 1rem;
   background-clip: content-box;
   background-repeat: repeat-x;
 }
 
+/* File input row */
 .inputFieldfileHolder :nth-child(2) {
   border: none;
   max-width: 13rem;
   height: fit-content;
-  font-size: 1rem;
+  font-size: 0.95rem;
   overflow-wrap: break-word;
   text-overflow: ellipsis;
-}
-
-.inputFieldDiv :nth-child(2)::placeholder {
-  color: rgba(0, 0, 0, 0.2);
+  color: var(--text-secondary);
 }
 
 input[type='file'] {
   color: rgba(0, 0, 0, 0);
-
 }
 
-.subheading {
-  font-family: "Cormorant Garamond", serif;
-  margin-top: 4rem;
-  margin-bottom: 0.5rem;
-  font-size: 2.75rem;
-  font-weight: 600;
-}
-
-h1 {
-  font-family: "Cormorant Garamond", serif;
-  font-weight: 600;
-  font-size: 3rem;
+/* Grid field + data chips */
+.gridFieldDiv {
+  display: flex;
+  gap: 0.5rem;
+  width: 15rem;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  background: var(--input-bg);
+  border-radius: 0.9rem;
+  border: 1px solid var(--input-border);
+  outline: 0;
+  font-family: var(--font-sans);
+  padding: 0.55rem;
   margin: 0;
+  height: fit-content;
+  text-overflow: ellipsis;
+  max-width: 15rem;
+  color: var(--text-primary);
 }
 
-h2 {
-
-  margin: 0;
-  font-weight: 300;
-}
-
-h3 {
-  margin: 0;
-  font-weight: 300;
-}
-
-.privacyToggle {
-  background-color: var(--tab-bar-bg);
-  border: 0.15rem solid var(--border-color);
-  border-radius: 0.5rem;
+.gridDataItem {
+  flex: 0 0 auto;
+  background: var(--gradient-primary);
+  color: #fff;
+  font-size: 0.9rem;
   width: fit-content;
-
-}
-
-.starBtn {
-  text-decoration: none;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
   display: flex;
   align-items: center;
-  font-size: 0.8rem;
-  color: rgb(241, 235, 225);
-  text-shadow: 0.1rem 0.1rem 0.3rem rgba(0, 0, 0, 0.245);
-  background-color: rgb(194, 185, 169);
-  width: fit-content;
-  padding-right: 1rem;
-  border-radius: 0.5rem;
+  justify-content: space-between;
+  gap: 0.5rem;
+  box-shadow: 0 10px 18px rgba(102, 126, 234, 0.25);
+}
+
+.gridDataItem h1 {
+  font-size: 0.9rem;
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+
+/* Toggle buttons */
+.privacyToggle {
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  border: 0.15rem solid rgba(0, 0, 0, 0.1);
+  color: #fff;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.privacyToggle:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 24px rgba(0, 0, 0, 0.18);
+}
+
+/* Star button (GithubStars) */
+.starBtn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  background: var(--card-bg);
+  width: fit-content;
+  padding: 0.5rem 0.75rem;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-1);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.starBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
 }
 
 .starBtnL {
   text-shadow: none;
   text-decoration: none;
   height: 100%;
-  color: rgb(10, 10, 10);
-  border-radius: 0.4rem;
-  padding: 0.4rem 0rem 0.4rem 0.4rem;
-  margin-right: 1rem;
-  background-color: rgb(219, 209, 192);
-  font-size: 1rem;
+  color: var(--text-primary);
+  border-radius: 999px;
+  padding: 0.35rem 0.5rem;
+  margin-right: 0.5rem;
+  background: var(--input-bg);
+  font-size: 0.9rem;
   display: flex;
   align-items: center;
-}
-
-.headerDiv {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
-  margin-top: 1rem;
 }

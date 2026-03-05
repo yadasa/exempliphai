@@ -22,7 +22,7 @@ import { workDayAutofill } from './workday';
 
 let initTime;
 window.addEventListener("load", (_) => {
-  console.log("SmartApply: found job page.");
+  console.log("Exempliphai: found job page.");
   initTime = new Date().getTime();
   awaitForm();
 });
@@ -107,7 +107,7 @@ async function awaitForm() {
 }
 
 async function autofill(form) {
-  console.log("SmartApply: Starting autofill.");
+  console.log("Exempliphai: Starting autofill.");
   let res = await getStorageDataSync();
   res["Current Date"] = curDateStr();
   await sleep(delays.initial);
@@ -125,7 +125,7 @@ async function autofill(form) {
   }
 
   if (!matchFound && fields.generic) {
-    console.log("SmartApply: No specific config found, using generic.");
+    console.log("Exempliphai: No specific config found, using generic.");
     await processFields('generic', fields.generic, form, res);
   }
 }
@@ -391,7 +391,7 @@ async function processFields(jobForm, fieldMap, form, res) {
     await sleep(delays.short);
   }
   scrollToTop();
-  console.log(`SmartApply: Complete in ${getTimeElapsed(initTime)}s.`);
+  console.log(`Exempliphai: Complete in ${getTimeElapsed(initTime)}s.`);
 
   // Track Applied Job
   try {
@@ -418,7 +418,7 @@ async function processFields(jobForm, fieldMap, form, res) {
           jobs.unshift(jobEntry); // Add to top
 
           chrome.storage.local.set({ AppliedJobs: jobs }, () => {
-            console.log("SmartApply: Job tracked in local history.");
+            console.log("Exempliphai: Job tracked in local history.");
           });
 
           if (syncEnabled) {
@@ -427,14 +427,14 @@ async function processFields(jobForm, fieldMap, form, res) {
             // Limit to 100 for sync storage constraints
             syncJobs = syncJobs.slice(0, 100);
             chrome.storage.sync.set({ AppliedJobsSync: syncJobs }, () => {
-              console.log("SmartApply: Job tracked in cloud history.");
+              console.log("Exempliphai: Job tracked in cloud history.");
             });
           }
         }
       });
     });
   } catch (e) {
-    console.error("SmartApply: Error tracking job", e);
+    console.error("Exempliphai: Error tracking job", e);
   }
 
 }
