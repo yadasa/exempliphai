@@ -247,39 +247,108 @@ const fields = {
     "full name": "Full Name",
     "email": "Email",
     "phone": "Phone",
-    "linkedin": "LinkedIn",
-    "github": "Github",
+
+    // Social / URLs
     "linkedin": "LinkedIn",
     "github": "Github",
     "leetcode": "LeetCode",
     "medium": "Medium",
+    "blog": "Medium", // Heuristic: often blog == medium for devs
     "portfolio": "Personal Website",
     "website": "Personal Website",
-    "blog": "Medium", // Heuristic: often blog == medium for devs
     "other": "Other URL",
+
+    // Documents
     "resume": "Resume",
     "cv": "Resume",
-    "cover letter": null, // Intentionally null or generic
+    "cover letter": null, // Intentionally null / generic
+
+    // Address / location
     "generic_address_street": "Location (Street)", // Renamed to avoid partial match with "email address"
     "street address": "Location (Street)",
     "address line": "Location (Street)",
     "address1": "Location (Street)",
+
+    "city state": "Location (City)",
+    "location city": "Location (City)",
+    "your location": "Location (City)",
+    "current location": "Location (City)",
+    "where are you located": "Location (City)",
+    "location": "Location (City)",
     "city": "Location (City)",
+
+    "state region": "Location (State/Region)",
+    "state": "Location (State/Region)",
+    "region": "Location (State/Region)",
+    "province": "Location (State/Region)",
+
     "zip": "Postal/Zip Code",
     "country": "Location (Country)",
+
+    // Employment / education
     "employer": "Current Employer",
+    "company": "Current Employer",
+    "job title": "Job Title", // Might correspond to a specific input if tracked
     "university": "School",
     "school": "School",
     "degree": "Degree",
     "major": "Discipline",
     "discipline": "Discipline",
     "gpa": "GPA",
-    "job title": "Job Title", // Might correspond to a specific input if tracked
-    "company": "Current Employer",
+
+    // Dates
     "start date": "Start Date Month", // Heuristic mapping, might need refinement
     "end date": "End Date Month",
+
+    // Work Authorization (expanded variants)
+    "work authorization status": "Legally Authorized to Work",
+    "legally authorized": "Legally Authorized to Work",
+    "work authorization": "Legally Authorized to Work",
+    "authorized to work": "Legally Authorized to Work",
+    "legal right to work": "Legally Authorized to Work",
+    "eligible to work": "Legally Authorized to Work",
+    "right to work": "Legally Authorized to Work",
     "authorized": "Legally Authorized to Work",
+
+    // Visa / Sponsorship (expanded variants)
+    "visa sponsorship": "Requires Sponsorship",
+    "require sponsorship": "Requires Sponsorship",
+    "requires sponsorship": "Requires Sponsorship",
+    "require visa": "Requires Sponsorship",
+    "immigration sponsorship": "Requires Sponsorship",
+    "work visa": "Requires Sponsorship",
+    "employment visa": "Requires Sponsorship",
+    "future sponsorship": "Requires Sponsorship",
     "sponsorship": "Requires Sponsorship",
+
+    // Veteran Status (generic)
+    "protected veteran": "Veteran Status",
+    "veteran status": "Veteran Status",
+    "military service": "Veteran Status",
+    "armed forces": "Veteran Status",
+    "military": "Veteran Status",
+    "veteran": "Veteran Status",
+
+    // Disability (generic)
+    "disability status": "Disability Status",
+    "disability": "Disability Status",
+    "disabled": "Disability Status",
+
+    // Race/Ethnicity (generic)
+    "hispanic/latino": "Hispanic/Latino",
+    "hispanic": "Hispanic/Latino",
+    "latino": "Hispanic/Latino",
+    "latina": "Hispanic/Latino",
+
+    "ethnicity": "Race",
+    "ethnic": "Race",
+    "race": "Race",
+
+    // Gender (generic)
+    "gender": "Gender",
+    "sex": "Gender",
+
+    // Other common fields
     "notice": "Job Notice Period",
     "salary": "Expected Salary",
     "language": "Languages",
@@ -287,24 +356,25 @@ const fields = {
     "relevant experience": "Years of Experience",
     "phone type": "Phone Type",
     "skills": "Skills",
-    "certification": "Certification Name",
+    "pronouns": "Pronouns",
+    "relocate": "Willing to Relocate",
+    "relocation": "Willing to Relocate",
+    "available": "Date Available",
+    "availability": "Date Available",
+    "date available": "Date Available",
+    "security": "Security Clearance",
+    "clearance": "Security Clearance",
+
+    // Certifications
     "certification name": "Certification Name",
+    "certification": "Certification Name",
     "issuing organization": "Issuing Organization",
     "issuer": "Issuing Organization",
     "issue date": "Issue Date Month", // Heuristic
     "expiration date": "Expiration Date Month", // Heuristic
     "credential id": "Credential ID",
     "credential url": "Credential URL",
-    "license number": "Credential ID",
-    "pronouns": "Pronouns",
-    "relocate": "Willing to Relocate",
-    "relocation": "Willing to Relocate",
-    "available": "Date Available",
-    "availability": "Date Available",
-    "start date": "Date Available", // Be careful not to conflict with job history start date. Job history usually inside container.
-    "security": "Security Clearance",
-    "clearance": "Security Clearance",
-    "cover letter": "Resume"
+    "license number": "Credential ID"
   }
 };
 
@@ -433,7 +503,17 @@ const getStorageDataSync = (key) => {
   });
 };
 function setNativeValue(el, value) {
-  if (el.type === "checkbox" || el.type === "radio") {
+  if (!el) return;
+
+  const isCheckboxOrRadio = el.type === "checkbox" || el.type === "radio";
+  const isSelect = el instanceof HTMLSelectElement;
+  const isTextarea = el instanceof HTMLTextAreaElement;
+
+  // React's internal value tracker needs the *previous* value/checked state.
+  const tracker = el._valueTracker;
+  const previousValue = isCheckboxOrRadio ? el.checked : el.value;
+
+  if (isCheckboxOrRadio) {
     const valLower = String(value).toLowerCase();
     let shouldCheck = !!value; // Default truthy check
 
@@ -447,19 +527,22 @@ function setNativeValue(el, value) {
     }
 
     // Only click if the state needs changing.
-    // For radios, we typically only click to SET to true. 
+    // For radios, we typically only click to SET to true.
     // We avoid clicking if we intend to set to false (unchecking a radio by clicking it usually does nothing or re-checks it).
-    if ((shouldCheck && !el.checked) || (!shouldCheck && el.checked && el.type === "checkbox")) {
+    if (
+      (shouldCheck && !el.checked) ||
+      (!shouldCheck && el.checked && el.type === "checkbox")
+    ) {
       el.click();
     }
-  } else if (el instanceof HTMLSelectElement) {
+  } else if (isSelect) {
     const valLower = String(value).toLowerCase();
     const yesSynonyms = ["yes", "true", "1"];
     const noSynonyms = ["no", "false", "0"];
 
     for (let o of el.children) {
-      const optVal = o.value.toLowerCase();
-      const optText = o.textContent.toLowerCase();
+      const optVal = (o.value || "").toLowerCase();
+      const optText = (o.textContent || "").toLowerCase();
 
       // Check 1: Direct inclusion (e.g. "United States" in "United States of America")
       if (optVal.includes(valLower) || optText.includes(valLower)) {
@@ -468,27 +551,62 @@ function setNativeValue(el, value) {
       }
 
       // Check 2: Boolean Synonym Matching
-      // If user stores "Yes", match "True" or "1" options
-      if (yesSynonyms.includes(valLower) && (yesSynonyms.includes(optVal) || yesSynonyms.includes(optText))) {
+      if (
+        yesSynonyms.includes(valLower) &&
+        (yesSynonyms.includes(optVal) || yesSynonyms.includes(optText))
+      ) {
         el.value = o.value;
         break;
       }
-      // If user stores "No", match "False" or "0" options
-      if (noSynonyms.includes(valLower) && (noSynonyms.includes(optVal) || noSynonyms.includes(optText))) {
+      if (
+        noSynonyms.includes(valLower) &&
+        (noSynonyms.includes(optVal) || noSynonyms.includes(optText))
+      ) {
         el.value = o.value;
         break;
       }
     }
-  } else el.value = value;
-  const tracker = el._valueTracker;
-  if (tracker) {
-    tracker.setValue(previousValue);
+  } else {
+    const nextValue = value ?? "";
+
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement?.prototype,
+      "value"
+    )?.set;
+    const nativeTextareaValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement?.prototype,
+      "value"
+    )?.set;
+
+    const setter = isTextarea ? nativeTextareaValueSetter : nativeInputValueSetter;
+
+    if (setter) {
+      setter.call(el, nextValue);
+    } else {
+      el.value = nextValue;
+    }
   }
-  // 'change' instead of 'input', see https://github.com/facebook/react/issues/11488#issuecomment-381590324
-  el.setAttribute("value", value);
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  el.value = value;
-  el.dispatchEvent(new Event("input", { bubbles: true }));
+
+  // Ensure React detects the change (critical for React 16+ forms)
+  if (tracker) {
+    try {
+      tracker.setValue(previousValue);
+    } catch (_) {}
+  }
+
+  // Keep attribute in sync for text-like inputs/selects
+  if (!isCheckboxOrRadio) {
+    try {
+      el.setAttribute("value", value);
+    } catch (_) {}
+  }
+
+  try {
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {}
+  try {
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  } catch (_) {}
 }
 const delays = {
   initial: 1000,

@@ -172,10 +172,58 @@ function clickBestRadioInGroup(radioEl, fillValue, root) {
   return true;
 }
 
+function getLabelText(node) {
+  const texts = [];
+  if (!node) return texts;
+
+  const doc = node.ownerDocument || document;
+
+  // 1. <label for="id">
+  const id = node.id;
+  if (id) {
+    const escId = CSS?.escape ? CSS.escape(id) : id;
+    const lbl = doc.querySelector(`label[for="${escId}"]`);
+    if (lbl) texts.push(lbl.textContent);
+  }
+
+  // 2. Wrapping <label>
+  const parentLabel = node.closest?.("label");
+  if (parentLabel) texts.push(parentLabel.textContent);
+
+  // 3. aria-labelledby → resolve ID refs to text
+  const labelledBy = node.getAttribute?.("aria-labelledby");
+  if (labelledBy) {
+    const refTexts = labelledBy
+      .split(/\s+/)
+      .map((refId) => doc.getElementById(refId)?.textContent || "")
+      .filter(Boolean);
+    if (refTexts.length) texts.push(refTexts.join(" "));
+  }
+
+  // 4. Closest container text (fieldset legend, .field wrapper, etc.)
+  // Walk up max 3 levels looking for short-ish text.
+  let parent = node.parentElement;
+  for (let depth = 0; parent && depth < 4; depth++, parent = parent.parentElement) {
+    if (parent.tagName === "FORM") break;
+
+    if (parent.tagName === "FIELDSET") {
+      const legend = parent.querySelector("legend");
+      if (legend) texts.push(legend.textContent);
+    }
+
+    const directText = parent.textContent || "";
+    if (directText.length > 3 && directText.length < 300) {
+      texts.push(directText);
+      break;
+    }
+  }
+
+  return texts.filter(Boolean);
+}
 
 function inputQuery(jobParam, form) {
   const normalizedParam = normalizeText(jobParam);
-  const nodes = Array.from(form.querySelectorAll("input, select"));
+  const nodes = Array.from(form.querySelectorAll("input, select, textarea"));
 
   // Pass 1: match on element attributes.
   let el = nodes.find((node) => {
@@ -208,6 +256,21 @@ function inputQuery(jobParam, form) {
   });
   if (el) return el;
 
+  // Pass 1.5: match on associated label/question text.
+  el = nodes.find((node) => {
+    const labelTexts = getLabelText(node);
+    return labelTexts.some((txt) => {
+      const norm = normalizeText(txt);
+      if (!norm) return false;
+      if (norm.includes(normalizedParam)) {
+        if (normalizedParam === "address" && norm.includes("email")) return false;
+        return true;
+      }
+      return false;
+    });
+  });
+  if (el) return el;
+
   // Pass 2: for <select>, match on option text/value.
   el = nodes.find((node) => {
     if (!(node instanceof HTMLSelectElement)) return false;
@@ -218,8 +281,20 @@ function inputQuery(jobParam, form) {
       return (t && t.includes(normalizedParam)) || (v && v.includes(normalizedParam));
     });
   });
+  if (el) return el;
 
-  return el;
+  // Pass 3: fuzzy match on label text using matchScore().
+  let bestMatch = { el: null, score: 0 };
+  for (const node of nodes) {
+    const labelTexts = getLabelText(node);
+    for (const txt of labelTexts) {
+      const score = matchScore(normalizedParam, txt);
+      if (score > bestMatch.score) bestMatch = { el: node, score };
+    }
+  }
+
+  if (bestMatch.el && bestMatch.score >= 50) return bestMatch.el;
+  return null;
 }
 
 function formatCityStateCountry(data, param) {
@@ -570,10 +645,16 @@ async function processFields(jobForm, fieldMap, form, res) {
     let inputElement = inputQuery(jobParam, form);
     if (!inputElement) continue;
 
-    if (param === "Gender" || "Location (City)") useLongDelay = true;
+    if (param === "Gender" || param === "Location (City)") useLongDelay = true;
     if (param === "Location (City)") fillValue = formatCityStateCountry(res, param);
 
     setNativeValue(inputElement, fillValue);
+
+    // Textareas don't need select/radio/dropdown handling.
+    if (inputElement instanceof HTMLTextAreaElement) {
+      dispatchInputAndChange(inputElement);
+      continue;
+    }
 
     // Native <select> and radio groups need special handling:
     // - setNativeValue may set select.value to the raw fillValue (which may not equal an option.value)
@@ -586,6 +667,32 @@ async function processFields(jobForm, fieldMap, form, res) {
     if (inputElement.type === "radio") {
       clickBestRadioInGroup(inputElement, fillValue, form);
       continue;
+    }
+
+    // Custom ARIA dropdowns: role="combobox" controlling a role="listbox" (Ashby/BambooHR/etc.)
+    const listboxId =
+      inputElement.getAttribute?.("aria-owns") ||
+      inputElement.getAttribute?.("aria-controls");
+    if (listboxId && inputElement.getAttribute?.("role") === "combobox") {
+      try {
+        inputElement.click();
+      } catch (_) {}
+      await sleep(delays.short);
+
+      const listbox = document.getElementById(listboxId);
+      if (listbox) {
+        const options = Array.from(listbox.querySelectorAll('[role="option"]'));
+        let bestOpt = { el: null, score: 0 };
+        for (const opt of options) {
+          const score = matchScore(fillValue, opt.textContent);
+          if (score > bestOpt.score) bestOpt = { el: opt, score };
+        }
+        if (bestOpt.el && bestOpt.score >= 50) {
+          bestOpt.el.click();
+          await sleep(delays.short);
+          continue;
+        }
+      }
     }
 
     //for the dropdown elements
