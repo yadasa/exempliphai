@@ -1,0 +1,5 @@
+
+the extension keeps force scrolling the user to the top of the page, preventing them from reviewing or revising the extension's responses. sometimes even preventing the submit button from being clicked
+most forms will ask for lpocation like city/state. for the current location, as you begin typing the city, options pop up underneath that youre supposed to click. if you just paste something in, the page will rejct that response, preventing form submission
+manny times, the extension will try to force its own text responses over dropdown menus that have a strict limited set of options (e.g. "yes"/"no", you cant paste your own text that says "i wish not to answer"), it must actually pick existing dropdown items that match
+on pages that don't immediately autofill the button to manual autofill doesnt seem to appear either.
