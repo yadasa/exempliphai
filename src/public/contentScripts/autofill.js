@@ -24,9 +24,46 @@ let initTime;
 window.addEventListener("load", (_) => {
   console.log("SmartApply: found job page.");
   initTime = new Date().getTime();
+  setupLongTextareaHints();
   awaitForm();
 });
 const applicationFormQuery = "#application-form, #application_form, #applicationform";
+
+function setupLongTextareaHints() {
+  try {
+    const applyHint = (el) => {
+      if (!(el instanceof HTMLTextAreaElement)) return;
+      if (el.dataset?.aiHintApplied === '1') return;
+      const h = el.getBoundingClientRect?.().height || 0;
+      if (h <= 100) return;
+
+      el.dataset.aiHintApplied = '1';
+      el.style.outline = '2px solid rgba(99, 102, 241, 0.45)';
+      el.style.outlineOffset = '2px';
+      el.setAttribute('title', 'Right-click for AI?');
+    };
+
+    const scan = (root) => {
+      const r = root && root.querySelectorAll ? root : document;
+      const textareas = Array.from(r.querySelectorAll('textarea'));
+      for (const ta of textareas) applyHint(ta);
+    };
+
+    scan(document);
+
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        for (const node of m.addedNodes || []) {
+          if (!(node instanceof Element)) continue;
+          if (node.tagName === 'TEXTAREA') applyHint(node);
+          scan(node);
+        }
+      }
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+  } catch (_) {}
+}
 
 function normalizeText(str) {
   return (str ?? "")
@@ -262,8 +299,39 @@ async function processFields(jobForm, fieldMap, form, res) {
       // Basic Context Menu Logic
       let lastClickedElement = null;
 
+      const getQuestionFromElement = (element) => {
+        if (!element) return "";
+
+        let question = element.getAttribute?.("aria-label") || element.getAttribute?.("placeholder") || "";
+        if (!question) {
+          const id = element.id;
+          if (id) {
+            const label = document.querySelector(`label[for="${id}"]`);
+            if (label) question = label.innerText;
+          }
+        }
+        if (!question) {
+          // Try to find closest text
+          let parent = element.parentElement;
+          while (parent && !question && parent.tagName !== 'FORM') {
+            if (parent.innerText.length > 5 && parent.innerText.length < 200) {
+              question = parent.innerText;
+            }
+            parent = parent.parentElement;
+          }
+        }
+
+        return question;
+      };
+
       document.addEventListener("contextmenu", (event) => {
         lastClickedElement = event.target;
+        try {
+          const question = getQuestionFromElement(lastClickedElement);
+          if (question) {
+            chrome.runtime.sendMessage({ action: 'STORE_LAST_QUESTION', question });
+          }
+        } catch (_) {}
       }, true);
 
       chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -281,28 +349,11 @@ async function processFields(jobForm, fieldMap, form, res) {
 
         try {
           // 1. Get Context (Label/Question)
-          let question = element.getAttribute("aria-label") || element.getAttribute("placeholder") || "";
-          if (!question) {
-            const id = element.id;
-            if (id) {
-              const label = document.querySelector(`label[for="${id}"]`);
-              if (label) question = label.innerText;
-            }
-          }
-          if (!question) {
-            // Try to find closest text
-            let parent = element.parentElement;
-            while (parent && !question && parent.tagName !== 'FORM') {
-              if (parent.innerText.length > 5 && parent.innerText.length < 200) {
-                question = parent.innerText;
-              }
-              parent = parent.parentElement;
-            }
-          }
+          let question = getQuestionFromElement(element);
 
           // 2. Get User Data
-          const syncData = await getStorageDataSync("API Key");
-          const apiKey = syncData["API Key"];
+          const fullSync = await getStorageDataSync();
+          const apiKey = fullSync["API Key"];
 
           if (!apiKey) {
             alert("Please set your Gemini API Key in the Autofill Jobs extension settings.");
@@ -327,11 +378,28 @@ async function processFields(jobForm, fieldMap, form, res) {
             context += "Certifications:\n" + JSON.stringify(resumeDetails.certifications) + "\n";
           }
 
+          context += `Full Sync Storage:\n${JSON.stringify(fullSync, null, 2)}\n`;
+
+          let sitePrompt = '';
+          const host = window.location.hostname.toLowerCase();
+          if (host.includes('lever') || host.includes('greenhouse')) sitePrompt = 'Keep under 200 words.';
+
+          const synonyms = {
+            'Veteran Status:Decline': 'Prefer not to say',
+          };
+          const normalizedSynonyms = Object.fromEntries(
+            Object.entries(synonyms).map(([k, v]) => [normalizeText(k), v])
+          );
+          const synonymHint = normalizedSynonyms[normalizeText(question)] || '';
+
           // Construct Parts for Gemini
           const parts = [
             {
               text: `You are a helpful assistant applying for a job.
               ${context}
+
+              ${sitePrompt ? `Site guidance: ${sitePrompt}` : ''}
+              ${synonymHint ? `Synonym hint: ${synonymHint}` : ''}
               
               Task: Write a professional, concise answer to the following job application question. Use the first person. Do not include placeholders like [Your Name]. Just the answer.
               

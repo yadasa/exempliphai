@@ -18,6 +18,14 @@
   "background": {
     "service_worker": "background.js"
   },
+  "commands": {
+    "ai-trigger": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+A"
+      },
+      "description": "AI Answer"
+    }
+  },
   "content_scripts": [
     {
       "js": [

@@ -9,6 +9,13 @@
         <h2 class="subheading">Data Management</h2>
         <div class="data-actions">
             <div class="action-card">
+                <h3>AI</h3>
+                <p>Generate an answer for the last right-clicked field.</p>
+                <button @click="triggerAI" class="action-btn export-btn">AI Answer Last Right-Click Field</button>
+                <button @click="generateAllPending" class="action-btn export-btn" style="margin-top: 0.5rem;">Generate All Pending</button>
+            </div>
+
+            <div class="action-card">
                 <h3>Export Data</h3>
                 <p>Download a backup of your profile and resume data.</p>
                 <button @click="exportData" class="action-btn export-btn">Export to JSON</button>
@@ -62,6 +69,20 @@ export default {
         };
 
         loadSettings();
+
+        const triggerAI = () => { chrome.tabs.query({active:true,currentWindow:true}, tabs => chrome.tabs.sendMessage(tabs[0].id!, {action:'TRIGGER_AI_REPLY'})); }
+
+        const generateAllPending = () => {
+            chrome.storage.local.get(['last3Questions'], (result) => {
+                const last3Questions = Array.isArray((result as any)?.last3Questions) ? (result as any).last3Questions : [];
+                for (const item of last3Questions) {
+                    if (item?.tabId) {
+                        chrome.tabs.sendMessage(item.tabId, { action: 'TRIGGER_AI_REPLY' });
+                    }
+                }
+                chrome.storage.local.set({ last3Questions: [] });
+            });
+        };
 
         const exportData = async () => {
             if (!chrome.storage) return;
@@ -129,7 +150,9 @@ export default {
             triggerFileInput,
             fileInput,
             cloudSyncEnabled,
-            toggleCloudSync
+            toggleCloudSync,
+            triggerAI,
+            generateAllPending
         };
     }
 };

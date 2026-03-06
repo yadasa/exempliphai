@@ -19,6 +19,14 @@ const activeTab = ref('profile');
 
 onMounted(() => {
   loadTheme();
+
+  chrome.action?.onClicked?.addListener(() => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs?.[0]?.id;
+      if (!tabId) return;
+      chrome.tabs.sendMessage(tabId, { action: 'TRIGGER_AI_REPLY' });
+    });
+  });
 });
 
 const setTab = async (tab: string) => {
