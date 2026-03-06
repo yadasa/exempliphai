@@ -25,9 +25,145 @@ window.addEventListener("load", (_) => {
   console.log("SmartApply: found job page.");
   initTime = new Date().getTime();
   setupLongTextareaHints();
+  injectAutofillNowButton();
   awaitForm();
 });
 const applicationFormQuery = "#application-form, #application_form, #applicationform";
+
+
+const AUTOFILL_NOW_BUTTON_ID = "smartapply-autofill-now";
+let smartApplyAutofillLock = false;
+let smartApplyLastAutofillAt = 0;
+let smartApplyMutationDebounce = null;
+
+function detectJobFormKey() {
+  try {
+    const host = (window.location.hostname || "").toLowerCase();
+    for (const k of Object.keys(fields || {})) {
+      if (k === "generic") continue;
+      if (host.includes(k)) return k;
+    }
+  } catch (_) {}
+  return null;
+}
+
+function isLikelyApplicationPage() {
+  try {
+    if (document.querySelector(applicationFormQuery)) return true;
+    // Resume uploaders are a strong signal.
+    if (document.querySelector('input[type="file"]')) return true;
+    // Common ATS markers
+    if (document.querySelector('[id*="application" i], [class*="application" i]')) return true;
+    if (document.querySelector('[name*="resume" i], [id*="resume" i], [name*="cover" i], [id*="cover" i]')) return true;
+  } catch (_) {}
+  return false;
+}
+
+function findBestForm() {
+  try {
+    // 1) Explicit application selectors
+    const direct = document.querySelector(applicationFormQuery);
+    if (direct) return direct;
+
+    // 2) Prefer the active element's form (multi-step pages / language pickers)
+    const active = document.activeElement;
+    if (active && active.form) return active.form;
+
+    // 3) Score all forms and pick the densest
+    const forms = Array.from(document.querySelectorAll('form'));
+    if (forms.length) {
+      let best = { el: null, score: 0 };
+      for (const f of forms) {
+        const fieldsCount = f.querySelectorAll('input, select, textarea').length;
+        const fileCount = f.querySelectorAll('input[type="file"]').length;
+        const score = fieldsCount + fileCount * 5;
+        if (score > best.score) best = { el: f, score };
+      }
+      if (best.el && best.score > 0) return best.el;
+    }
+
+    // 4) Some apps don't wrap content in a <form>
+    const main = document.querySelector('#mainContent');
+    if (main) return main;
+  } catch (_) {}
+  return null;
+}
+
+async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
+  if (smartApplyAutofillLock) return false;
+
+  const now = Date.now();
+  if (!force && now - smartApplyLastAutofillAt < 1500) return false;
+
+  const detected = detectJobFormKey();
+  if (!detected && !force && !isLikelyApplicationPage()) return false;
+
+  const isWorkday = (window.location.hostname || "").includes('workday');
+  let form = null;
+  if (!isWorkday) {
+    form = findBestForm();
+    if (!form) return false;
+  }
+
+  smartApplyAutofillLock = true;
+  smartApplyLastAutofillAt = now;
+
+  try {
+    await autofill(form);
+    return true;
+  } catch (e) {
+    console.error('SmartApply: Autofill failed', { reason, e });
+    return false;
+  } finally {
+    smartApplyAutofillLock = false;
+  }
+}
+
+function injectAutofillNowButton() {
+  try {
+    if (document.getElementById(AUTOFILL_NOW_BUTTON_ID)) return;
+
+    // Keep the button scoped to ATS-like pages only (manifest matches are broad).
+    const detected = detectJobFormKey();
+    if (!detected && !isLikelyApplicationPage()) return;
+
+    const btn = document.createElement('button');
+    btn.id = AUTOFILL_NOW_BUTTON_ID;
+    btn.type = 'button';
+    btn.textContent = '🚀 AUTOFILL NOW';
+
+    btn.style.position = 'fixed';
+    btn.style.top = '12px';
+    btn.style.right = '12px';
+    btn.style.zIndex = '2147483647';
+    btn.style.background = '#4f46e5';
+    btn.style.color = '#ffffff';
+    btn.style.border = '0';
+    btn.style.borderRadius = '999px';
+    btn.style.padding = '10px 12px';
+    btn.style.fontSize = '12px';
+    btn.style.fontWeight = '700';
+    btn.style.letterSpacing = '0.4px';
+    btn.style.boxShadow = '0 10px 25px rgba(0,0,0,0.18)';
+    btn.style.cursor = 'pointer';
+
+    btn.addEventListener('click', async () => {
+      const prev = btn.textContent;
+      btn.textContent = 'FILLING...';
+      btn.disabled = true;
+      btn.style.opacity = '0.85';
+      try {
+        await tryAutofillNow({ force: true, reason: 'button' });
+      } finally {
+        btn.textContent = prev;
+        btn.disabled = false;
+        btn.style.opacity = '1';
+      }
+    });
+
+    (document.body || document.documentElement).appendChild(btn);
+  } catch (_) {}
+}
 
 function setupLongTextareaHints() {
   try {
@@ -308,39 +444,25 @@ function formatCityStateCountry(data, param) {
 }
 
 async function awaitForm() {
-  // Create a MutationObserver to detect changes in the DOM
-  const observer = new MutationObserver((_, observer) => {
-    for (let jobForm in fields) {
-      if (!window.location.hostname.includes(jobForm)) continue;
-      //workday
-      if (jobForm == "workday") {
-        autofill(null);
-        observer.disconnect();
-        return;
-      }
-      let form = document.querySelector(applicationFormQuery);
-      if (form) {
-        observer.disconnect();
-        autofill(form);
-        return;
-      } else {
-        form = document.querySelector("form, #mainContent");
-        if (form) {
-          observer.disconnect();
-          autofill(form);
-          return;
-        }
-      }
-    }
+  // Avoid doing work on non-ATS pages (manifest matches are intentionally broad).
+  const detected = detectJobFormKey();
+  if (!detected && !isLikelyApplicationPage()) return;
+
+  // Try once immediately (some pages render the form before our MutationObserver sees any changes).
+  await tryAutofillNow({ force: false, reason: 'initial' });
+
+  // Keep watching for multi-step flows (e.g., language pickers) that reveal the form later.
+  const observer = new MutationObserver(() => {
+    if (smartApplyMutationDebounce) clearTimeout(smartApplyMutationDebounce);
+    smartApplyMutationDebounce = setTimeout(() => {
+      tryAutofillNow({ force: false, reason: 'mutation' });
+    }, 200);
   });
+
   observer.observe(document.body, {
     childList: true,
     subtree: true,
   });
-  if (window.location.hostname.includes("lever")) {
-    let form = document.querySelector("#application-form, #application_form");
-    if (form) autofill(form);
-  }
 }
 
 async function autofill(form) {
@@ -348,6 +470,13 @@ async function autofill(form) {
   let res = await getStorageDataSync();
   res["Current Date"] = curDateStr();
   await sleep(delays.initial);
+
+  const genericExtras = fields?.generic
+    ? Object.fromEntries(
+        Object.entries(fields.generic).filter(([_, p]) => p && p !== "Resume")
+      )
+    : null;
+
   let matchFound = false;
   for (let jobForm in fields) {
     if (window.location.hostname.includes(jobForm) && jobForm !== 'generic') {
@@ -356,7 +485,15 @@ async function autofill(form) {
         workDayAutofill(res);
         return;
       }
+
       await processFields(jobForm, fields[jobForm], form, res);
+
+      // Important: Greenhouse/Lever/etc. often include *custom questions* whose labels do not
+      // match the platform's standard IDs. A second "generic" pass catches these safely.
+      if (genericExtras) {
+        await processFields('generic', genericExtras, form, res);
+      }
+
       break;
     }
   }
