@@ -28,36 +28,160 @@ window.addEventListener("load", (_) => {
 });
 const applicationFormQuery = "#application-form, #application_form, #applicationform";
 
+function normalizeText(str) {
+  return (str ?? "")
+    .toString()
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function matchScore(a, b) {
+  const na = normalizeText(a);
+  const nb = normalizeText(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 100;
+  if (na.includes(nb) || nb.includes(na)) return 90;
+
+  const aTokens = new Set(na.split(" "));
+  const bTokens = new Set(nb.split(" "));
+  let inter = 0;
+  for (const t of aTokens) if (bTokens.has(t)) inter++;
+  const union = aTokens.size + bTokens.size - inter;
+  const jaccard = union ? inter / union : 0;
+  // Base score from token overlap, with a small bump for multiple shared tokens.
+  let score = Math.round(60 * jaccard);
+  if (inter >= 2) score += 10;
+  return score;
+}
+
+function dispatchInputAndChange(el) {
+  try {
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {}
+  try {
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  } catch (_) {}
+}
+
+function setBestSelectOption(selectEl, fillValue) {
+  if (!(selectEl instanceof HTMLSelectElement)) return false;
+  const options = Array.from(selectEl.options || []);
+  if (!options.length) return false;
+
+  let best = { opt: null, score: 0 };
+  for (const opt of options) {
+    if (opt.disabled) continue;
+    const score = Math.max(
+      matchScore(fillValue, opt.textContent),
+      matchScore(fillValue, opt.value)
+    );
+    if (score > best.score) best = { opt, score };
+  }
+
+  if (!best.opt) return false;
+  // Avoid choosing a random option on weak matches.
+  if (best.score < 60) return false;
+
+  // Prefer setting by value.
+  selectEl.value = best.opt.value;
+  best.opt.selected = true;
+  dispatchInputAndChange(selectEl);
+  return true;
+}
+
+function getRadioLabelText(radio) {
+  if (!radio) return "";
+  const aria = radio.getAttribute?.("aria-label");
+  if (aria) return aria;
+  const id = radio.id;
+  if (id) {
+    const lbl = document.querySelector(`label[for="${CSS?.escape ? CSS.escape(id) : id}"]`);
+    if (lbl) return lbl.textContent || "";
+  }
+  // Common patterns: wrapped in <label>...</label>
+  const parentLabel = radio.closest?.("label");
+  if (parentLabel) return parentLabel.textContent || "";
+  return "";
+}
+
+function clickBestRadioInGroup(radioEl, fillValue, root) {
+  if (!radioEl || radioEl.type !== "radio") return false;
+  const name = radioEl.name;
+  if (!name) return false;
+
+  const esc = (val) => (CSS?.escape ? CSS.escape(val) : val.replace(/[^a-zA-Z0-9_\-]/g, "\$&"));
+  const scope = root || radioEl.form || document;
+  const radios = Array.from(scope.querySelectorAll(`input[type="radio"][name="${esc(name)}"]`));
+  if (!radios.length) return false;
+
+  let best = { el: null, score: 0 };
+  for (const r of radios) {
+    const labelText = getRadioLabelText(r);
+    const score = Math.max(matchScore(fillValue, r.value), matchScore(fillValue, labelText));
+    if (score > best.score) best = { el: r, score };
+  }
+
+  if (!best.el) return false;
+  if (best.score < 40) return false;
+
+  if (!best.el.checked) {
+    best.el.click();
+    dispatchInputAndChange(best.el);
+  }
+  return true;
+}
+
 
 function inputQuery(jobParam, form) {
-  let normalizedParam = jobParam.toLowerCase();
-  let inputElement = Array.from(form.querySelectorAll("input")).find(
-    (input) => {
-      const attributes = [
-        input.id?.toLowerCase().trim(),
-        input.name?.toLowerCase().trim(),
-        input.placeholder?.toLowerCase().trim(),
-        input.getAttribute("aria-label")?.toLowerCase().trim(),
-        input.getAttribute("aria-labelledby")?.toLowerCase().trim(),
-        input.getAttribute("aria-describedby")?.toLowerCase().trim(),
-        input.getAttribute("data-qa")?.toLowerCase().trim(),
-      ];
+  const normalizedParam = normalizeText(jobParam);
+  const nodes = Array.from(form.querySelectorAll("input, select"));
 
-      for (let i = 0; i < attributes.length; i++) {
-        const attr = attributes[i];
-        if (attr != undefined && attr.includes(normalizedParam)) {
-          // Optimization: If searching for "address", ignore if it also contains "email" 
-          // to avoid false positive with "Email Address".
-          if (normalizedParam === "address" && attr.includes("email")) {
-            continue;
-          }
-          return true;
-        }
+  // Pass 1: match on element attributes.
+  let el = nodes.find((node) => {
+    const attributes = [
+      node.id,
+      node.name,
+      node.placeholder,
+      node.getAttribute?.("aria-label"),
+      node.getAttribute?.("aria-labelledby"),
+      node.getAttribute?.("aria-describedby"),
+      node.getAttribute?.("data-qa"),
+      node.getAttribute?.("data-automation-id"),
+      node.getAttribute?.("data-automation-label"),
+      node.getAttribute?.("autocomplete"),
+      // Occasionally helpful for <select> + custom inputs.
+      node.value,
+    ];
+
+    for (const rawAttr of attributes) {
+      const attr = normalizeText(rawAttr);
+      if (!attr) continue;
+      if (attr.includes(normalizedParam)) {
+        // Optimization: If searching for "address", ignore if it also contains "email"
+        // to avoid false positive with "Email Address".
+        if (normalizedParam === "address" && attr.includes("email")) continue;
+        return true;
       }
-      return false;
     }
-  );
-  return inputElement;
+    return false;
+  });
+  if (el) return el;
+
+  // Pass 2: for <select>, match on option text/value.
+  el = nodes.find((node) => {
+    if (!(node instanceof HTMLSelectElement)) return false;
+    const options = Array.from(node.options || []);
+    return options.some((opt) => {
+      const t = normalizeText(opt.textContent);
+      const v = normalizeText(opt.value);
+      return (t && t.includes(normalizedParam)) || (v && v.includes(normalizedParam));
+    });
+  });
+
+  return el;
 }
 
 function formatCityStateCountry(data, param) {
@@ -381,6 +505,20 @@ async function processFields(jobForm, fieldMap, form, res) {
     if (param === "Location (City)") fillValue = formatCityStateCountry(res, param);
 
     setNativeValue(inputElement, fillValue);
+
+    // Native <select> and radio groups need special handling:
+    // - setNativeValue may set select.value to the raw fillValue (which may not equal an option.value)
+    // - radio groups need us to click the correct input in the group
+    if (inputElement instanceof HTMLSelectElement) {
+      setBestSelectOption(inputElement, fillValue);
+      continue;
+    }
+
+    if (inputElement.type === "radio") {
+      clickBestRadioInGroup(inputElement, fillValue, form);
+      continue;
+    }
+
     //for the dropdown elements
     let btn = inputElement.closest(".select__control--outside-label");
     if (!btn) continue;
