@@ -112,7 +112,8 @@ function clickBestRadioInGroup(radioEl, fillValue, root) {
   const name = radioEl.name;
   if (!name) return false;
 
-  const esc = (val) => (CSS?.escape ? CSS.escape(val) : val.replace(/[^a-zA-Z0-9_\-]/g, "\$&"));
+  const esc = (val) =>
+    CSS?.escape ? CSS.escape(val) : val.replace(/[^a-zA-Z0-9_\-]/g, "\\$&");
   const scope = root || radioEl.form || document;
   const radios = Array.from(scope.querySelectorAll(`input[type="radio"][name="${esc(name)}"]`));
   if (!radios.length) return false;
