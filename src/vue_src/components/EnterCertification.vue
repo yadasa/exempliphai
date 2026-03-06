@@ -1,75 +1,94 @@
 <template>
-    <div v-if='isOn' class="explanationBg">
-        <button class="modalCloseBtn" @click="exit" aria-label="Close">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
-                <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
-            </svg>
-        </button>
-        <h1 class="explanation">Add Certification</h1>
-        <div class="inputFieldDiv">
-            <h2>Certification Name</h2>
-            <input placeholder="AWS Certified Solutions Architect" v-model="certificationName" />
-        </div>
-        <div class="inputFieldDiv">
-            <h2>Issuing Organization</h2>
-            <input placeholder="Amazon Web Services" v-model="issuingOrganization" />
-        </div>
-        
-        <div class="inputFieldDiv">
-            <h2>Issue Month</h2>
-            <select v-model="issueMonth">
-                <option v-for="option in [
-                    'January', 'February', 'March', 'April', 'May', 'June',
-                    'July', 'August', 'September', 'October', 'November', 'December'
-                ]" :key="option" :value="option">{{ option }}</option>
-            </select>
-        </div>
-        <div class="inputFieldDiv">
-            <h2>Issue Year</h2>
-            <input placeholder="2023" v-model="issueYear" />
-        </div>
+    <div v-if='isOn' class="modalOverlay" role="dialog" aria-modal="true">
+        <div class="modalCard">
+            <button class="modalCloseBtn" @click="exit" aria-label="Close">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                    <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
+                </svg>
+            </button>
 
-        <div class="inputFieldDiv">
-            <h2>Expiration Month</h2>
-            <select v-model="expirationMonth">
-                <option v-for="option in [
-                    'January', 'February', 'March', 'April', 'May', 'June',
-                    'July', 'August', 'September', 'October', 'November', 'December'
-                ]" :key="option" :value="option">{{ option }}</option>
-            </select>
-        </div>
-        <div class="inputFieldDiv">
-            <h2>Expiration Year</h2>
-            <input placeholder="2026" v-model="expirationYear" />
-        </div>
+            <div class="modalHeader">
+                <h1 class="modalHeaderTitle">Add Certification</h1>
+            </div>
 
-        <div class="inputFieldDiv">
-            <h2>Credential ID</h2>
-            <input placeholder="AWS-123456" v-model="credentialId" />
-        </div>
-        <div class="inputFieldDiv">
-            <h2>Credential URL</h2>
-            <input placeholder="https://aws.amazon.com/..." v-model="credentialUrl" />
-        </div>
+            <div class="modalBody">
+                <div class="inputFieldDiv">
+                    <h2>Certification Name</h2>
+                    <input placeholder="AWS Certified Solutions Architect" v-model="certificationName" />
+                </div>
+                <div class="inputFieldDiv">
+                    <h2>Issuing Organization</h2>
+                    <input placeholder="Amazon Web Services" v-model="issuingOrganization" />
+                </div>
 
-        <svg style='cursor: pointer;' @click="saveData" xmlns="http://www.w3.org/2000/svg" height="24px"
-            viewBox="0 -960 960 960" width="24px" fill="currentColor">
-            <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z" />
-        </svg>
-        <svg style='cursor: pointer;' @click="exit" xmlns="http://www.w3.org/2000/svg" height="24px"
-            viewBox="0 -960 960 960" width="24px" fill="currentColor">
-            <path
-                d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
-        </svg>
+                <div class="inputFieldDiv">
+                    <h2>Issue Month</h2>
+                    <CustomDropdown
+                        v-model="issueMonth"
+                        :options="months"
+                        placeholder="Select month"
+                        :disabled="false"
+                    />
+                </div>
+                <div class="inputFieldDiv">
+                    <h2>Issue Year</h2>
+                    <input placeholder="2023" v-model="issueYear" />
+                </div>
+
+                <div class="inputFieldDiv">
+                    <h2>Expiration Month</h2>
+                    <CustomDropdown
+                        v-model="expirationMonth"
+                        :options="months"
+                        placeholder="Select month"
+                        :disabled="false"
+                    />
+                </div>
+                <div class="inputFieldDiv">
+                    <h2>Expiration Year</h2>
+                    <input placeholder="2026" v-model="expirationYear" />
+                </div>
+
+                <div class="inputFieldDiv">
+                    <h2>Credential ID</h2>
+                    <input placeholder="AWS-123456" v-model="credentialId" />
+                </div>
+                <div class="inputFieldDiv">
+                    <h2>Credential URL</h2>
+                    <input placeholder="https://aws.amazon.com/..." v-model="credentialUrl" />
+                </div>
+            </div>
+
+            <div class="modalFooter">
+                <button class="modalSaveBtn" @click="saveData">SAVE</button>
+            </div>
+        </div>
     </div>
 </template>
 
 <script lang="ts">
 import { ref } from 'vue';
+import CustomDropdown from '@/components/CustomDropdown.vue';
 import { useCertifications } from '@/composables/Certifications.ts';
 import { useResumeDetails } from '@/composables/ResumeDetails';
 
+const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+];
+
 export default {
+    components: { CustomDropdown },
     setup() {
         const { loadDetails } = useResumeDetails();
         const { isOn, toggleIsOn } = useCertifications();
@@ -143,6 +162,7 @@ export default {
             });
         }
         return {
+            months,
             isOn, exit, 
             certificationName, issuingOrganization, 
             issueMonth, issueYear, 

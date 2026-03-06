@@ -1,96 +1,95 @@
 <template>
-    <div v-if='isOn' class="explanationBg">
-        <button class="modalCloseBtn" @click="exit" aria-label="Close">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
-                <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
-            </svg>
-        </button>
-        <h1 class="explanation">Add work experience</h1>
-        <div class="inputFieldDiv">
-            <h2>Job Title</h2>
-            <input placeholder="Software Engineer I" v-model="jobTitle" />
-        </div>
-        <div class="inputFieldDiv">
-            <h2>Job Employer</h2>
-            <input placeholder="JavaScript" v-model="jobEmployer" />
-        </div>
-        <div class="inputFieldDiv">
-            <h2>Start Month</h2>
-            <select v-model="startMonth">
-                <option v-for="option in [
-                    'January',
-                    'February',
-                    'March',
-                    'April',
-                    'May',
-                    'June',
-                    'July',
-                    'August',
-                    'September',
-                    'October',
-                    'November',
-                    'December'
-                ]" :key="option" :value="option">{{ option }}</option>
-            </select>
+    <div v-if='isOn' class="modalOverlay" role="dialog" aria-modal="true">
+        <div class="modalCard">
+            <button class="modalCloseBtn" @click="exit" aria-label="Close">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+                    <path d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
+                </svg>
+            </button>
 
-        </div>
-        <div class="inputFieldDiv">
-            <h2>Start Year</h2>
-            <input placeholder="2024" v-model="startYear" />
-        </div>
+            <div class="modalHeader">
+                <h1 class="modalHeaderTitle">Add work experience</h1>
+            </div>
 
-        <div class="inputFieldDiv" style="flex-direction: row; align-items: center; gap: 10px;">
-             <input type="checkbox" id="currentJob" v-model="isCurrent" style="width: auto;" />
-             <label for="currentJob">I currently work here</label>
-        </div>
+            <div class="modalBody">
+                <div class="inputFieldDiv">
+                    <h2>Job Title</h2>
+                    <input placeholder="Software Engineer I" v-model="jobTitle" />
+                </div>
+                <div class="inputFieldDiv">
+                    <h2>Job Employer</h2>
+                    <input placeholder="JavaScript" v-model="jobEmployer" />
+                </div>
+                <div class="inputFieldDiv">
+                    <h2>Start Month</h2>
+                    <CustomDropdown
+                        v-model="startMonth"
+                        :options="months"
+                        placeholder="Select month"
+                        :disabled="false"
+                    />
+                </div>
+                <div class="inputFieldDiv">
+                    <h2>Start Year</h2>
+                    <input placeholder="2024" v-model="startYear" />
+                </div>
 
-        <div v-if="!isCurrent" class="inputFieldDiv">
-            <h2>End Month</h2>
-            <select v-model="endMonth">
-                <option v-for="option in [
-                    'January',
-                    'February',
-                    'March',
-                    'April',
-                    'May',
-                    'June',
-                    'July',
-                    'August',
-                    'September',
-                    'October',
-                    'November',
-                    'December'
-                ]" :key="option" :value="option">{{ option }}</option>
-            </select>
+                <div class="inputFieldDiv" style="flex-direction: row; align-items: center; gap: 10px;">
+                    <input type="checkbox" id="currentJob" v-model="isCurrent" style="width: auto;" />
+                    <label for="currentJob">I currently work here</label>
+                </div>
 
+                <div v-if="!isCurrent" class="inputFieldDiv">
+                    <h2>End Month</h2>
+                    <CustomDropdown
+                        v-model="endMonth"
+                        :options="months"
+                        placeholder="Select month"
+                        :disabled="false"
+                    />
+                </div>
+                <div v-if="!isCurrent" class="inputFieldDiv">
+                    <h2>End Year</h2>
+                    <input placeholder="2024" v-model="endYear" />
+                </div>
+                <div class="textAreaDiv">
+                    <h2>Description</h2>
+                    <textarea
+                        placeholder="• Spearheaded the development of mobile application pages using React Native, Expo, Figma"
+                        v-model="roleDescription" />
+                </div>
+            </div>
+
+            <div class="modalFooter">
+                <button class="modalSaveBtn" @click="saveData">SAVE</button>
+            </div>
         </div>
-        <div v-if="!isCurrent" class="inputFieldDiv">
-            <h2>End Year</h2>
-            <input placeholder="2024" v-model="endYear" />
-        </div>
-        <div class="textAreaDiv">
-            <h2>Description</h2>
-            <textarea
-                placeholder="• Spearheaded the development of mobile application pages using React Native, Expo, Figma"
-                v-model="roleDescription" />
-        </div>
-        <svg style='cursor: pointer; color: var(--text-primary);' @click="saveData" xmlns="http://www.w3.org/2000/svg" height="24px"
-            viewBox="0 -960 960 960" width="24px" fill="currentColor">
-            <path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z" />
-        </svg>
-        <svg style='cursor: pointer; color: var(--text-primary);' @click="exit" xmlns="http://www.w3.org/2000/svg" height="24px"
-            viewBox="0 -960 960 960" width="24px" fill="currentColor">
-            <path
-                d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z" />
-        </svg>
     </div>
 </template>
 
 <script lang="ts">
-import { ref, watch } from 'vue';
+import { ref } from 'vue';
+import CustomDropdown from '@/components/CustomDropdown.vue';
 import { useWorkExperience } from '@/composables/WorkExperience.ts';
 import { useResumeDetails } from '@/composables/ResumeDetails';
+
+const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+];
+
 export default {
+    components: { CustomDropdown },
 
     setup() {
         const { loadDetails } = useResumeDetails();
@@ -167,6 +166,7 @@ export default {
             });
         }
         return {
+            months,
             isOn, exit, jobTitle, jobEmployer, startMonth, startYear,
             endMonth, endYear, roleDescription, isCurrent,
             saveData

@@ -7,7 +7,7 @@
           d="M478-240q21 0 35.5-14.5T528-290q0-21-14.5-35.5T478-340q-21 0-35.5 14.5T428-290q0 21 14.5 35.5T478-240Zm-36-154h74q0-33 7.5-52t42.5-52q26-26 41-49.5t15-56.5q0-56-41-86t-97-30q-57 0-92.5 30T342-618l66 26q5-18 22.5-39t53.5-21q32 0 48 17.5t16 38.5q0 20-12 37.5T506-526q-44 39-54 59t-10 73Zm38 314q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z" />
       </svg></h2>
 
-    <input v-if="!dropDowns.includes(label) && !files.includes(label)" :type="hidden" :placeholder="placeHolder"
+    <input v-if="!isDropdown && !files.includes(label)" :type="hidden" :placeholder="placeHolder"
       v-model="inputValue" @input="saveData" @focus="onFocus" @blur="onBlur" />
     <div v-if="files.includes(label)" class="inputFieldfileHolder">
       <input v-if="files.includes(label)" type="file" title="" value="" :placeholder="placeHolder"
@@ -15,24 +15,30 @@
       <h2 v-if="files.includes(label)">{{ inputValue }}</h2>
     </div>
 
-    <select :class=hidden v-if="dropDowns.includes(label)" v-model="inputValue" @change="dropdownPrivacy">
-
-      <option v-for="option in placeHolder" :key="option" :value="option">{{ option }}</option>
-    </select>
+    <CustomDropdown
+      v-if="isDropdown && !files.includes(label)"
+      :class="hidden"
+      :modelValue="inputValue"
+      :options="optionsForDropdown"
+      :placeholder="`Select ${label}`"
+      :disabled="false"
+      @update:modelValue="(val) => { inputValue = val as any; dropdownPrivacy(); }"
+    />
 
   </div>
 </template>
 
 <script lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import CustomDropdown from '@/components/CustomDropdown.vue';
 import { usePrivacy } from '@/composables/Privacy';
 import { useExplanation } from '@/composables/Explanation.ts';
 import { useResumeDetails } from '@/composables/ResumeDetails';
 export default {
+  components: { CustomDropdown },
   props: ['label', 'placeHolder', 'explanation'],
   data() {
     return {
-      dropDowns: ['Gender', 'Hispanic/Latino', 'Veteran Status', 'Disability Status', 'Degree', 'Start Date Month', 'End Date Month', 'Race', 'Phone Type', 'Issue Date Month', 'Expiration Date Month', 'Pronouns', 'Willing to Relocate', 'Security Clearance'],
       files: ['Resume', 'LinkedIn PDF']
     };
   },
@@ -47,6 +53,85 @@ export default {
     const { loadDetails } = useResumeDetails();
     watch(privacy, (newVal) => {
       hidden.value = newVal ? 'password' : 'text';
+    });
+
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    const dropdownOptions: Record<string, string[]> = {
+      'Phone Type': ['Landline', 'Mobile', 'Office Phone'],
+      'Legally Authorized to Work': ['Yes', 'No'],
+      'Requires Sponsorship': ['Yes', 'No'],
+      'Willing to Relocate': ['Yes', 'No'],
+      'Security Clearance': ['Yes', 'No'],
+
+      Pronouns: ['He/Him', 'She/Her', 'They/Them', 'Decline To Self Identify', 'Other'],
+      Gender: ['Male', 'Female', 'Decline To Self Identify'],
+      Race: [
+        'American Indian or Alaskan Native',
+        'Asian',
+        'Black or African American',
+        'White',
+        'Native Hawaiian or Other Pacific Islander',
+        'Two or More Races',
+        'Decline To Self Identify',
+      ],
+      'Hispanic/Latino': ['Yes', 'No', 'Decline To Self Identify'],
+      'Veteran Status': [
+        'I am not a protected veteran',
+        'I identify as one or more of the classifications of a protected veteran',
+        "I don't wish to answer",
+      ],
+      'Disability Status': [
+        'Yes, I have a disability, or have had one in the past',
+        'No, I do not have a disability and have not had one in the past',
+        'I do not want to answer',
+      ],
+
+      Degree: [
+        "Associate's Degree",
+        "Bachelor's Degree",
+        'Doctor of Medicine (M.D.)',
+        'Doctor of Philosophy (Ph.D.)',
+        "Engineer's Degree",
+        'High School',
+        'Juris Doctor (J.D.)',
+        'Master of Business Administration (M.B.A.)',
+        "Master's Degree",
+        'Other',
+      ],
+
+      'Start Date Month': months,
+      'End Date Month': months,
+
+      // Used in modals (work experience/certifications)
+      'Start Month': months,
+      'End Month': months,
+      'Issue Month': months,
+      'Expiration Month': months,
+    };
+
+    const dropdowns = Object.keys(dropdownOptions);
+
+    const isDropdown = computed(() => {
+      return Array.isArray(props.placeHolder) || dropdowns.includes(props.label);
+    });
+
+    const optionsForDropdown = computed(() => {
+      if (Array.isArray(props.placeHolder)) return props.placeHolder;
+      return dropdownOptions[props.label] || [];
     });
 
     const showExplanation = () => {
@@ -281,6 +366,8 @@ export default {
 
     return {
       inputValue,
+      isDropdown,
+      optionsForDropdown,
       saveData,
       saveResume,
       hidden,

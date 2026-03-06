@@ -287,8 +287,8 @@ h1 {
 }
 
 /* Inputs/selects (2nd child in row) */
-.inputFieldDiv :nth-child(2),
-.textAreaDiv :nth-child(2) {
+.inputFieldDiv > :nth-child(2),
+.textAreaDiv > :nth-child(2) {
   width: 15rem;
   max-width: 15rem;
   background: var(--input-bg);
@@ -305,13 +305,13 @@ h1 {
   transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
 }
 
-.inputFieldDiv :nth-child(2):focus,
-.textAreaDiv :nth-child(2):focus {
+.inputFieldDiv > :nth-child(2):focus,
+.textAreaDiv > :nth-child(2):focus {
   border-color: color-mix(in srgb, var(--accent-color) 65%, var(--input-border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 20%, transparent), 0 1px 0 rgba(255, 255, 255, 0.35) inset;
 }
 
-.inputFieldDiv :nth-child(2)::placeholder {
+.inputFieldDiv > :nth-child(2)::placeholder {
   color: color-mix(in srgb, var(--text-secondary) 80%, transparent);
 }
 
@@ -364,11 +364,107 @@ select.password {
   color: var(--text-primary);
 }
 
+/* Modals (centered 93% viewport + scrollable body + bottom SAVE) */
+.modalOverlay {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 93vw;
+  height: 93vh;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Backdrop (covers full viewport, even though modal is 93% sized) */
+.modalOverlay::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--bg-primary) 85%, transparent);
+  z-index: -1;
+}
+
+.modalCard {
+  width: 100%;
+  height: 100%;
+  max-width: 1000px;
+  max-height: 93vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-2);
+}
+
+.modalHeader {
+  flex: 0 0 auto;
+  padding: 1.25rem 1.25rem 0.75rem 1.25rem;
+  text-align: center;
+}
+
+.modalHeaderTitle {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.modalBody {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 0 1.25rem 1.25rem 1.25rem;
+}
+
+.modalFooter {
+  flex: 0 0 auto;
+  padding: 1rem 1.25rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--card-border);
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.modalSaveBtn {
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border-radius: 14px;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-weight: 700;
+  background: var(--accent-2);
+  color: #fff;
+  box-shadow: 0 14px 26px rgba(34, 197, 94, 0.22);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.modalSaveBtn:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+
+.modalSaveBtn:active {
+  transform: translateY(0px);
+}
+
+.modalSaveBtn:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent-2) 35%, transparent);
+  outline-offset: 2px;
+}
+
 /* Modal close button (top-right) */
 .modalCloseBtn {
-  position: fixed;
+  position: absolute;
   top: 1rem;
   right: 1rem;
+  z-index: 2;
   width: 42px;
   height: 42px;
   border-radius: 14px;
@@ -394,7 +490,7 @@ select.password {
 }
 
 /* File input row */
-.inputFieldfileHolder :nth-child(2) {
+.inputFieldfileHolder > :nth-child(2) {
   border: none;
   max-width: 13rem;
   height: fit-content;
