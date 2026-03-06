@@ -325,24 +325,41 @@ select.password {
 }
 
 /* Dark-mode reliability: native <select> defaults can ignore generic row styling */
-select {
-  background-color: var(--input-bg) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--input-border) !important;
+.inputFieldDiv select {
   -webkit-appearance: none;
   appearance: none;
 
-  /* Custom arrow (uses current theme color) */
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
-    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
-  background-size: 6px 6px, 6px 6px;
-  background-repeat: no-repeat;
-  padding-right: 2.1rem;
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--input-border);
+
+  /* Keep parity with text inputs */
+  font-family: var(--font-sans);
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.9rem;
+  outline: 0;
 }
 
-select option {
+.inputFieldDiv select:not(.password) {
+  padding-right: 2.1rem; /* room for arrow */
+
+  /* Custom arrow (SVG data-uri; tint via currentColor + opacity) */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='currentColor' fill-opacity='0.7' d='M5.5 7.5l4.5 5 4.5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 0.9rem 0.9rem;
+}
+
+.inputFieldDiv select:hover {
+  border-color: color-mix(in srgb, var(--text-secondary) 35%, var(--input-border));
+}
+
+.inputFieldDiv select:focus {
+  border-color: color-mix(in srgb, var(--accent-color) 65%, var(--input-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 20%, transparent), 0 1px 0 rgba(255, 255, 255, 0.35) inset;
+}
+
+.inputFieldDiv select option {
   background: var(--card-bg);
   color: var(--text-primary);
 }
