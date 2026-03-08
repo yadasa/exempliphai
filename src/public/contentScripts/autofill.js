@@ -36,7 +36,7 @@ let smartApplyAutofillLock = false;
 let smartApplyLastAutofillAt = 0;
 let smartApplyMutationDebounce = null;
 
-const _filledElements = new WeakSet();
+let _filledElements = new WeakSet();
 
 function detectJobFormKey() {
   try {
@@ -126,8 +126,13 @@ function injectAutofillNowButton() {
     if (document.getElementById(AUTOFILL_NOW_BUTTON_ID)) return;
 
     // Keep the button scoped to ATS-like pages only (manifest matches are broad).
+    // But also retry — on Greenhouse React pages the form may not be in the DOM yet.
     const detected = detectJobFormKey();
-    if (!detected && !isLikelyApplicationPage()) return;
+    if (!detected && !isLikelyApplicationPage()) {
+      // Retry after a delay — Greenhouse forms render asynchronously
+      setTimeout(() => injectAutofillNowButton(), 2000);
+      return;
+    }
 
     const btn = document.createElement('button');
     btn.id = AUTOFILL_NOW_BUTTON_ID;
@@ -155,6 +160,8 @@ function injectAutofillNowButton() {
       btn.disabled = true;
       btn.style.opacity = '0.85';
       try {
+        // Reset filled elements so button always forces a full re-fill
+        _filledElements = new WeakSet();
         await tryAutofillNow({ force: true, reason: 'button' });
       } finally {
         btn.textContent = prev;
@@ -526,21 +533,24 @@ function inputQuery(jobParam, form) {
   const normalizedParam = normalizeText(jobParam);
   const nodes = Array.from(form.querySelectorAll("input, select, textarea"));
 
-  // Pass 1: match on element attributes.
+  // Pass 0: Exact ID match (highest priority — Greenhouse uses stable IDs like "first_name", "gender", "veteran_status")
   let el = nodes.find((node) => {
+    const id = normalizeText(node.id);
+    return id && id === normalizedParam;
+  });
+  if (el) return el;
+
+  // Pass 1: match on element attributes.
+  el = nodes.find((node) => {
     const attributes = [
       node.id,
       node.name,
       node.placeholder,
       node.getAttribute?.("aria-label"),
-      node.getAttribute?.("aria-labelledby"),
-      node.getAttribute?.("aria-describedby"),
       node.getAttribute?.("data-qa"),
       node.getAttribute?.("data-automation-id"),
       node.getAttribute?.("data-automation-label"),
       node.getAttribute?.("autocomplete"),
-      // Occasionally helpful for <select> + custom inputs.
-      node.value,
     ];
 
     for (const rawAttr of attributes) {
@@ -594,7 +604,7 @@ function inputQuery(jobParam, form) {
     }
   }
 
-  if (bestMatch.el && bestMatch.score >= 50) return bestMatch.el;
+  if (bestMatch.el && bestMatch.score >= 65) return bestMatch.el;  // Raised from 50 to reduce false-positive field matching
   return null;
 }
 
@@ -617,11 +627,17 @@ async function awaitForm() {
   await tryAutofillNow({ force: false, reason: 'initial' });
 
   // Keep watching for multi-step flows (e.g., language pickers) that reveal the form later.
+  // Use a longer debounce to prevent aggressive re-fills that override manual edits.
+  let mutationRunCount = 0;
+  const MAX_MUTATION_RUNS = 3; // Only auto-fill a few times via mutation, then stop
+
   const observer = new MutationObserver(() => {
+    if (mutationRunCount >= MAX_MUTATION_RUNS) return; // Stop re-running after initial fills
     if (smartApplyMutationDebounce) clearTimeout(smartApplyMutationDebounce);
     smartApplyMutationDebounce = setTimeout(() => {
+      mutationRunCount++;
       tryAutofillNow({ force: false, reason: 'mutation' });
-    }, 200);
+    }, 800); // Increased from 200ms to 800ms to reduce aggression
   });
 
   observer.observe(document.body, {
@@ -854,6 +870,19 @@ async function processFields(jobForm, fieldMap, form, res) {
 
       if (!el) continue;
 
+      // GUARD: Do NOT upload resume to cover letter file inputs
+      const elId = (el.id || '').toLowerCase();
+      const elName = (el.name || '').toLowerCase();
+      const elLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+      const parentGroupLabel = el.closest('[aria-labelledby]')?.getAttribute('aria-labelledby') || '';
+      const parentGroupText = parentGroupLabel ? (document.getElementById(parentGroupLabel)?.textContent || '').toLowerCase() : '';
+      
+      if (elId.includes('cover') || elName.includes('cover') || elLabel.includes('cover') || parentGroupText.includes('cover')) {
+        console.log(`SmartApply: SKIP resume upload to cover letter input: ${elId || elName}`);
+        _filledElements.add(el);
+        continue;
+      }
+
       el.addEventListener("submit", function (event) {
         event.preventDefault();
       });
@@ -869,6 +898,7 @@ async function processFields(jobForm, fieldMap, form, res) {
       el.files = dt.files;
       el.dispatchEvent(changeEvent);
       await sleep(delays.short);
+      console.log(`SmartApply: Uploaded resume to ${elId || elName || 'file input'}`);
 
       _filledElements.add(el);
       continue;
@@ -954,6 +984,29 @@ async function processFields(jobForm, fieldMap, form, res) {
       continue;
     }
 
+    // ── GREENHOUSE REACT-SELECT GUARD ──
+    // Greenhouse custom questions use React-Select comboboxes (role="combobox" with
+    // aria-labelledby pointing to a <label>). Before filling, verify the question label
+    // actually matches what we're trying to fill. This prevents data pollution where
+    // e.g. "Race" value gets stuffed into "Are you a former educator?" dropdown.
+    if (inputElement.getAttribute?.("role") === "combobox") {
+      const labelledById = inputElement.getAttribute("aria-labelledby");
+      if (labelledById) {
+        const labelEl = document.getElementById(labelledById);
+        const labelText = normalizeText(labelEl?.textContent || "");
+        const paramNorm = normalizeText(jobParam);
+        const score = matchScore(paramNorm, labelText);
+        
+        // Also check if the label text matches common patterns for this param
+        const isRelevant = score >= 60 || labelText.includes(paramNorm);
+        
+        if (!isRelevant) {
+          console.log(`SmartApply: SKIP combobox "${labelText}" — doesn't match param "${jobParam}" (score ${score})`);
+          continue;
+        }
+      }
+    }
+
     // Scroll smoothly to current field for sequential editing
     inputElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
     await sleep(200);  // User-requested: 200ms delay
@@ -961,18 +1014,15 @@ async function processFields(jobForm, fieldMap, form, res) {
     if (param === "Gender" || param === "Location (City)") useLongDelay = true;
     if (param === "Location (City)") fillValue = formatCityStateCountry(res, param);
 
-    setNativeValue(inputElement, fillValue);
-    _filledElements.add(inputElement);  // Mark plain text/default fills
-
-    // Textareas don't need select/radio/dropdown handling.
+    // Textareas: fill directly, no dropdown handling needed.
     if (inputElement instanceof HTMLTextAreaElement) {
+      setNativeValue(inputElement, fillValue);
+      _filledElements.add(inputElement);
       dispatchInputAndChange(inputElement);
       continue;
     }
 
     // Native <select> and radio groups need special handling:
-    // - setNativeValue may set select.value to the raw fillValue (which may not equal an option.value)
-    // - radio groups need us to click the correct input in the group
     if (inputElement instanceof HTMLSelectElement) {
       if (setBestSelectOption(inputElement, fillValue)) _filledElements.add(inputElement);
       continue;
@@ -985,6 +1035,70 @@ async function processFields(jobForm, fieldMap, form, res) {
 
     if (inputElement.type === "checkbox") {
       if (clickBestCheckboxInGroup(inputElement, fillValue, form)) _filledElements.add(inputElement);
+      continue;
+    }
+
+    // ── GREENHOUSE REACT-SELECT COMBOBOX HANDLING ──
+    // Greenhouse uses react-select for dropdowns. These are <input role="combobox"> 
+    // inside .select__control containers. We need to:
+    // 1. Focus + type the value to filter options
+    // 2. Wait for the dropdown menu to appear
+    // 3. Click the best matching option
+    const isReactSelectCombobox = inputElement.getAttribute?.("role") === "combobox" && 
+      inputElement.closest?.(".select-shell, .select__container");
+    
+    if (isReactSelectCombobox) {
+      try {
+        // Focus and clear existing value
+        inputElement.focus();
+        await sleep(100);
+        
+        // Type the fill value to trigger filtering
+        setNativeValue(inputElement, fillValue);
+        inputElement.dispatchEvent(new Event("input", { bubbles: true }));
+        await sleep(delays.long); // Wait for dropdown to render
+        
+        // Look for the dropdown menu that react-select renders
+        const menuId = inputElement.getAttribute("aria-controls") || 
+                       inputElement.getAttribute("aria-owns");
+        let menu = menuId ? document.getElementById(menuId) : null;
+        
+        // Fallback: find menu by class near the combobox
+        if (!menu) {
+          const selectShell = inputElement.closest(".select-shell, .select__container");
+          if (selectShell) {
+            menu = selectShell.querySelector('[class*="menu"], [role="listbox"]');
+          }
+        }
+        
+        if (menu) {
+          const options = Array.from(menu.querySelectorAll('[role="option"], [class*="option"]'));
+          let bestOpt = { el: null, score: 0 };
+          for (const opt of options) {
+            const optText = opt.textContent || '';
+            const score = matchScore(fillValue, optText);
+            if (score > bestOpt.score) bestOpt = { el: opt, score };
+          }
+          if (bestOpt.el && bestOpt.score >= 50) {
+            console.log(`SmartApply: React-Select "${jobParam}" → "${bestOpt.el.textContent.trim()}" (score ${bestOpt.score})`);
+            bestOpt.el.click();
+            _filledElements.add(inputElement);
+            await sleep(delays.short);
+            continue;
+          } else {
+            console.log(`SmartApply: React-Select "${jobParam}" — no good option match for "${fillValue}" (best score: ${bestOpt.score})`);
+          }
+        } else {
+          console.log(`SmartApply: React-Select "${jobParam}" — dropdown menu not found after typing "${fillValue}"`);
+        }
+        
+        // If no option matched, dispatch Enter to confirm typed value (for free-text comboboxes)
+        inputElement.dispatchEvent(keyDownEvent);
+        await sleep(delays.short);
+        _filledElements.add(inputElement);
+      } catch (e) {
+        console.error(`SmartApply: Error handling React-Select for "${jobParam}"`, e);
+      }
       continue;
     }
 
@@ -1015,7 +1129,11 @@ async function processFields(jobForm, fieldMap, form, res) {
       }
     }
 
-    //for the dropdown elements
+    // Plain text inputs
+    setNativeValue(inputElement, fillValue);
+    _filledElements.add(inputElement);
+
+    //for the dropdown elements (legacy Greenhouse v1 style)
     let btn = inputElement.closest(".select__control--outside-label");
     if (!btn) continue;
 
@@ -1023,7 +1141,6 @@ async function processFields(jobForm, fieldMap, form, res) {
     await sleep(useLongDelay ? delays.long : delays.short);
     btn.dispatchEvent(keyDownEvent);
     await sleep(delays.short);
-    _filledElements.add(inputElement);
   }
   // Removed global scrollToTop(); per-field scrolling now handles it
   console.log(`SmartApply: Complete in ${getTimeElapsed(initTime)}s.`);
