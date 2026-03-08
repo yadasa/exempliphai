@@ -80,6 +80,7 @@ const fields = {
     "eeo[disability]": "Disability Status",
     "eeo[disabilitySignature]": "Full Name",
     "eeo[disabilitySignatureDate]": "Current Date",
+    "candidate-location": "Location (Country)",
     "years of experience": "Years of Experience",
     "experience years": "Years of Experience",
     "total experience": "Years of Experience",

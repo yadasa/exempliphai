@@ -247,6 +247,27 @@ function setBestSelectOption(selectEl, fillValue) {
   if (!options.length) return false;
 
   const fillNorm = normalizeText(fillValue);
+
+  // --- Country dropdown detection & mapping ---
+  // If this is a country <select> (class="candidate-location" or many options with 2-letter codes),
+  // map location strings like "United States of America", "houston, tx", "US" → country code.
+  const isCountrySelect = selectEl.classList.contains('candidate-location') ||
+    (options.length > 100 && options.filter(o => /^[A-Z]{2}$/.test(o.value)).length > 50);
+
+  if (isCountrySelect) {
+    const countryCode = resolveCountryCode(fillValue);
+    if (countryCode) {
+      const match = options.find(o => o.value === countryCode);
+      if (match) {
+        console.log(`SmartApply: Country select "${fillValue}" → "${match.textContent.trim()}" (code ${countryCode})`);
+        selectEl.value = match.value;
+        match.selected = true;
+        dispatchInputAndChange(selectEl);
+        return true;
+      }
+    }
+  }
+
   const yesSynonyms = ['yes', 'true', '1'];
   const noSynonyms = ['no', 'false', '0', 'decline', 'prefer not', 'not', 'none'];
   const isYes = yesSynonyms.some(s => fillNorm.includes(s));
@@ -287,6 +308,52 @@ function setBestSelectOption(selectEl, fillValue) {
   return true;
 }
 
+/**
+ * Resolve a location string or country name to an ISO 3166-1 alpha-2 code.
+ * Handles: "United States of America", "United States", "US", "houston, tx", etc.
+ */
+function resolveCountryCode(locationStr) {
+  if (!locationStr) return null;
+  const norm = normalizeText(locationStr);
+
+  // Direct 2-letter code
+  if (/^[a-z]{2}$/.test(norm)) return norm.toUpperCase();
+
+  // Common country name → code mappings (extend as needed)
+  const countryMap = {
+    'united states of america': 'US', 'united states': 'US', 'usa': 'US', 'u s a': 'US', 'america': 'US',
+    'united kingdom': 'GB', 'great britain': 'GB', 'england': 'GB', 'uk': 'GB',
+    'canada': 'CA', 'australia': 'AU', 'germany': 'DE', 'france': 'FR',
+    'india': 'IN', 'china': 'CN', 'japan': 'JP', 'brazil': 'BR',
+    'mexico': 'MX', 'spain': 'ES', 'italy': 'IT', 'netherlands': 'NL',
+    'south korea': 'KR', 'singapore': 'SG', 'ireland': 'IE', 'israel': 'IL',
+    'sweden': 'SE', 'switzerland': 'CH', 'new zealand': 'NZ', 'poland': 'PL',
+    'portugal': 'PT', 'norway': 'NO', 'denmark': 'DK', 'finland': 'FI',
+    'austria': 'AT', 'belgium': 'BE', 'czech republic': 'CZ', 'romania': 'RO',
+    'philippines': 'PH', 'pakistan': 'PK', 'nigeria': 'NG', 'colombia': 'CO',
+    'argentina': 'AR', 'chile': 'CL', 'peru': 'PE', 'south africa': 'ZA',
+    'egypt': 'EG', 'turkey': 'TR', 'indonesia': 'ID', 'malaysia': 'MY',
+    'thailand': 'TH', 'vietnam': 'VN', 'taiwan': 'TW', 'hong kong': 'HK',
+    'united arab emirates': 'AE', 'uae': 'AE', 'saudi arabia': 'SA',
+    'russia': 'RU', 'ukraine': 'UA',
+  };
+
+  // Exact country name match
+  for (const [name, code] of Object.entries(countryMap)) {
+    if (norm === name || norm.includes(name)) return code;
+  }
+
+  // US state abbreviations / city patterns → US
+  const usStateAbbrs = ['al','ak','az','ar','ca','co','ct','de','fl','ga','hi','id','il','in','ia',
+    'ks','ky','la','me','md','ma','mi','mn','ms','mo','mt','ne','nv','nh','nj','nm','ny','nc','nd',
+    'oh','ok','or','pa','ri','sc','sd','tn','tx','ut','vt','va','wa','wv','wi','wy','dc','pr'];
+  // Pattern: "city, ST" where ST is a US state abbreviation
+  const cityStateMatch = norm.match(/,\s*([a-z]{2})\s*$/);
+  if (cityStateMatch && usStateAbbrs.includes(cityStateMatch[1])) return 'US';
+
+  return null;
+}
+
 function getRadioLabelText(radio) {
   if (!radio) return "";
   const aria = radio.getAttribute?.("aria-label");
@@ -313,10 +380,15 @@ function clickBestRadioInGroup(radioEl, fillValue, root) {
   const radios = Array.from(scope.querySelectorAll(`input[type="radio"][name="${esc(name)}"]`));
   if (!radios.length) return false;
 
+  // --- Smart override for work authorization & sponsorship questions ---
+  // Look at the question text surrounding this radio group to detect specific patterns.
+  const overrideValue = getWorkAuthOverride(radioEl, fillValue);
+  const effectiveFillValue = overrideValue !== null ? overrideValue : fillValue;
+
   let best = { el: null, score: 0 };
   for (const r of radios) {
     const labelText = getRadioLabelText(r);
-    const score = Math.max(matchScore(fillValue, r.value), matchScore(fillValue, labelText));
+    const score = Math.max(matchScore(effectiveFillValue, r.value), matchScore(effectiveFillValue, labelText));
     if (score > best.score) best = { el: r, score };
   }
 
@@ -328,6 +400,77 @@ function clickBestRadioInGroup(radioEl, fillValue, root) {
     dispatchInputAndChange(best.el);
   }
   return true;
+}
+
+/**
+ * Handle checkbox groups (e.g., Lever's multi-select "Yes"/"No" checkboxes for sponsorship).
+ * Finds the best-matching checkbox in the same name group and clicks it.
+ */
+function clickBestCheckboxInGroup(checkboxEl, fillValue, root) {
+  if (!checkboxEl || checkboxEl.type !== "checkbox") return false;
+  const name = checkboxEl.name;
+  if (!name) return false;
+
+  const esc = (val) =>
+    CSS?.escape ? CSS.escape(val) : val.replace(/[^a-zA-Z0-9_\-]/g, "\\$&");
+  const scope = root || checkboxEl.form || document;
+  const checkboxes = Array.from(scope.querySelectorAll(`input[type="checkbox"][name="${esc(name)}"]`));
+  if (!checkboxes.length) return false;
+
+  // Smart override for sponsorship/authorization checkbox questions
+  const overrideValue = getWorkAuthOverride(checkboxEl, fillValue);
+  const effectiveFillValue = overrideValue !== null ? overrideValue : fillValue;
+
+  let best = { el: null, score: 0 };
+  for (const cb of checkboxes) {
+    const labelText = getRadioLabelText(cb); // Reuse — works for checkboxes too
+    const score = Math.max(matchScore(effectiveFillValue, cb.value), matchScore(effectiveFillValue, labelText));
+    if (score > best.score) best = { el: cb, score };
+  }
+
+  if (!best.el) return false;
+  if (best.score < 40) return false;
+
+  if (!best.el.checked) {
+    best.el.click();
+    dispatchInputAndChange(best.el);
+  }
+  return true;
+}
+
+/**
+ * Detect if a radio group question is about US work authorization or sponsorship,
+ * and return the correct override value based on the actual question text.
+ *
+ * Problem: User stores "Legally Authorized to Work" = "no" (generic answer to a
+ * different field like "Legally Authorized to Work (generic)"), but a Lever form
+ * asks "Are you legally authorized to work in the United States for [Company]?"
+ * which is a US-specific question — the answer should typically be "yes".
+ *
+ * Similarly, "Will you now or in the future require sponsorship..." should be "no".
+ */
+function getWorkAuthOverride(radioEl, currentFillValue) {
+  try {
+    // Get the question text from surrounding labels/containers
+    const questionContainer = radioEl.closest('.application-question, .custom-question, li');
+    if (!questionContainer) return null;
+    const questionText = normalizeText(questionContainer.textContent);
+
+    // Pattern 1: "are you legally authorized to work in the united states" → "yes"
+    if (questionText.includes('authorized to work') && questionText.includes('united states')) {
+      console.log(`SmartApply: Work auth override — question asks about US authorization → "yes"`);
+      return 'yes';
+    }
+
+    // Pattern 2: "will you now or in the future require sponsorship" → "no"
+    if ((questionText.includes('require sponsorship') || questionText.includes('require visa') ||
+         questionText.includes('need sponsorship') || questionText.includes('employment visa')) &&
+        (questionText.includes('will you') || questionText.includes('do you'))) {
+      console.log(`SmartApply: Sponsorship override — question asks about future sponsorship → "no"`);
+      return 'no';
+    }
+  } catch (_) {}
+  return null;
 }
 
 function getLabelText(node) {
@@ -837,6 +980,11 @@ async function processFields(jobForm, fieldMap, form, res) {
 
     if (inputElement.type === "radio") {
       if (clickBestRadioInGroup(inputElement, fillValue, form)) _filledElements.add(inputElement);
+      continue;
+    }
+
+    if (inputElement.type === "checkbox") {
+      if (clickBestCheckboxInGroup(inputElement, fillValue, form)) _filledElements.add(inputElement);
       continue;
     }
 
