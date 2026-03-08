@@ -305,7 +305,10 @@ function setBestSelectOption(selectEl, fillValue) {
   }
 
   if (!best.opt) return false;
-  if (best.score < 55) return false;  // Slightly lower thresh for booleans
+  if (best.score < 50) {
+    console.log(`SmartApply: SKIP select option — best score ${best.score} < 50 for "${fillValue}" (best option: "${best.opt?.textContent?.trim()}")`);
+    return false;
+  }
 
   console.log(`SmartApply: Select "${fillValue}" → "${best.opt.textContent.trim() || best.opt.value}" (score ${best.score})`);
 
@@ -547,6 +550,8 @@ function inputQuery(jobParam, form) {
       node.name,
       node.placeholder,
       node.getAttribute?.("aria-label"),
+      node.getAttribute?.("aria-labelledby"),
+      node.getAttribute?.("aria-describedby"),
       node.getAttribute?.("data-qa"),
       node.getAttribute?.("data-automation-id"),
       node.getAttribute?.("data-automation-label"),
@@ -604,7 +609,13 @@ function inputQuery(jobParam, form) {
     }
   }
 
-  if (bestMatch.el && bestMatch.score >= 65) return bestMatch.el;  // Raised from 50 to reduce false-positive field matching
+  if (bestMatch.el && bestMatch.score >= 50) {
+    console.log(`SmartApply: Fuzzy match "${jobParam}" → "${bestMatch.el.id || bestMatch.el.name || bestMatch.el.type}" (score ${bestMatch.score})`);
+    return bestMatch.el;
+  }
+  if (bestMatch.el && bestMatch.score > 0) {
+    console.log(`SmartApply: SKIP fuzzy match "${jobParam}" — best score ${bestMatch.score} < 50 (element: ${bestMatch.el.id || bestMatch.el.name || '?'})`);
+  }
   return null;
 }
 
@@ -637,7 +648,7 @@ async function awaitForm() {
     smartApplyMutationDebounce = setTimeout(() => {
       mutationRunCount++;
       tryAutofillNow({ force: false, reason: 'mutation' });
-    }, 800); // Increased from 200ms to 800ms to reduce aggression
+    }, 400); // Balanced: 400ms debounce (was 800ms — too slow for multi-step forms)
   });
 
   observer.observe(document.body, {
@@ -974,9 +985,15 @@ async function processFields(jobForm, fieldMap, form, res) {
     // param already defined at top of loop
 
     let fillValue = res[param];
-    if (!fillValue) continue;
+    if (!fillValue) {
+      console.log(`SmartApply: SKIP "${jobParam}" (param="${param}") — no stored value`);
+      continue;
+    }
     let inputElement = inputQuery(jobParam, form);
-    if (!inputElement) continue;
+    if (!inputElement) {
+      console.log(`SmartApply: SKIP "${jobParam}" (param="${param}") — no matching element found in form`);
+      continue;
+    }
 
     // Skip already-filled (permanent phone overwrite fix across passes)
     if (_filledElements.has(inputElement)) {
@@ -997,12 +1014,16 @@ async function processFields(jobForm, fieldMap, form, res) {
         const paramNorm = normalizeText(jobParam);
         const score = matchScore(paramNorm, labelText);
         
-        // Also check if the label text matches common patterns for this param
-        const isRelevant = score >= 60 || labelText.includes(paramNorm);
+        // Permissive: pass if score ≥ 45 or label contains param text.
+        // Only hard-skip if score < 30 (clearly unrelated).
+        const isRelevant = score >= 45 || labelText.includes(paramNorm);
         
-        if (!isRelevant) {
-          console.log(`SmartApply: SKIP combobox "${labelText}" — doesn't match param "${jobParam}" (score ${score})`);
+        if (!isRelevant && score < 30) {
+          console.log(`SmartApply: SKIP combobox "${labelText}" — doesn't match param "${jobParam}" (score ${score} < 30)`);
           continue;
+        }
+        if (!isRelevant) {
+          console.log(`SmartApply: WARN combobox "${labelText}" — weak match for param "${jobParam}" (score ${score}), proceeding anyway`);
         }
       }
     }
@@ -1056,7 +1077,7 @@ async function processFields(jobForm, fieldMap, form, res) {
         // Type the fill value to trigger filtering
         setNativeValue(inputElement, fillValue);
         inputElement.dispatchEvent(new Event("input", { bubbles: true }));
-        await sleep(delays.long); // Wait for dropdown to render
+        await sleep(delays.medium); // Wait for dropdown to render
         
         // Look for the dropdown menu that react-select renders
         const menuId = inputElement.getAttribute("aria-controls") || 

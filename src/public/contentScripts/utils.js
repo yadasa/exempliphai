@@ -647,5 +647,6 @@ function setNativeValue(el, value) {
 const delays = {
   initial: 1000,
   short: 200,
+  medium: 400,
   long: 600,
 };
