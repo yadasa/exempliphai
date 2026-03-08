@@ -21,13 +21,25 @@ import { workDayAutofill } from './workday';
 */
 
 let initTime;
-window.addEventListener("load", (_) => {
+let _smartApplyBooted = false;
+function bootSmartApply() {
+  if (_smartApplyBooted) return;
+  _smartApplyBooted = true;
   console.log("SmartApply: found job page.");
   initTime = new Date().getTime();
   setupLongTextareaHints();
   injectAutofillNowButton();
   awaitForm();
-});
+}
+
+// Run immediately if page already loaded, otherwise wait for DOMContentLoaded.
+// Also handle BFCache restores via pageshow.
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootSmartApply, { once: true });
+} else {
+  bootSmartApply();
+}
+window.addEventListener('pageshow', bootSmartApply);
 const applicationFormQuery = "#application-form, #application_form, #applicationform";
 
 
@@ -36,6 +48,49 @@ let smartApplyAutofillLock = false;
 let smartApplyLastAutofillAt = 0;
 let smartApplyMutationDebounce = null;
 
+// Track filled elements to prevent re-filling in subsequent passes
+const _filledElements = new WeakSet();
+
+// EEO value synonyms: map common user-stored values to ATS-expected values
+const EEO_SYNONYMS = {
+  "i don't wish to answer": "Decline to self-identify",
+  "i do not wish to answer": "Decline to self-identify",
+  "i wish not to answer": "Decline to self-identify",
+  "prefer not to say": "Decline to self-identify",
+  "prefer not to disclose": "Decline to self-identify",
+  "not a veteran": "I am not a veteran",
+  "not a protected veteran": "I am not a protected veteran",
+  "no, i am not a veteran": "I am not a veteran",
+};
+
+function normalizeEeoValue(value) {
+  const lower = (value || "").toLowerCase().trim();
+  return EEO_SYNONYMS[lower] || value;
+}
+
+function isGreenhouseDom() {
+  try {
+    return !!(
+      document.querySelector('form.application--form') ||
+      document.querySelector('#application-form.application--form') ||
+      document.querySelector('.eeoc__container') ||
+      document.querySelector('.application--container')
+    );
+  } catch (_) {}
+  return false;
+}
+
+function isLeverDom() {
+  try {
+    return !!(
+      document.querySelector('form#application-form[enctype="multipart/form-data"]') ||
+      document.querySelector('[data-qa="btn-submit"].postings-btn') ||
+      document.querySelector('.application-question.resume')
+    );
+  } catch (_) {}
+  return false;
+}
+
 function detectJobFormKey() {
   try {
     const host = (window.location.hostname || "").toLowerCase();
@@ -43,6 +98,9 @@ function detectJobFormKey() {
       if (k === "generic") continue;
       if (host.includes(k)) return k;
     }
+    // Fallback: DOM-based detection for embedded ATS forms
+    if (isGreenhouseDom()) return "greenhouse";
+    if (isLeverDom()) return "lever";
   } catch (_) {}
   return null;
 }
@@ -239,15 +297,34 @@ function dispatchInputAndChange(el) {
   } catch (_) {}
 }
 
+function isCountryDropdown(selectEl) {
+  // Detect if a <select> contains country options by checking for well-known countries
+  if (!(selectEl instanceof HTMLSelectElement)) return false;
+  const options = Array.from(selectEl.options || []);
+  const countrySignals = ['united states', 'canada', 'united kingdom', 'australia', 'germany', 'france'];
+  let countryCount = 0;
+  for (const opt of options) {
+    const text = (opt.textContent || "").toLowerCase();
+    if (countrySignals.some(c => text.includes(c))) countryCount++;
+    if (countryCount >= 3) return true;
+  }
+  return false;
+}
+
 function setBestSelectOption(selectEl, fillValue) {
   if (!(selectEl instanceof HTMLSelectElement)) return false;
   const options = Array.from(selectEl.options || []);
   if (!options.length) return false;
 
+  // Apply EEO synonym normalization
+  const normalizedFill = normalizeEeoValue(fillValue);
+
   let best = { opt: null, score: 0 };
   for (const opt of options) {
     if (opt.disabled) continue;
     const score = Math.max(
+      matchScore(normalizedFill, opt.textContent),
+      matchScore(normalizedFill, opt.value),
       matchScore(fillValue, opt.textContent),
       matchScore(fillValue, opt.value)
     );
@@ -374,8 +451,8 @@ function inputQuery(jobParam, form) {
       node.getAttribute?.("data-automation-id"),
       node.getAttribute?.("data-automation-label"),
       node.getAttribute?.("autocomplete"),
-      // Occasionally helpful for <select> + custom inputs.
-      node.value,
+      // Removed node.value: existing values shouldn't be used for field identification
+      // as they cause false positives (e.g., matching filled-in race values to unrelated fields)
     ];
 
     for (const rawAttr of attributes) {
@@ -429,7 +506,7 @@ function inputQuery(jobParam, form) {
     }
   }
 
-  if (bestMatch.el && bestMatch.score >= 50) return bestMatch.el;
+  if (bestMatch.el && bestMatch.score >= 65) return bestMatch.el;
   return null;
 }
 
@@ -469,6 +546,25 @@ async function autofill(form) {
   console.log("SmartApply: Starting autofill.");
   let res = await getStorageDataSync();
   res["Current Date"] = curDateStr();
+
+  // Normalize: Full Name → First/Last if missing
+  if (!res["First Name"] && res["Full Name"]) {
+    const parts = res["Full Name"].trim().split(/\s+/);
+    res["First Name"] = parts[0] || "";
+    res["Last Name"] = parts[parts.length - 1] || "";
+    if (parts.length > 2) {
+      res["Middle Name"] = parts.slice(1, -1).join(" ");
+    }
+  }
+  // Normalize: Email Address → Email
+  if (!res["Email"] && res["Email Address"]) {
+    res["Email"] = res["Email Address"];
+  }
+  // Normalize: Phone Number → Phone
+  if (!res["Phone"] && res["Phone Number"]) {
+    res["Phone"] = res["Phone Number"];
+  }
+
   await sleep(delays.initial);
 
   const genericExtras = fields?.generic
@@ -507,6 +603,8 @@ async function autofill(form) {
 async function processFields(jobForm, fieldMap, form, res) {
   for (let jobParam in fieldMap) {
     const param = fieldMap[jobParam];
+    // Skip null mappings (e.g., cover_letter intentionally set to null)
+    if (param === null || param === undefined) continue;
     if (param === "Resume") {
       // Basic Context Menu Logic
       let lastClickedElement = null;
@@ -782,6 +880,9 @@ async function processFields(jobForm, fieldMap, form, res) {
     let inputElement = inputQuery(jobParam, form);
     if (!inputElement) continue;
 
+    // Skip elements already filled by a previous pass
+    if (_filledElements.has(inputElement)) continue;
+
     if (param === "Gender" || param === "Location (City)") useLongDelay = true;
     if (param === "Location (City)") fillValue = formatCityStateCountry(res, param);
 
@@ -790,6 +891,7 @@ async function processFields(jobForm, fieldMap, form, res) {
     // Textareas don't need select/radio/dropdown handling.
     if (inputElement instanceof HTMLTextAreaElement) {
       dispatchInputAndChange(inputElement);
+      _filledElements.add(inputElement);
       continue;
     }
 
@@ -797,40 +899,75 @@ async function processFields(jobForm, fieldMap, form, res) {
     // - setNativeValue may set select.value to the raw fillValue (which may not equal an option.value)
     // - radio groups need us to click the correct input in the group
     if (inputElement instanceof HTMLSelectElement) {
-      setBestSelectOption(inputElement, fillValue);
+      // For country dropdowns, prefer Location (Country) over Location (City)
+      let selectFillValue = fillValue;
+      if (isCountryDropdown(inputElement) && res["Location (Country)"]) {
+        selectFillValue = res["Location (Country)"];
+      }
+      // Try with EEO synonym normalization first, then raw value
+      const normalizedValue = normalizeEeoValue(selectFillValue);
+      const filled = setBestSelectOption(inputElement, normalizedValue) || setBestSelectOption(inputElement, selectFillValue);
+      if (filled) _filledElements.add(inputElement);
       continue;
     }
 
     if (inputElement.type === "radio") {
-      clickBestRadioInGroup(inputElement, fillValue, form);
+      const normalizedValue = normalizeEeoValue(fillValue);
+      const filled = clickBestRadioInGroup(inputElement, normalizedValue, form) || clickBestRadioInGroup(inputElement, fillValue, form);
+      if (filled) _filledElements.add(inputElement);
       continue;
     }
 
-    // Custom ARIA dropdowns: role="combobox" controlling a role="listbox" (Ashby/BambooHR/etc.)
-    const listboxId =
-      inputElement.getAttribute?.("aria-owns") ||
-      inputElement.getAttribute?.("aria-controls");
-    if (listboxId && inputElement.getAttribute?.("role") === "combobox") {
-      try {
-        inputElement.click();
-      } catch (_) {}
-      await sleep(delays.short);
+    // Custom ARIA dropdowns: role="combobox" controlling a role="listbox" (Ashby/BambooHR/Greenhouse react-select)
+    if (inputElement.getAttribute?.("role") === "combobox") {
+      let listboxId =
+        inputElement.getAttribute?.("aria-owns") ||
+        inputElement.getAttribute?.("aria-controls");
 
-      const listbox = document.getElementById(listboxId);
-      if (listbox) {
-        const options = Array.from(listbox.querySelectorAll('[role="option"]'));
-        let bestOpt = { el: null, score: 0 };
-        for (const opt of options) {
-          const score = matchScore(fillValue, opt.textContent);
-          if (score > bestOpt.score) bestOpt = { el: opt, score };
+      // Greenhouse react-select: derive listbox ID from input ID or aria-describedby
+      if (!listboxId && inputElement.id) {
+        listboxId = "react-select-" + inputElement.id + "-listbox";
+      }
+      if (!listboxId) {
+        const describedBy = inputElement.getAttribute?.("aria-describedby") || "";
+        const match = describedBy.match(/react-select-([^-]+(?:-[^-]+)*)-placeholder/);
+        if (match) {
+          listboxId = "react-select-" + match[1] + "-listbox";
         }
-        if (bestOpt.el && bestOpt.score >= 50) {
-          bestOpt.el.click();
-          await sleep(delays.short);
-          continue;
+      }
+
+      if (listboxId) {
+        // Click to open the dropdown (react-select creates listbox on focus/click)
+        try {
+          inputElement.focus();
+          inputElement.click();
+        } catch (_) {}
+        await sleep(delays.short);
+
+        const listbox = document.getElementById(listboxId);
+        if (listbox) {
+          const options = Array.from(listbox.querySelectorAll('[role="option"]'));
+          const normalizedFill = normalizeEeoValue(fillValue);
+          let bestOpt = { el: null, score: 0 };
+          for (const opt of options) {
+            const score = Math.max(
+              matchScore(normalizedFill, opt.textContent),
+              matchScore(fillValue, opt.textContent)
+            );
+            if (score > bestOpt.score) bestOpt = { el: opt, score };
+          }
+          if (bestOpt.el && bestOpt.score >= 50) {
+            bestOpt.el.click();
+            _filledElements.add(inputElement);
+            await sleep(delays.short);
+            continue;
+          }
         }
       }
     }
+
+    // Mark as filled for general text inputs
+    _filledElements.add(inputElement);
 
     //for the dropdown elements
     let btn = inputElement.closest(".select__control--outside-label");
@@ -841,7 +978,7 @@ async function processFields(jobForm, fieldMap, form, res) {
     btn.dispatchEvent(keyDownEvent);
     await sleep(delays.short);
   }
-  scrollToTop();
+  // Removed: scrollToTop() was preventing users from reviewing/correcting filled fields
   console.log(`SmartApply: Complete in ${getTimeElapsed(initTime)}s.`);
 
   // Track Applied Job

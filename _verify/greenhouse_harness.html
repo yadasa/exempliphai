@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SmartApply CL5.4 — Greenhouse Harness (GoGuardian Fixture)</title>
+  <style>
+    body{font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:16px; background:#0b1020; color:#e5e7eb}
+    h1{font-size:16px; margin:0 0 8px 0}
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:10px 0}
+    button{background:#4f46e5; border:0; color:#fff; padding:8px 10px; border-radius:10px; font-weight:700; cursor:pointer}
+    button.secondary{background:#374151}
+    button.danger{background:#b91c1c}
+    .panel{background:#111827; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:12px}
+    pre{white-space:pre-wrap; word-break:break-word; font-size:12px; line-height:1.35; margin:0; max-height:220px; overflow:auto}
+    iframe{width:100%; height:72vh; border:1px solid rgba(255,255,255,0.08); border-radius:14px; background:#fff}
+    code{background:rgba(255,255,255,0.08); padding:2px 6px; border-radius:8px}
+  </style>
+</head>
+<body>
+  <h1>SmartApply CL5.4 — Greenhouse static fixture harness</h1>
+
+  <div class="row">
+    <button id="btnReload" class="secondary">Reload fixture</button>
+    <button id="btnReset" class="secondary">Reset fields</button>
+    <button id="btnInject">Inject content scripts (after load)</button>
+    <button id="btnAssert" class="secondary">Assert / log values</button>
+    <span style="opacity:.8">Fixture: <code>/examples/greenhouse/goguardian.html</code></span>
+  </div>
+
+  <div class="panel" style="margin-bottom:12px">
+    <pre id="log"></pre>
+  </div>
+
+  <iframe id="fixture" src="/examples/greenhouse/goguardian.html"></iframe>
+
+  <script type="module">
+    const iframe = document.getElementById('fixture');
+    const logEl = document.getElementById('log');
+
+    const SYNC_FIXTURE = {
+      // Intentionally omit First/Last to test normalization from Full Name
+      'Full Name': 'Ada Lovelace',
+      'Email Address': 'ada@example.com',
+      'Phone': '555-000-0000',
+
+      // EEO selections (will be chosen via simulated react-select listboxes)
+      'Gender': 'Female',
+      'Hispanic/Latino': 'No',
+      'Veteran Status': 'Prefer not to say',
+      'Disability Status': 'Prefer not to say',
+      'Race': 'Black or African American',
+
+      // Common custom questions
+      'Legally Authorized to Work': 'Yes',
+      'Requires Sponsorship': 'No',
+
+      // Location
+      'Location (Country)': 'United States',
+      'Location (City)': 'New York',
+      'Location (State/Region)': 'NY'
+    };
+
+    const LOCAL_FIXTURE = {
+      // No resume for deterministic testing (avoids file upload branches)
+      'Resume': null,
+      'Resume_name': 'resume.pdf',
+      'Resume_details': null,
+    };
+
+    function log(...args) {
+      const msg = args.map(a => {
+        try { return typeof a === 'string' ? a : JSON.stringify(a); } catch { return String(a); }
+      }).join(' ');
+      logEl.textContent += msg + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log('[HARNESS]', ...args);
+    }
+
+    function makeStorage(areaData) {
+      const store = { ...(areaData || {}) };
+      return {
+        get(key, cb) {
+          const out = {};
+          if (key == null) {
+            Object.assign(out, store);
+            cb(out);
+            return;
+          }
+          if (Array.isArray(key)) {
+            for (const k of key) out[k] = store[k];
+            cb(out);
+            return;
+          }
+          if (typeof key === 'string') {
+            out[key] = store[key];
+            cb(out);
+            return;
+          }
+          if (typeof key === 'object') {
+            for (const [k, defVal] of Object.entries(key)) {
+              out[k] = store[k] === undefined ? defVal : store[k];
+            }
+            cb(out);
+            return;
+          }
+          cb(out);
+        },
+        set(obj, cb) {
+          try { Object.assign(store, obj || {}); } catch {}
+          cb && cb();
+        }
+      };
+    }
+
+    function installChromeStub(win) {
+      win.chrome = {
+        storage: {
+          sync: makeStorage(SYNC_FIXTURE),
+          local: makeStorage(LOCAL_FIXTURE),
+        },
+        runtime: {
+          sendMessage() {},
+          onMessage: { addListener() {} },
+        },
+      };
+    }
+
+    function clearBasics(doc) {
+      const ids = ['first_name', 'last_name', 'email', 'phone'];
+      for (const id of ids) {
+        const el = doc.getElementById(id);
+        if (el) {
+          el.value = '';
+          el.setAttribute('value', '');
+        }
+      }
+    }
+
+    function simulateReactSelectListboxes(doc) {
+      // Create listboxes on-demand when the control is opened.
+      // This lets us deterministically test listbox inference & option clicking.
+      const ensureListbox = (inputEl, options) => {
+        const id = inputEl?.id;
+        if (!id) return;
+        const listboxId = 'react-select-' + id + '-listbox';
+        let box = doc.getElementById(listboxId);
+        if (box) return;
+
+        box = doc.createElement('div');
+        box.id = listboxId;
+        box.setAttribute('role', 'listbox');
+        box.style.position = 'fixed';
+        box.style.top = '80px';
+        box.style.right = '18px';
+        box.style.zIndex = '2147483646';
+        box.style.background = '#fff';
+        box.style.color = '#111';
+        box.style.border = '1px solid #ddd';
+        box.style.borderRadius = '10px';
+        box.style.padding = '6px';
+        box.style.maxHeight = '240px';
+        box.style.overflow = 'auto';
+        box.style.minWidth = '260px';
+
+        for (const optText of options) {
+          const opt = doc.createElement('div');
+          opt.setAttribute('role', 'option');
+          opt.textContent = optText;
+          opt.style.padding = '6px 8px';
+          opt.style.cursor = 'pointer';
+          opt.addEventListener('click', () => {
+            // Approximate react-select behavior: set input value & collapse listbox.
+            inputEl.value = optText;
+            inputEl.setAttribute('value', optText);
+            box.remove();
+          });
+          box.appendChild(opt);
+        }
+
+        (doc.body || doc.documentElement).appendChild(box);
+      };
+
+      // Attach a single capturing listener that creates a listbox for the closest combobox.
+      doc.addEventListener('mousedown', (e) => {
+        const target = e.target;
+        const input = target?.closest?.('.select__control')?.querySelector?.('input[role="combobox"], input.select__input')
+          || target?.closest?.('input[role="combobox"], input.select__input');
+        if (!input) return;
+
+        const id = input.id;
+        const map = {
+          gender: ['Male', 'Female', 'Prefer not to say'],
+          hispanic_ethnicity: ['Yes', 'No', 'Prefer not to say'],
+          veteran_status: ['I am not a protected veteran', 'I am a protected veteran', 'Prefer not to say'],
+          disability: ['Yes', 'No', 'Prefer not to say'],
+          race: ['Black or African American', 'White', 'Asian', 'Two or More Races', 'Prefer not to say'],
+        };
+
+        if (map[id]) ensureListbox(input, map[id]);
+      }, true);
+    }
+
+    async function injectScripts(doc) {
+      const inject = (src) => {
+        log('inject:', src);
+        return Promise.race([
+          new Promise((resolve, reject) => {
+            const s = doc.createElement('script');
+            s.type = 'module';
+            s.src = src;
+            s.onload = () => resolve();
+            s.onerror = (e) => reject(e);
+            (doc.head || doc.documentElement).appendChild(s);
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('inject timeout: ' + src)), 8000)),
+        ]);
+      };
+
+      // Content scripts order (matches manifest)
+      await inject('/src/public/contentScripts/utils.js');
+      await inject('/src/public/contentScripts/workday.js');
+      await inject('/src/public/contentScripts/autofill.js');
+    }
+
+    function getFixtureDoc() {
+      const win = iframe.contentWindow;
+      const doc = iframe.contentDocument;
+      if (!win || !doc) throw new Error('fixture not ready');
+      return { win, doc };
+    }
+
+    async function assertValues() {
+      const { doc } = getFixtureDoc();
+      const v = (id) => doc.getElementById(id)?.value || '';
+      const btn = doc.getElementById('smartapply-autofill-now');
+
+      log('AUTOFILL button present:', !!btn);
+      log('first_name:', JSON.stringify(v('first_name')));
+      log('last_name:', JSON.stringify(v('last_name')));
+      log('email:', JSON.stringify(v('email')));
+
+      // Basic expectation for CL5.4
+      const okBasics = v('first_name') && v('last_name') && v('email');
+      log('BASICS_FILLED:', !!okBasics);
+
+      // Optional EEO check if the simulator is used
+      const g = v('gender');
+      if (g) log('gender:', JSON.stringify(g));
+    }
+
+    document.getElementById('btnReload').addEventListener('click', () => {
+      logEl.textContent = '';
+      iframe.src = iframe.src; // reload
+      log('reloading iframe...');
+    });
+
+    document.getElementById('btnReset').addEventListener('click', async () => {
+      const { win, doc } = getFixtureDoc();
+      clearBasics(doc);
+      installChromeStub(win);
+      simulateReactSelectListboxes(doc);
+      log('reset: basics cleared; chrome stub + react-select simulator installed');
+    });
+
+    document.getElementById('btnInject').addEventListener('click', async () => {
+      const { win, doc } = getFixtureDoc();
+      installChromeStub(win);
+      simulateReactSelectListboxes(doc);
+      clearBasics(doc);
+      log('injecting scripts AFTER load...');
+      await injectScripts(doc);
+      log('scripts injected');
+    });
+
+    document.getElementById('btnAssert').addEventListener('click', async () => {
+      await assertValues();
+    });
+
+    iframe.addEventListener('load', () => {
+      log('iframe loaded. Click "Reset fields" then "Inject" to simulate late content script execution.');
+    });
+
+    // Headless/CI helper: ?autorun=1 will run the full flow and print results into the log <pre>.
+    (async () => {
+      try {
+        const autorun = new URL(location.href).searchParams.get('autorun') === '1';
+        if (!autorun) return;
+
+        log('AUTORUN: starting');
+
+        // Wait for iframe to finish navigation (we want to simulate *late* content script injection)
+        await new Promise((resolve) => {
+          const alreadyOnFixture = (() => {
+            try {
+              const p = iframe.contentWindow?.location?.pathname || '';
+              return p.endsWith('/examples/greenhouse/goguardian.html');
+            } catch (_) {
+              return false;
+            }
+          })();
+
+          if (alreadyOnFixture) return resolve();
+
+          iframe.addEventListener('load', () => resolve(), { once: true });
+        });
+
+        const { win, doc } = getFixtureDoc();
+        log('AUTORUN: iframe ready');
+        installChromeStub(win);
+        simulateReactSelectListboxes(doc);
+        clearBasics(doc);
+
+        log('AUTORUN: injecting scripts AFTER load');
+        await injectScripts(doc);
+
+        // Give the content scripts a moment (multi-pass will run at +300ms / +1200ms)
+        await new Promise((r) => setTimeout(r, 2500));
+
+        await assertValues();
+        document.documentElement.dataset.harnessDone = '1';
+        log('AUTORUN_DONE');
+      } catch (e) {
+        log('AUTORUN_ERROR', (e && e.message) || String(e));
+        document.documentElement.dataset.harnessDone = 'error';
+      }
+    })();
+  </script>
+</body>
+</html>

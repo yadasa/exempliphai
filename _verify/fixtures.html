@@ -1,0 +1,225 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Autofill verify fixtures</title>
+  <style>
+    body{font-family:system-ui, sans-serif; padding:20px}
+    .field{margin:16px 0}
+    label{display:block; font-weight:600; margin-bottom:6px}
+    #listbox{border:1px solid #ddd; padding:6px; width:240px}
+    [role=option]{padding:4px; cursor:pointer}
+    [role=option]:hover{background:#eee}
+  </style>
+</head>
+<body>
+  <form id="application-form">
+    <div class="field">
+      <label for="q_auth">Are you legally authorized to work in the United States for Quantum Metric?</label>
+      <select id="q_auth">
+        <option value="">Select…</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="q_visa">Will you now or in the future require sponsorship for employment visa status?</label>
+      <select id="q_visa">
+        <option value="">Select…</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="q_loc">What is your location?</label>
+      <input id="q_loc" />
+    </div>
+
+    <div class="field">
+      <label for="q_vet">Veteran Status</label>
+      <select id="q_vet">
+        <option value="">Select…</option>
+        <option value="not">I am not a protected veteran</option>
+        <option value="protected">I am a protected veteran</option>
+        <option value="decline">Prefer not to say</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="q_long">Additional information</label>
+      <textarea id="q_long" rows="4"></textarea>
+    </div>
+
+    <div class="field">
+      <span id="lbl_auth2">Are you legally authorized to work in the US?</span>
+      <select id="q_auth2" aria-labelledby="lbl_auth2">
+        <option value="">Select…</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="combo">Location (City) combobox</label>
+      <input id="combo" role="combobox" aria-controls="listbox" />
+      <div id="listbox" role="listbox">
+        <div role="option">New York, NY</div>
+        <div role="option">San Francisco, CA</div>
+        <div role="option">Remote</div>
+      </div>
+    </div>
+  </form>
+
+<script>
+function normalizeText(str) {
+  return (str ?? "")
+    .toString()
+    .toLowerCase()
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function matchScore(a, b) {
+  const na = normalizeText(a);
+  const nb = normalizeText(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 100;
+  if (na.includes(nb) || nb.includes(na)) return 90;
+
+  const aTokens = new Set(na.split(" "));
+  const bTokens = new Set(nb.split(" "));
+  let inter = 0;
+  for (const t of aTokens) if (bTokens.has(t)) inter++;
+  const union = aTokens.size + bTokens.size - inter;
+  const jaccard = union ? inter / union : 0;
+  let score = Math.round(60 * jaccard);
+  if (inter >= 2) score += 10;
+  return score;
+}
+
+function getLabelText(node) {
+  const texts = [];
+  if (!node) return texts;
+  const doc = node.ownerDocument || document;
+
+  const id = node.id;
+  if (id) {
+    const escId = CSS?.escape ? CSS.escape(id) : id;
+    const lbl = doc.querySelector(`label[for="${escId}"]`);
+    if (lbl) texts.push(lbl.textContent);
+  }
+
+  const parentLabel = node.closest?.("label");
+  if (parentLabel) texts.push(parentLabel.textContent);
+
+  const labelledBy = node.getAttribute?.("aria-labelledby");
+  if (labelledBy) {
+    const refTexts = labelledBy
+      .split(/\s+/)
+      .map((refId) => doc.getElementById(refId)?.textContent || "")
+      .filter(Boolean);
+    if (refTexts.length) texts.push(refTexts.join(" "));
+  }
+
+  let parent = node.parentElement;
+  for (let depth = 0; parent && depth < 4; depth++, parent = parent.parentElement) {
+    if (parent.tagName === "FORM") break;
+    if (parent.tagName === "FIELDSET") {
+      const legend = parent.querySelector("legend");
+      if (legend) texts.push(legend.textContent);
+    }
+    const directText = parent.textContent || "";
+    if (directText.length > 3 && directText.length < 300) {
+      texts.push(directText);
+      break;
+    }
+  }
+  return texts.filter(Boolean);
+}
+
+function inputQuery(jobParam, form) {
+  const normalizedParam = normalizeText(jobParam);
+  const nodes = Array.from(form.querySelectorAll("input, select, textarea"));
+
+  let el = nodes.find((node) => {
+    const attributes = [
+      node.id,
+      node.name,
+      node.placeholder,
+      node.getAttribute?.("aria-label"),
+      node.getAttribute?.("aria-labelledby"),
+      node.getAttribute?.("aria-describedby"),
+      node.getAttribute?.("data-qa"),
+      node.getAttribute?.("data-automation-id"),
+      node.getAttribute?.("data-automation-label"),
+      node.getAttribute?.("autocomplete"),
+      node.value,
+    ];
+
+    for (const rawAttr of attributes) {
+      const attr = normalizeText(rawAttr);
+      if (!attr) continue;
+      if (attr.includes(normalizedParam)) {
+        if (normalizedParam === "address" && attr.includes("email")) continue;
+        return true;
+      }
+    }
+    return false;
+  });
+  if (el) return el;
+
+  el = nodes.find((node) => {
+    const labelTexts = getLabelText(node);
+    return labelTexts.some((txt) => {
+      const norm = normalizeText(txt);
+      if (!norm) return false;
+      if (norm.includes(normalizedParam)) {
+        if (normalizedParam === "address" && norm.includes("email")) return false;
+        return true;
+      }
+      return false;
+    });
+  });
+  if (el) return el;
+
+  el = nodes.find((node) => {
+    if (!(node instanceof HTMLSelectElement)) return false;
+    const options = Array.from(node.options || []);
+    return options.some((opt) => {
+      const t = normalizeText(opt.textContent);
+      const v = normalizeText(opt.value);
+      return (t && t.includes(normalizedParam)) || (v && v.includes(normalizedParam));
+    });
+  });
+  if (el) return el;
+
+  let bestMatch = { el: null, score: 0 };
+  for (const node of nodes) {
+    const labelTexts = getLabelText(node);
+    for (const txt of labelTexts) {
+      const score = matchScore(normalizedParam, txt);
+      if (score > bestMatch.score) bestMatch = { el: node, score };
+    }
+  }
+
+  if (bestMatch.el && bestMatch.score >= 50) return bestMatch.el;
+  return null;
+}
+
+const form = document.getElementById('application-form');
+console.log('authorized =>', inputQuery('authorized', form)?.id);
+console.log('work authorization =>', inputQuery('work authorization', form)?.id);
+console.log('require sponsorship =>', inputQuery('require sponsorship', form)?.id);
+console.log('visa sponsorship =>', inputQuery('visa sponsorship', form)?.id);
+console.log('location =>', inputQuery('location', form)?.id);
+console.log('veteran status =>', inputQuery('veteran status', form)?.id);
+console.log('veteran =>', inputQuery('veteran', form)?.id);
+console.log('additional info textarea =>', inputQuery('additional information', form)?.id);
+console.log('aria-labelledby authorized =>', inputQuery('authorized', form)?.id);
+</script>
+</body>
+</html>
