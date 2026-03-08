@@ -38,6 +38,8 @@ let smartApplyMutationDebounce = null;
 
 const _filledElements = new WeakSet();
 
+const _filledElements = new WeakSet();
+
 function detectJobFormKey() {
   try {
     const host = (window.location.hostname || "").toLowerCase();
@@ -793,11 +795,11 @@ async function processFields(jobForm, fieldMap, form, res) {
     if (param === "Location (City)") fillValue = formatCityStateCountry(res, param);
 
     setNativeValue(inputElement, fillValue);
+    _filledElements.add(inputElement);  // Mark plain text/default fills
 
     // Textareas don't need select/radio/dropdown handling.
     if (inputElement instanceof HTMLTextAreaElement) {
       dispatchInputAndChange(inputElement);
-      _filledElements.add(inputElement);
       continue;
     }
 
