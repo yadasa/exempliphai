@@ -255,6 +255,10 @@ function setBestSelectOption(selectEl, fillValue) {
       matchScore(fillValue, opt.textContent),
       matchScore(fillValue, opt.value)
     );
+    // Veteran status boost: common "No"/"Not" mismatches
+    if (normalizeText(fillValue).includes('veteran') && (normalizeText(opt.textContent).includes('not') || normalizeText(opt.textContent).includes('no') || opt.value.toLowerCase().includes('decline'))) {
+      score = Math.max(score, 85);
+    }
     if (score > best.score) best = { opt, score };
   }
 
@@ -789,7 +793,7 @@ async function processFields(jobForm, fieldMap, form, res) {
 
     // Scroll smoothly to current field for sequential editing
     inputElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    await sleep(400);  // Faster sequential pause
+    await sleep(200);  // User-requested: 200ms delay
 
     if (param === "Gender" || param === "Location (City)") useLongDelay = true;
     if (param === "Location (City)") fillValue = formatCityStateCountry(res, param);
