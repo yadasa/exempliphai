@@ -36,6 +36,8 @@ let smartApplyAutofillLock = false;
 let smartApplyLastAutofillAt = 0;
 let smartApplyMutationDebounce = null;
 
+const _filledElements = new WeakSet();
+
 function detectJobFormKey() {
   try {
     const host = (window.location.hostname || "").toLowerCase();
@@ -705,6 +707,7 @@ async function processFields(jobForm, fieldMap, form, res) {
       el.dispatchEvent(changeEvent);
       await sleep(delays.short);
 
+      _filledElements.add(el);
       continue;
     }
 
@@ -794,6 +797,7 @@ async function processFields(jobForm, fieldMap, form, res) {
     // Textareas don't need select/radio/dropdown handling.
     if (inputElement instanceof HTMLTextAreaElement) {
       dispatchInputAndChange(inputElement);
+      _filledElements.add(inputElement);
       continue;
     }
 
@@ -801,12 +805,12 @@ async function processFields(jobForm, fieldMap, form, res) {
     // - setNativeValue may set select.value to the raw fillValue (which may not equal an option.value)
     // - radio groups need us to click the correct input in the group
     if (inputElement instanceof HTMLSelectElement) {
-      setBestSelectOption(inputElement, fillValue);
+      if (setBestSelectOption(inputElement, fillValue)) _filledElements.add(inputElement);
       continue;
     }
 
     if (inputElement.type === "radio") {
-      clickBestRadioInGroup(inputElement, fillValue, form);
+      if (clickBestRadioInGroup(inputElement, fillValue, form)) _filledElements.add(inputElement);
       continue;
     }
 
@@ -830,6 +834,7 @@ async function processFields(jobForm, fieldMap, form, res) {
         }
         if (bestOpt.el && bestOpt.score >= 50) {
           bestOpt.el.click();
+          _filledElements.add(inputElement);
           await sleep(delays.short);
           continue;
         }
@@ -844,6 +849,7 @@ async function processFields(jobForm, fieldMap, form, res) {
     await sleep(useLongDelay ? delays.long : delays.short);
     btn.dispatchEvent(keyDownEvent);
     await sleep(delays.short);
+    _filledElements.add(inputElement);
   }
   // Removed global scrollToTop(); per-field scrolling now handles it
   console.log(`SmartApply: Complete in ${getTimeElapsed(initTime)}s.`);
