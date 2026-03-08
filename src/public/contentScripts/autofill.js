@@ -38,8 +38,6 @@ let smartApplyMutationDebounce = null;
 
 const _filledElements = new WeakSet();
 
-const _filledElements = new WeakSet();
-
 function detectJobFormKey() {
   try {
     const host = (window.location.hostname || "").toLowerCase();
