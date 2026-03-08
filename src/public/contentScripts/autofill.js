@@ -784,7 +784,7 @@ async function processFields(jobForm, fieldMap, form, res) {
 
     // Scroll smoothly to current field for sequential editing
     inputElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    await sleep(800);  // Pause for visibility/sequential feel
+    await sleep(400);  // Faster sequential pause
 
     if (param === "Gender" || param === "Location (City)") useLongDelay = true;
     if (param === "Location (City)") fillValue = formatCityStateCountry(res, param);
