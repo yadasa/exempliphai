@@ -246,25 +246,41 @@ function setBestSelectOption(selectEl, fillValue) {
   const options = Array.from(selectEl.options || []);
   if (!options.length) return false;
 
+  const fillNorm = normalizeText(fillValue);
+  const yesSynonyms = ['yes', 'true', '1'];
+  const noSynonyms = ['no', 'false', '0', 'decline', 'prefer not', 'not', 'none'];
+  const isYes = yesSynonyms.some(s => fillNorm.includes(s));
+  const isNo = noSynonyms.some(s => fillNorm.includes(s));
+
   let best = { opt: null, score: 0 };
   for (const opt of options) {
     if (opt.disabled) continue;
-    const score = Math.max(
+    let score = Math.max(
       matchScore(fillValue, opt.textContent),
       matchScore(fillValue, opt.value)
     );
-    // Veteran status boost: common "No"/"Not" mismatches
-    if (normalizeText(fillValue).includes('veteran') && (normalizeText(opt.textContent).includes('not') || normalizeText(opt.textContent).includes('no') || opt.value.toLowerCase().includes('decline'))) {
+
+    // Boolean synonym boosts (fixes "No" → "I am not a veteran"/"Decline")
+    const optNorm = normalizeText(opt.textContent || opt.value);
+    if (isNo && noSynonyms.some(s => optNorm.includes(s))) {
+      score = Math.max(score, 90);
+    } else if (isYes && yesSynonyms.some(s => optNorm.includes(s))) {
+      score = Math.max(score, 90);
+    }
+
+    // Legacy veteran boost (if fillValue mentions 'veteran')
+    if (fillNorm.includes('veteran') && noSynonyms.some(s => optNorm.includes(s))) {
       score = Math.max(score, 85);
     }
+
     if (score > best.score) best = { opt, score };
   }
 
   if (!best.opt) return false;
-  // Avoid choosing a random option on weak matches.
-  if (best.score < 60) return false;
+  if (best.score < 55) return false;  // Slightly lower thresh for booleans
 
-  // Prefer setting by value.
+  console.log(`SmartApply: Select "${fillValue}" → "${best.opt.textContent.trim() || best.opt.value}" (score ${best.score})`);
+
   selectEl.value = best.opt.value;
   best.opt.selected = true;
   dispatchInputAndChange(selectEl);
@@ -788,6 +804,12 @@ async function processFields(jobForm, fieldMap, form, res) {
     if (!fillValue) continue;
     let inputElement = inputQuery(jobParam, form);
     if (!inputElement) continue;
+
+    // Skip already-filled (permanent phone overwrite fix across passes)
+    if (_filledElements.has(inputElement)) {
+      console.log(`SmartApply: Skip filled ${jobParam} (${inputElement.name || inputElement.id || inputElement.type}): already has "${inputElement.value}"`);
+      continue;
+    }
 
     // Scroll smoothly to current field for sequential editing
     inputElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
