@@ -782,6 +782,10 @@ async function processFields(jobForm, fieldMap, form, res) {
     let inputElement = inputQuery(jobParam, form);
     if (!inputElement) continue;
 
+    // Scroll smoothly to current field for sequential editing
+    inputElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    await sleep(800);  // Pause for visibility/sequential feel
+
     if (param === "Gender" || param === "Location (City)") useLongDelay = true;
     if (param === "Location (City)") fillValue = formatCityStateCountry(res, param);
 
@@ -841,7 +845,7 @@ async function processFields(jobForm, fieldMap, form, res) {
     btn.dispatchEvent(keyDownEvent);
     await sleep(delays.short);
   }
-  scrollToTop();
+  // Removed global scrollToTop(); per-field scrolling now handles it
   console.log(`SmartApply: Complete in ${getTimeElapsed(initTime)}s.`);
 
   // Track Applied Job
