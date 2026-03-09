@@ -1,0 +1,1352 @@
+Deep Research Report: AI‑Enhanced Autofill for
+yadasa/exempliphai
+Executive summary
+The yadasa/exempliphai repository is a Manifest V3 Chrome extension whose autofill system is already a
+strong hybrid of deterministic DOM/heuristic filling and AI assistance. The current architecture has
+three key pillars:
+1. Extension popup UI (Vue 3 + Vite) for maintaining a user profile (stored in
+chrome.storage.sync ) and resume artifacts/details (stored in chrome.storage.local ).
+
+1
+
+2
+
+2. Content scripts that detect application pages, match fields using a platform-keyed mapping table
+plus fuzzy matching, and write values into controls while emitting DOM events so frameworks (React,
+4
+etc.) react correctly. 3
+3. A Gemini API integration used in two places: (a) resume parsing into structured JSON during file
+upload in the popup, and (b) generating “AI answers” for user-selected fields in job applications. 5
+6
+
+What is not yet fully covered (or not covered consistently) is a generalized, AI-driven approach that can
+robustly handle all control types on arbitrary sites—especially contenteditable, rich text editors, highly
+custom widget ecosystems (React Select variants, MUI/AntD controls, bespoke ATS widgets), and date/
+time pickers. The repo also uses broad match patterns in manifest.json and therefore must be
+unusually careful about where AI calls and autofill triggers occur.
+
+7
+
+This report provides:
+• A complete inventory (from the repo scan) of form-related files/components/handlers as a
+table.
+• A field-type-by-field-type set of AI parsing/mapping strategies with prompt templates, edge cases,
+and concrete heuristics.
+• A detailed integration design with Mermaid flowcharts and an ER model.
+• A security/privacy/consent plan aligned to Chrome extension security constraints, GDPR, and
+CCPA/CPRA.
+• A prioritized implementation plan with estimates, pseudocode, and test/CI guidance.
+• Performance and cost scenarios grounded in official pricing for Gemini and OpenAI, and
+standards-based form semantics.
+
+1
+
+Codebase inventory of form-related files, components, routes, and
+handlers
+Inventory table
+The table below lists all form-related artifacts found in the repo scan: popup UI components (profile
+editing and modal “forms”), content scripts (web form filling), background handlers (triggers), build/
+manifest wiring, and example fixtures used for validation. Where “routes” are requested: the popup is a
+single-page app mounted at index.html with a tab switcher, and the content scripts are injected based
+on manifest match patterns (not traditional web routes).
+
+2
+
+7
+
+| File path | Type | Frameworks / libraries | How forms are rendered/managed | Validation / submission /
+7
+handlers | |---|---|---|---| | src/public/manifest.json
+| Extension manifest | MV3 | Defines
+action.default_popup=index.html ; injects module content scripts; broad ATS host matches |
+Declares
+
+storage ,
+
+background.js
+
+contextMenus ; wires
+
+background.js
+
+service worker | |
+
+src/public/
+
+| Background service worker | Chrome Extensions APIs | No UI forms; owns triggers
+
+8
+
+| Creates context menu; sends messages; command shortcut;
+chrome.storage.local | | src/public/contentScripts/utils.js
+
+stores last questions in
+4
+| Content script utility |
+
+DOM APIs | Defines platform field maps and setNativeValue to write into inputs/selects and dispatch
+events | Implements value setting for text/select/checkbox/radio; dispatches input & change | | src/
+public/contentScripts/autofill.js
+
+3
+
+| Content script core | DOM APIs, Chrome messaging,
+
+Gemini API fetch | Detects best “application form”; injects an “Autofill Now” button; maps stored profile
+fields to DOM controls | Uses MutationObserver + debounced retries; handles file upload via
+DataTransfer ; includes “AI answer” flow for contextual field generation | | src/public/
+contentScripts/workday.js
+
+9
+
+| Content script (Workday) | DOM APIs | Stage-based Workday filling
+
+via progress bar / automation IDs | Handles staged filling; multi-entry work experience; skills; resume
+2
+upload | | src/index.html
+| Popup entry | HTML + Vite | Mount point #app for Vue | Loads
+|
+
+3
+
+|
+
+createApp(App).mount('#app') | No validation; comp/DOM mount | | src/vue_src/App.vue
+
+11
+
+vue_src/main.ts
+
+|
+
+10
+
+src/vue_src/main.ts
+
+|
+
+Vue
+
+entry
+
+|
+
+Vue
+
+| Popup “routes” via tabs | Vue 3 | Renders many InputField components; Experience tab includes file
+uploads + grid editors; Settings tab includes key mgmt | Tab changes are internal state; writes all user
+inputs to chrome.storage through InputField + modals | | src/vue_src/components/
+InputField.vue
+OR
+
+file
+
+input
+
+12
+
+OR
+
+| Primary field control | Vue 3, Chrome Storage, Gemini API | Renders: text input
+custom
+
+dropdown;
+
+syncs
+
+value
+
+via
+
+v-model
+
+|
+
+Saves
+
+key/value
+
+to
+
+chrome.storage.sync ; for file upload reads PDF -> base64 -> local storage; triggers resume parsing via
+Gemini
+
+and
+
+writes
+
+CustomDropdown.vue
+
+extracted
+13
+
+“profile”
+
+keys
+
+back
+
+to
+
+sync
+
+|
+
+|
+
+src/vue_src/components/
+
+| Custom widget | Vue 3 | Accessible listbox/combobox-like control (button +
+
+listbox) | Emits update:modelValue ; keyboard navigation; used for categorical fields and month pickers
+| | src/vue_src/components/SettingsTab.vue
+
+14
+
+| Settings/ops UI | Vue 3, Chrome Tabs/Storage
+
+| Checkbox toggle for cloud sync; file input for import; buttons for export and AI triggers | Removes API key
+from export; import merges data; triggers in-page content script AI action | |
+src/vue_src/components/JobTracker.vue 15 | Dashboard UI | Vue 3 | Inline edit field (text input)
++ export/import backup | Filters jobs older than 6 months; local/sync recovery behavior; edit/save/cancel
+handlers | | src/vue_src/components/GridDataField.vue 16 | Structured data editor | Vue 3 |
+Renders a grid of items; Skills supports inline add via input | Writes into
+
+Resume_details
+
+chrome.storage.local ; minimal validation | | src/vue_src/components/GridDataItem.vue
+
+2
+
+in
+17
+
+| Grid item + delete | Vue 3 | “Chip” UI; delete icon; plus icon to open modal add | Deletes matching item
+from Resume_details ; opens relevant modal via composable toggles | | src/vue_src/components/
+18
+
+EnterWorkExperience.vue
+
+| Modal form | Vue 3 | Inputs, checkbox, textarea, dropdown months |
+
+Validates required fields (basic); appends structured experience to Resume_details | | src/vue_src/
+components/EnterSkill.vue
+
+| Modal form | Vue 3 | Single input | Adds skill string to
+
+19
+
+Resume_details | | src/vue_src/components/EnterCertification.vue
+
+20
+
+| Modal form | Vue
+
+3 | Inputs + month dropdowns | Validates required certification name; appends structured certification | |
+src/vue_src/components/PrivacyToggle.vue 21 | Consent-ish UI control | Vue 3 | Button toggling
+display masking | Stores toggle state in chrome.storage.sync and affects field masking behavior in
+InputField | | src/vue_src/components/ThemeToggle.vue
+
+| UI control | Vue 3 | Button that
+
+22
+
+toggles theme | Persists theme preference | | src/vue_src/components/Explanation.vue
+
+23
+
+| UI
+
+overlay | Vue 3 | Modal overlay for explanatory text | Controlled by composable; blocks background scroll |
+24
+| src/vue_src/composables/ResumeDetails.ts
+| State/data hook | Vue 3 | Reads
+Resume_details from local storage into reactive state | Used by grid + modals to refresh | | src/
+vue_src/composables/Privacy.ts
+
+25
+
+| State hook | Vue 3 | Controls masking behavior | No
+
+validation; persists through UI usage | | src/vue_src/composables/Skills.ts
+
+26
+
+| State hook |
+
+Vue 3 | Toggles modal | — | | src/vue_src/composables/WorkExperience.ts
+
+27
+
+| State hook |
+
+Vue 3 | Toggles modal | — | | src/vue_src/composables/Certifications.ts
+
+28
+
+| State hook |
+
+Vue 3 | Toggles modal | — | | src/vue_src/composables/Theme.ts
+Applies
+
+theme
+
+to
+
+documentElement
+
+|
+
+Persists
+
+to
+
+sync
+
+|
+
+|
+
+29
+
+| State hook | Vue 3 |
+
+src/vue_src/composables/
+
+Explanation.ts
+
+30
+
+| State hook | Vue 3 | Controls explanation overlay and body scroll | — | |
+
+DATA_FIELDS.md
+
+31
+
+| Internal spec | Markdown | Repository-authored inventory of stored fields,
+
+storage model, and autofill mapping behavior | Useful for testing + schema planning | | PLAN.md
+
+32
+
+|
+
+Roadmap | Markdown | Focuses on Greenhouse fixture reliability and harness approach | Highlights
+bootstrap pitfalls and suggests Playwright/static harness | | examples/greenhouse/*.html 33 34
+| Test fixtures | HTML | Static job-application form snapshots used to validate DOM matching/
+filling | Enables deterministic tests of selectors and control handling | | examples/greenhouse/
+35
+
+36
+
+FULL_HTML/*.html
+
+37
+
+38
+
+| Full snapshots | HTML | Larger fixtures for broader coverage | Useful for
+
+regression tests and AI mapping evaluation | | examples/lever/*.html
+
+39
+
+40
+
+41
+
+42
+
+| Test
+
+fixtures | HTML | Lever application forms | Useful for validating radio/checkbox/select and custom
+1
+question layouts | | src/package.json
+| Build config | Vite, Vue | Describes scripts and
+dependencies | Impacts bundling and content script module behavior | | src/vite.config.ts
+
+43
+
+|
+
+Build config | Vite | Sets build output to dist/ and alias @ to /vue_src | Impacts deployment
+packaging |
+
+Key codebase takeaways relevant to AI autofill
+• The DOM filling side already uses several standards-aligned signals like label , aria-* , and
+other attributes; aligning it systematically with accessible name computation significantly
+improves accuracy on modern UIs. 44
+• The extension’s content scripts run in an isolated world (important for security boundaries), but AI
+calls from content scripts still require careful consent and data minimization because they can be
+triggered on arbitrary matching pages. 45
+• File uploads are supported via assigning files rather than setting the file input’s value .
+Browser security restrictions make value assignment ineffective, so file handling must remain
+DataTransfer-/FileList-based.
+
+46
+
+3
+
+AI-based parsing and mapping strategies by form control type
+This section proposes how to evolve from the current “mapping table + fuzzy match” to an AI-assisted form
+understanding engine that can reliably fill text, textarea, radio, checkbox, select, date/time, file inputs,
+contenteditable, and custom widgets.
+
+Assumptions about profile schema
+Because the profile schema is unspecified, assume the following flexible model:
+• Source of truth remains the existing key/value store: chrome.storage.sync (flat keys like “First
+Name”, “Expected Salary”) plus chrome.storage.local structured objects (resume details).
+
+31
+
+• Introduce a canonical internal schema (optional) while maintaining backward compatibility: e.g.,
+person.givenName , contact.email , employment.workAuth.usAuthorized , etc. Canonical
+schema improves AI mapping and normalization, but the system must still operate purely off the
+existing keys.
+
+Cross-cutting strategy: “semantic field descriptor” + “fill plan”
+Instead of asking the model to “fill the page,” ask it to produce a FillPlan for a controlled list of fields:
+1. Extract field descriptors (deterministic):
+2. Primary: accessible name (label/aria) and role. 47
+3. Secondary: name , id , placeholder , autocomplete , inputmode , pattern , required ,
+DOM neighbors (section headings), and for option-based controls: enumerated options (limited).
+4. Run deterministic mapping first using:
+5. HTML label associations and conventions. 48
+6. ATS-specific map table (your existing fields maps).
+
+4
+
+7. Use AI only for the remaining unresolved or ambiguous fields, and constrain AI output to a JSON
+schema (structured outputs / strict JSON). 49
+
+Text inputs
+Best targets: type=text , type=email , type=tel , type=url , plus unlabeled text inputs.
+Deterministic heuristics - Use label association logic per HTML spec: <label for> or wrapping label.
+50
+
+- Prefer semantically meaningful hints: -
+
+autocomplete=email ,
+
+autocomplete=given-name ,
+
+autocomplete=family-name , etc. - type=email for Email - type=tel for Phone - Normalize user
+profile values: - Derive first/last from full name - Normalize phone formatting (E.164 fallback when required)
+- URL normalization ( https:// prefix when missing)
+AI mapping (when needed) - Use a low-latency model to pick the best profile attribute and apply
+transformations. - Ask for: value , source_key , transform , confidence , reason .
+Edge cases - Multiple “Address” fields: “Email Address” vs street address (already noted as a bug class in
+repo docs). 31
+
+4
+
+- “Preferred name,” “Legal name,” “Name pronunciation” should not map to “Full Name” blindly. - “LinkedIn
+profile” sometimes expects username rather than URL.
+
+Textareas
+Two distinct categories 1. Short textareas (notes, brief explanations): treat like text inputs. 2. Long-form
+questions (motivation, experience narratives): AI generation is appropriate.
+Deterministic heuristics - If textarea is “long” (by rendered height or maxlength), treat as narrative. Extract question text via accessible name algorithm and nearby prompt text (carefully bounded). 44
+AI generation strategy - Input: question, (optional) job title/company, stored resume details, and only the
+minimum relevant profile fields. - Output: a concise answer under a budget, optionally with ATS-specific
+guidance (your code already applies site constraints). 3
+Edge cases - Textarea is part of a rich editor wrapper (Quill/Draft/etc.)—may not respond to .value ; treat
+it as “custom widget” or “contenteditable” path. - “Cover letter” vs “additional information” vs “why do you
+want to work here” should produce different tone and length.
+
+Radio buttons
+Deterministic heuristics - Group by shared
+
+name . - Compute each option’s label text (label[for],
+
+wrapping labels, aria-label). This aligns with HTML labeling and accessible naming concepts.
+- Match against normalized user value (Yes/No synonyms; domain-specific overrides).
+
+51
+
+AI mapping - Only needed when the question is nuanced (e.g., “Will you require sponsorship now or in the
+future?”) or when Yes/No is not clearly derivable. - Provide the option list to AI and ask it to choose exactly
+one option id/value.
+Edge cases - “Legally authorized to work” depends on geography; AI should not guess—should follow
+user’s stored setting or request confirmation. - Radios implemented as ARIA listbox options rather than
+<input type=radio> .
+
+Checkboxes
+Checkboxes are tricky because they can be: - A single consent (boolean) - A Yes/No pair implemented as
+multiple checkboxes - A true multi-select list
+Deterministic heuristics - If a checkbox has a clear “I agree” label, default behavior should be never autocheck without explicit user opt-in. - For multi-checkbox question groups, treat like radios but allow
+multiple checked values.
+AI mapping - Provide group context and ask AI for a set of options to check, each with confidence.
+Edge cases - Required “acknowledgement” checkboxes: treat as consent gates; require human action.
+
+5
+
+Native selects
+Native <select> is amenable to deterministic matching: - Enumerate options and apply fuzzy matching +
+synonyms. - Handle “country” mapping (ISO alpha-2) and common location strings (existing code already
+does a version of this). 3
+AI helps when: - Options are verbose or oddly phrased (EEO disclosures) - Multiple similar options exist
+(“Decline”, “Prefer not to say”, “Self describe”)
+Edge cases - Selecting placeholders (“Select…”) must be avoided. - Some selects require a preceding click to
+open.
+
+Date/time pickers
+There are three common patterns: 1. Native inputs: type=date , type=time , type=datetime-local
+2. Split fields: month/day/year inputs (Workday-style) 3. Fully custom pickers (React/MUI)
+Deterministic strategy - Detect the pattern by DOM: - input.type for native. - clusters by aria/labels
+(“Month”, “Day”, “Year”). - Normalize data: - Store canonical date values internally as ISO-8601, then format
+for the control. - For split fields, fill parts deterministically (month number vs name).
+AI mapping - Only for ambiguous date fields (“Available start date”, “Graduation date”) to decide which
+profile attribute applies and what default should be if missing.
+
+File inputs
+Browsers block setting a file picker value by script; file interactions must use supported mechanisms
+(FileList/DataTransfer), and reading files must come from explicit user selection.
+
+52
+
+Deterministic strategy - Classify which document is expected (Resume/CV/Cover Letter/Transcript/Portfolio
+PDF) using: - label text, aria-label, surrounding prompt - accept types ( accept=".pdf" etc.) - Never
+upload Resume into Cover Letter input unless the user explicitly enables this mapping (the repo already
+flags this as a known hazard). 31
+AI mapping - Allow AI to classify “document intent” from the prompt text, but do not let AI decide to upload
+a document without meeting consent rules.
+
+Contenteditable areas
+Contenteditable is common in rich editors. It does not use .value . You must use DOM Range / Selection
+and dispatch beforeinput / input events for framework-integrated editors.
+Deterministic strategy - Detect: el.isContentEditable or [contenteditable="true"] . - Extract
+label via accessible name computation and nearby prompt text. 53
+- Set content: - Prefer textContent for plain editors; innerHTML only if formatting is required and safe.
+- Dispatch InputEvent('input') plus Event('change') if needed.
+
+6
+
+AI mapping - Similar to textareas: for long narrative prompts, AI generates content; for short prompts, map
+to profile.
+Edge cases - Editor is an iframe (common in enterprise apps). Content scripts may need all_frames
+(already enabled) but still must locate editable frame DOM carefully.
+
+7
+
+Custom widgets
+The repo already handles some custom widgets: - ARIA combobox/listbox flows and React-Select-like
+patterns (by role and listbox id). 3
+- Workday’s automation-id-driven dropdown lists. 9
+To generalize:
+Deterministic strategy - Use ARIA Authoring Practices to drive interaction: - role="combobox" with
+aria-controls / aria-expanded / listbox role.
+- Maintain a library of “widget adapters”: -
+
+54
+
+AriaComboboxAdapter
+
+-
+
+ReactSelectAdapter
+
+-
+
+MUISelectAdapter - AutocompleteChipsAdapter (multi-select tags) - Prefer keyboard-driven flows
+where click behaviors are complex.
+AI mapping - AI chooses which option(s) to select given the options list and the question context. - Keep AI
+blind to raw DOM; provide only extracted descriptors and options.
+
+Integration design for AI autofill
+This design builds on existing triggers (Autofill Now button and message-based AI answer generation) and
+adds a single “FillPlan” orchestration layer.
+
+Where to call AI APIs
+Recommendation: Use a tiered approach.
+• Tier 0 (no AI): Deterministic mapping (existing fields + label/aria/attribute matching) for highconfidence fields. 4
+• Tier 1 (small AI call): “Map these unresolved fields to profile keys” with strictly structured output.
+49
+
+• Tier 2 (generation): Only for long-form narrative answers (textarea/contenteditable), using resume
+details and question prompt.
+
+Client-side vs server-side processing
+Option A: Client-side (BYOK, current pattern) - Pros: no backend, user owns key, easiest to ship. - Cons: AI
+key stored locally; network calls from extension contexts must be carefully permissioned and consented.
+
+7
+
+Option B: Server-side proxy - Pros: central key management, consistent governance, easier caching/
+batching, supports enterprise policies. - Cons: introduces a data processor role; stronger GDPR/CCPA
+requirements and security obligations.
+Given the repo already stores an API key and calls Gemini directly, an incremental plan is:
+1. Implement the new FillPlan engine locally (Gemini BYOK).
+2. Add an optional “Use hosted service” mode later.
+
+Required endpoints (if you add a backend)
+If you implement Option B, minimally:
+• POST /v1/autofill/plan → returns FillPlan JSON for a form snapshot.
+• POST /v1/autofill/generate → returns generated text for a single prompt field.
+• POST /v1/resume/parse → returns structured resume details from an uploaded PDF (or accept
+already-extracted text).
+
+Data flow diagrams
+Autofill orchestration flow
+
+flowchart TD
+A[User clicks 🚀 Autofill Now / shortcut] --> B[DOM Form Snapshot Extractor]
+B --> C[Deterministic Matcher]
+C -->|High confidence fills| D[Fill Executor]
+C -->|Unresolved/ambiguous fields| E[AI Mapper Request Builder]
+E --> F[AI API Call]
+F --> G[FillPlan JSON]
+G --> H[Validator + Policy Gate]
+H -->|Allowed + confident| D
+H -->|Needs review| I[User Review Overlay]
+I --> D
+D --> J[Audit Log + Undo Stack]
+J --> K[Done]
+
+Storage/data model (ER-style)
+
+erDiagram
+SYNC_KV ||--o{ FILL_PLAN : "sources keys"
+LOCAL_RESUME ||--o{ FILL_PLAN : "provides context"
+FILL_PLAN ||--o{ FILL_ACTION : "contains"
+FILL_ACTION ||--o{ AUDIT_EVENT : "logged as"
+SYNC_KV {
+string key
+
+8
+
+string value
+datetime updated_at
+}
+LOCAL_RESUME {
+string resume_b64
+string resume_name
+object resume_details
+}
+FILL_PLAN {
+string plan_id
+string domain
+string page_url
+datetime created_at
+string model_provider
+string model_name
+}
+FILL_ACTION {
+string action_id
+string plan_id
+string field_fingerprint
+string control_type
+string chosen_value
+float confidence
+}
+AUDIT_EVENT {
+string event_id
+string action_id
+datetime ts
+string status
+string old_value_hash
+string new_value_hash
+}
+
+Latency, batching, and caching strategies
+Batching - Batch unresolved fields into one AI call per page (or per “step” in multi-step flows) instead of perfield calls. - For long-form text generation, call per-field, but only when user requests or when confident it’s
+required.
+Caching - Cache stable prompts (e.g., mapping templates and recurring ATS field shapes) using: - Gemini
+caching mechanisms when available (pricing indicates caching exists for Gemini 3 Flash Preview). 55
+- OpenAI cached input pricing incentives (if used). 56
+
+9
+
+Time budgets - Tier 0 fill should complete in <200ms. - Tier 1 mapping call target: 500ms–2s depending on
+model and payload size. - Tier 2 generation: 1–5s; must be accompanied by UI feedback and cancel/undo.
+
+Security, privacy, and consent requirements
+Chrome extension security realities
+• Content scripts run in isolated worlds, reducing direct DOM-script leakage risk, but they still interact
+with potentially hostile pages. 57
+• The extension uses chrome.storage (sync and local). Chrome notes quotas and sensitivity
+concerns, and recommends caution with sensitive data in sync .
+
+58
+
+• MV3 permission discipline matters; Chrome recommends using optional permissions where feasible
+and avoiding “future-proof” permission grabs. 59
+
+Data minimization rules for AI requests
+Adopt a policy-driven “least disclosure” model:
+• Never send entire chrome.storage.sync by default (the current AI-answer path appears to
+include large context). Instead:
+• For mapping: send only the candidate keys and values relevant to the unresolved fields (or send keys
++ hashed values when possible).
+• For generation: send resume details and only the handful of fields relevant to that prompt.
+• Do not send user documents (resume PDF) except in an explicit “parse resume” workflow initiated
+from the user’s upload action (already aligned with FileReader’s “user-selected files only” principle).
+60
+
+Encryption, key handling, and logging
+API key storage - Prefer storing AI keys in chrome.storage.local or chrome.storage.session
+rather than sync (sync replicates across devices and is quota-limited). 58
+- Consider encrypting secrets using WebCrypto with a user-provided passphrase (optional, UX tradeoff).
+Audit logs - Store audit events locally; avoid storing raw sensitive values: - Keep old/new values only as
+hashes unless user opts in. - Keep “field fingerprint” derived from stable attributes (name/id + label hash) to
+support debugging without full DOM capture.
+
+Consent UX
+Implement explicit consent layers:
+• Global toggle: “Enable AI-assisted autofill” (off by default).
+• Per-site toggle: “Allow AI for this domain” and “Allow sending resume details to AI.”
+• Per-action review: for low-confidence or sensitive fields (EEO, disability, veteran, sponsorship),
+require confirmation.
+
+10
+
+GDPR and CCPA/CPRA considerations
+If you operate a backend or otherwise determine processing purposes, you may become a controller/
+processor under GDPR and must align to:
+• Security and integrity/confidentiality principles and lawful basis constraints.
+• Data subject rights such as deletion/erasure. 62
+
+61
+
+For CCPA/CPRA, users may have rights to know, delete, correct, and limit use of sensitive personal
+information depending on whether you meet applicability thresholds and roles. 63
+Practical engineering implications: - Provide data export (already present) and add “delete all data” + “delete
+AI logs.” 14
+- Provide transparent notices in the UI explaining what is sent to AI, when, and why.
+
+Implementation plan with effort estimates, pseudocode, and tests
+Prioritized tasks and time estimates
+Time estimates assume one experienced engineer; “effort” is relative.
+Foundation
+1. Refactor content script bootstrap to be idempotent and not load-only (per repo plan) — effort:
+Medium, time: 1–2 days. 32
+2. Form Snapshot Extractor module (controls discovery + labels + options) — effort: High, time: 4–7
+days. (Use HTML label association and AccName ideas.) 51
+3. Field fingerprinting, touched-field tracking, undo stack — effort: Medium, time: 2–4 days.
+AI-assisted mapping
+1. FillPlan JSON schema + validator — effort: Medium, time: 2–3 days.
+2. AI Provider interface (Gemini + optional OpenAI) — effort: Medium, time: 2–4 days. 64
+3. AI mapping prompts + safety gate (no consent fields, no “agree” checks) — effort: High, time: 4–
+8 days.
+Control executors
+1. Executors for each control type (text/textarea/select/radio/checkbox/date/time/file/
+contenteditable/custom widgets) — effort: High, time: 7–14 days.
+2. Custom widget adapters (ARIA combobox/listbox, React-Select variants) — effort: High, time: 5–
+10 days. 54
+UX + governance
+1. User review overlay for low-confidence fields + per-domain consent UI — effort: High, time: 5–10
+days.
+2. Privacy & data minimization hardening — effort: Medium, time: 3–5 days.
+
+11
+
+Key modules (pseudocode)
+Form snapshot extraction
+
+// contentScripts/formSnapshot.js
+export function extractFormSnapshot(root = document) {
+const controls = findControls(root); // input, textarea, select,
+[contenteditable], role=combobox, etc.
+return controls.map((el) => ({
+fingerprint: stableFingerprint(el),
+tag: el.tagName.toLowerCase(),
+inputType: el.type || null,
+role: el.getAttribute?.("role") || null,
+name: el.getAttribute?.("name") || null,
+id: el.id || null,
+autocomplete: el.getAttribute?.("autocomplete") || null,
+required: !!el.required,
+disabled: !!el.disabled,
+visible: isVisible(el),
+label: computeBestLabel(el),
+// uses HTML label associations + arialabel/labelledby
+description: computeDescription(el),
+options: extractOptions(el),
+// select/options OR listbox options if
+discoverable
+constraints: extractConstraints(el),
+sectionHints: extractSectionContext(el), // headings, fieldset legends, etc
+(bounded)
+}));
+}
+This “computeBestLabel” should align with HTML label association rules and accessible naming precedence
+(aria-label/aria-labelledby and label text). 65
+AI FillPlan request + policy gate
+
+// contentScripts/aiFillPlan.js
+export async function buildAndExecuteFillPlan({ snapshot, profileKV,
+resumeDetails, policy, provider }) {
+const deterministic = deterministicMatch(snapshot, profileKV);
+const unresolved = snapshot.filter(f => !deterministic[f.fingerprint] &&
+shouldConsider(f, policy));
+let aiPlan = null;
+if (unresolved.length) {
+
+12
+
+const minimalProfile = reduceProfile(profileKV, unresolved);
+const prompt = makeMappingPrompt({ fields: unresolved, profile:
+minimalProfile, policy });
+aiPlan = await provider.mapFieldsToValues(prompt); // returns JSON FillPlan
+}
+const merged = mergePlans(deterministic, aiPlan);
+const validated = validateAgainstPolicy(merged, policy); // blocks sensitive/
+consent unless user-approved
+return validated;
+}
+
+Fill executor with undo + confidence thresholds
+
+// contentScripts/fillExecutor.js
+export function applyFillPlan(fillPlan, { minConfidence = 0.75 }) {
+const undoStack = [];
+for (const action of fillPlan.actions) {
+if (action.confidence < minConfidence && !action.userApproved) continue;
+const el = findElementByFingerprint(action.fieldFingerprint);
+if (!el) continue;
+const oldValue = readCurrentValue(el);
+const ok = setControlValue(el, action); // routes to type handlers
+if (ok) {
+undoStack.push({ fieldFingerprint: action.fieldFingerprint, oldValue });
+logAuditEvent(action, oldValue);
+}
+}
+return { undoStack };
+}
+
+Unit/integration tests and harness
+Unit tests (fast) - Snapshot extraction for label/aria inference. - Fingerprint stability across DOM reorders. Executor behavior for each control type.
+Integration tests (Playwright recommended) - Use the examples/ fixtures as deterministic HTML
+pages and run the content scripts against them, as suggested in PLAN.md .
+
+13
+
+32
+
+- Add specific cases for: Greenhouse EEO selects, Lever custom questions, Workday staged flows.
+
+33
+
+42
+
+9
+
+CI/CD - GitHub Actions pipeline: - npm ci - npm run type-check (already defined)
+
+1
+
+- build extension bundle - run Playwright tests headless against fixtures - Add artifact upload: dist/
+packaged zip for manual install.
+
+Fallbacks, error handling, performance and cost
+Confidence thresholds and user review UI
+Implement tiered behavior: - ≥ 0.90 confidence: auto-fill immediately. - 0.75–0.90: fill but highlight fields
+and add a single “Undo Autofill” button. - < 0.75: require review overlay before applying.
+Review overlay features: - Show field label, chosen value, and “why” snippet. - Allow user to switch among
+top-3 suggestions (AI returns alternatives). - Provide “never fill this field on this site” rules.
+
+Undo and audit logs
+Undo mechanism: - Keep an in-memory undo stack for the current run. - Persist last run metadata (not
+values) to local storage for debugging.
+Audit logs: - Store timestamps, domain, field fingerprint, confidence, and hashed old/new values.
+
+Cost estimates under traffic scenarios
+These are order-of-magnitude examples; actual token counts depend on snapshot size and how much
+profile/resume context is included.
+Pricing anchors (official)
+• Gemini 3 Flash Preview: paid tier input ~$0.50 / 1M tokens, output ~$3.00 / 1M tokens. 55
+• OpenAI API pricing: e.g., GPT-5 mini input ~$0.25 / 1M tokens and output ~$2.00 / 1M tokens;
+higher tiers cost more. 56
+Scenario table
+Assumptions: - Mapping call: 6,000 input tokens, 800 output tokens (structured FillPlan). - Narrative
+generation: 2,000 input tokens, 400 output tokens (single long answer). - AI used on 30% of pages (others
+resolved deterministically).
+
+14
+
+AI
+mapping
+calls
+
+Scenario
+
+Volume
+
+Personal
+light
+
+50
+pages/
+mo
+
+15
+
+Personal
+heavy
+
+300
+pages/
+mo
+
+90
+
+Team
+pilot
+
+Narrative
+calls
+
+Monthly token
+usage
+
+Monthly cost (Gemini 3
+Flash Preview)
+
+5
+
+~ (15×6k +
+5×2k)=100k input;
+(15×800 +
+5×400)=14k output
+
+Output: 0.014M×$3≈$0.042
+
+~600k input; ~84k
+output
+
+30
+
+5,000
+pages/
+mo
+
+1,500
+
+~10M input; ~1.3M
+output
+
+250
+
+Input: 0.1M×$0.50≈$0.05;
+→ ~$0.09/mo
+
+55
+
+Input: 0.6M×$0.50≈$0.30;
+Output: 0.084M×$3≈$0.25
+→ ~$0.55/mo
+
+55
+
+Input: 10M×$0.50≈$5;
+Output: 1.3M×$3≈$3.9 →
+~$8.9/mo 55
+
+Implications: - Deterministic-first is the biggest cost lever. - The second lever is context minimization
+(don’t send all profile keys or full resume unless necessary).
+
+Example prompt templates
+Field mapping (structured FillPlan)
+Use JSON schema constrained output when supported (OpenAI structured outputs can enforce exact
+schema matching). 66
+
+SYSTEM:
+You map web form fields to user profile attributes and return JSON only.
+USER:
+Given:
+1) form_fields: a JSON array of fields with {fingerprint, control_type, label,
+description, options[], constraints}
+2) profile: a JSON object of user attributes (keys are user-defined labels)
+3) policy: rules about prohibited content and consent requirements
+Return ONLY a JSON object with:
+{
+"actions": [
+{
+"fieldFingerprint": "...",
+"value": "...",
+"valueSourceKey": "...",
+"transform": "none|normalize_phone|derive_first_last|format_date_iso|
+pick_option",
+"confidence": 0.0-1.0,
+
+15
+
+"safetyFlags": ["SENSITIVE", "CONSENT_REQUIRED", ...],
+"notes": "short reason"
+}
+]
+}
+Rules:
+- Prefer deterministic mappings: first name/email/phone/address.
+- Never auto-check consent/EEO unless policy explicitly allows.
+- If options exist, choose one of the options exactly.
+- If unsure, return low confidence and add CONSENT_REQUIRED.
+
+Long-form answer generation
+
+SYSTEM:
+You are assisting with job applications. Be truthful, concise, and professional.
+USER:
+Question: {question_label_and_text}
+Constraints: {max_words}, {tone}, {site_guidance}
+User profile (minimal): {name, role, years_experience, skills}
+Resume details (optional): {experiences, key_projects}
+Write the answer only. No placeholders.
+
+Migration checklist and backward compatibility
+Migration checklist
+• Keep existing fields.* mapping logic as Tier 0.
+
+4
+
+• Add a feature flag: aiAssistEnabled , domainAllowList ,
+requireReviewBelowConfidence .
+• Move AI key storage away from sync where feasible; update Settings UI accordingly.
+• Introduce new storage keys:
+• AutofillPolicy
+
+58
+
+• AutofillAudit
+• LastFillUndoStack (session or memory-only)
+• Add Playwright harness wired to examples/ fixtures; enforce regressions.
+
+32
+
+Backward compatibility notes
+• Profile keys must remain identical to existing UI labels (“First Name”, etc.) so current deterministic
+filling continues to work. 31
+• AI mapping should be an additive layer that produces FillPlans referencing the same keys, until a
+canonical schema is introduced (optional).
+
+16
+
+• Existing “AI answer” right-click flow should remain, but should be rebuilt on the same Snapshot/
+3
+FillPlan infrastructure to reduce duplication and improve policy enforcement. 8
+
+1
+
+src/package.json
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/package.json
+2
+
+src/index.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/index.html
+6
+
+src/public/contentScripts/autofill.js
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/public/contentScripts/autofill.js
+4
+
+src/public/contentScripts/utils.js
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/public/contentScripts/utils.js
+12
+
+src/vue_src/components/InputField.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+InputField.vue
+7
+
+src/public/manifest.json
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/public/manifest.json
+8
+
+src/public/background.js
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/public/background.js
+9
+
+src/public/contentScripts/workday.js
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/public/contentScripts/
+workday.js
+10
+
+src/vue_src/main.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/main.ts
+11
+
+src/vue_src/App.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/App.vue
+13
+
+src/vue_src/components/CustomDropdown.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+CustomDropdown.vue
+14
+
+src/vue_src/components/SettingsTab.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+SettingsTab.vue
+15
+
+src/vue_src/components/JobTracker.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+JobTracker.vue
+16
+
+src/vue_src/components/GridDataField.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+GridDataField.vue
+17
+
+src/vue_src/components/GridDataItem.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+GridDataItem.vue
+
+17
+
+18
+
+src/vue_src/components/EnterWorkExperience.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+EnterWorkExperience.vue
+19
+
+src/vue_src/components/EnterSkill.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+EnterSkill.vue
+20
+
+src/vue_src/components/EnterCertification.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+EnterCertification.vue
+21
+
+src/vue_src/components/PrivacyToggle.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+PrivacyToggle.vue
+22
+
+src/vue_src/components/ThemeToggle.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+ThemeToggle.vue
+23
+
+src/vue_src/components/Explanation.vue
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/components/
+Explanation.vue
+24
+
+src/vue_src/composables/ResumeDetails.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/composables/
+ResumeDetails.ts
+25
+
+src/vue_src/composables/Privacy.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/composables/Privacy.ts
+26
+
+src/vue_src/composables/Skills.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/composables/Skills.ts
+27
+
+src/vue_src/composables/WorkExperience.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/composables/
+WorkExperience.ts
+28
+
+src/vue_src/composables/Certifications.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/composables/
+Certifications.ts
+29
+
+src/vue_src/composables/Theme.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/composables/Theme.ts
+30
+
+src/vue_src/composables/Explanation.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vue_src/composables/
+Explanation.ts
+31
+
+DATA_FIELDS.md
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/DATA_FIELDS.md
+32
+
+PLAN.md
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/PLAN.md
+33
+
+examples/greenhouse/xapo.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/greenhouse/xapo.html
+
+18
+
+34
+
+examples/greenhouse/axon.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/greenhouse/axon.html
+35
+
+examples/greenhouse/planetscale.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/greenhouse/
+planetscale.html
+36
+
+examples/greenhouse/goguardian.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/greenhouse/
+goguardian.html
+37
+
+examples/greenhouse/FULL_HTML/planetscale.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/greenhouse/FULL_HTML/
+planetscale.html
+38
+
+examples/greenhouse/FULL_HTML/goguardian.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/greenhouse/FULL_HTML/
+goguardian.html
+39
+
+examples/lever/onit.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/lever/onit.html
+40
+
+examples/lever/vesta.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/lever/vesta.html
+42
+
+examples/lever/quantummetric.html
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/examples/lever/
+quantummetric.html
+43
+
+src/vite.config.ts
+
+https://github.com/yadasa/exempliphai/blob/48c6c084af032d0c98ad35d305f4969115f276b1/src/vite.config.ts
+44
+
+47
+
+53
+
+https://www.w3.org/TR/accname-1.2/
+
+https://www.w3.org/TR/accname-1.2/
+45
+
+57
+
+https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts
+
+https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts
+46
+
+52
+
+https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/file
+
+https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/file
+48
+
+50
+
+51
+
+65
+
+https://html.spec.whatwg.org/dev/forms.html
+
+https://html.spec.whatwg.org/dev/forms.html
+49
+
+66
+
+https://openai.com/index/introducing-structured-outputs-in-the-api/
+
+https://openai.com/index/introducing-structured-outputs-in-the-api/
+54
+
+https://www.w3.org/WAI/ARIA/apg/patterns/combobox/
+
+https://www.w3.org/WAI/ARIA/apg/patterns/combobox/
+55
+
+https://ai.google.dev/gemini-api/docs/pricing
+
+https://ai.google.dev/gemini-api/docs/pricing
+56
+
+https://openai.com/api/pricing/
+
+https://openai.com/api/pricing/
+
+19
+
+58
+
+https://developer.chrome.com/docs/extensions/reference/api/storage
+
+https://developer.chrome.com/docs/extensions/reference/api/storage
+59
+
+https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions
+
+https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions
+60
+
+https://developer.mozilla.org/en-US/docs/Web/API/FileReader/
+
+https://developer.mozilla.org/en-US/docs/Web/API/FileReader/
+61 https://eur-lex.europa.eu/legal-content/EN/TXT/?
+qid=1532348683434&uri=CELEX%3A02016R0679-20160504
+
+https://eur-lex.europa.eu/legal-content/EN/TXT/?qid=1532348683434&uri=CELEX%3A02016R0679-20160504
+62
+
+https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A02016R0679-20160504
+
+https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A02016R0679-20160504
+63
+
+https://www.oag.ca.gov/privacy/ccpa
+
+https://www.oag.ca.gov/privacy/ccpa
+64
+
+https://ai.google.dev/api
+
+https://ai.google.dev/api
+
+20
+
+
