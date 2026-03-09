@@ -80,7 +80,30 @@ You will receive:
 - policy constraints (what not to fill)
 
 Task:
-Return ONLY valid JSON matching the FillPlan schema described in the user message.
+Return ONLY valid JSON matching the FillPlan schema.
+
+Required output shape (top-level):
+{
+  "version": "0.1",
+  "plan_id": "...",
+  "created_at": "...", // ISO datetime
+  "domain": "...",
+  "page_url": "...", // absolute URL
+  "provider": { "name": "gemini", "model": "..." },
+  "snapshot_hash": "...", // optional
+  "actions": [
+    {
+      "action_id": "...",
+      "field_fingerprint": "...",
+      "value": { "source": "profile|resume_details|derived|literal|skip", "source_key"?: "...", "literal"?: any, "derived"?: {"kind":"...","args"?:{}} },
+      "transform"?: [{"op":"trim|collapse_whitespace|ensure_https|full_name_part|normalize_phone|month_name_to_number|iso_date_to_control_format|city_state_country", ...}],
+      "apply"?: { "mode": "set_value|select_best_option|click_best_label|upload_resume|upload_linkedin_pdf", "allow_overwrite"?: boolean },
+      "confidence"?: number,
+      "reason"?: string,
+      "policy"?: { "sensitive_category"?: "eeo|health|biometric|none", "requires_review"?: boolean, "requires_explicit_consent"?: boolean }
+    }
+  ]
+}
 
 Rules:
 - Do NOT invent new profile keys.
@@ -162,7 +185,15 @@ Optional profile facts:
 ${ps || '(none)'}`;
 }
 
-async function geminiGenerateContent({ apiKey, model, systemPrompt, userPrompt, timeoutMs }) {
+async function geminiGenerateContent({
+  apiKey,
+  model,
+  systemPrompt,
+  userPrompt,
+  timeoutMs,
+  responseMimeType,
+  temperature = 0.2,
+}) {
   const url = `${GEMINI_API_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   // Gemini REST (generativelanguage) supports a top-level systemInstruction in newer APIs,
@@ -184,9 +215,8 @@ async function geminiGenerateContent({ apiKey, model, systemPrompt, userPrompt, 
           },
         ],
         generationConfig: {
-          temperature: 0.2,
-          // If supported, this nudges JSON-only output for Tier 1.
-          responseMimeType: 'application/json',
+          temperature,
+          ...(responseMimeType ? { responseMimeType } : {}),
         },
       }),
     });
@@ -258,6 +288,7 @@ export function createGeminiProvider(cfg) {
             systemPrompt,
             userPrompt,
             timeoutMs: args?.timeoutMs ?? timeoutMs,
+            responseMimeType: 'application/json',
           }),
         { maxRetries: args?.maxRetries ?? maxRetries }
       );
