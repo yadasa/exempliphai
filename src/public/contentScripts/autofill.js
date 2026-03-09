@@ -1,20 +1,7 @@
-import {
-  keyDownEvent,
-  keyUpEvent,
-  mouseUpEvent,
-  changeEvent,
-  inputEvent,
-  sleep,
-  curDateStr,
-  base64ToArrayBuffer,
-  getTimeElapsed,
-  delays,
-  getStorageDataLocal,
-  getStorageDataSync,
-  setNativeValue,
-  fields,
-} from "./utils.js";
-import { workDayAutofill } from "./workday.js";
+/* globals keyDownEvent, keyUpEvent, mouseUpEvent, changeEvent, inputEvent,
+          sleep, curDateStr, base64ToArrayBuffer, getTimeElapsed, delays,
+          getStorageDataLocal, getStorageDataSync, setNativeValue, fields,
+          workDayAutofill */
 
 let initTime;
 window.addEventListener("load", (_) => {

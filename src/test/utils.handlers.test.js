@@ -12,7 +12,7 @@ import {
   formatForNativeDateInput,
   setContentEditableValue,
   getWidgetAdapter,
-} from '../public/contentScripts/utils.js';
+} from '../public/contentScripts/utils.esm.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,7 +24,7 @@ function readFixture(relFromRepoRoot) {
 
 test('date utils: parse dd/mm/yyyy (DMY)', () => {
   assert.equal(parseToISODate('09/03/2026', { order: 'DMY' }), '2026-03-09');
-  assert.deepEqual(splitDateParts('09/03/2026', { order: 'DMY' }), {
+  assert.deepEqual({ ...splitDateParts('09/03/2026', { order: 'DMY' }) }, {
     year: '2026',
     month: '03',
     day: '09',
@@ -33,7 +33,7 @@ test('date utils: parse dd/mm/yyyy (DMY)', () => {
 
 test('date utils: parse mm/dd/yyyy (MDY)', () => {
   assert.equal(parseToISODate('03/09/2026', { order: 'MDY' }), '2026-03-09');
-  assert.deepEqual(splitDateParts('03/09/2026', { order: 'MDY' }), {
+  assert.deepEqual({ ...splitDateParts('03/09/2026', { order: 'MDY' }) }, {
     year: '2026',
     month: '03',
     day: '09',

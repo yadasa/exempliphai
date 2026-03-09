@@ -958,57 +958,6 @@ async function trySetValueWithAdapter(el, value, ctx = {}) {
   }
 }
 
-// Expose helpers for other module content scripts (legacy)
-try {
-  Object.assign(globalThis, {
-    fields,
-    keyDownEvent,
-    keyUpEvent,
-    mouseUpEvent,
-    changeEvent,
-    inputEvent,
-    sleep,
-    curDateStr,
-    scrollToTop,
-    base64ToArrayBuffer,
-    monthToNumber,
-    getTimeElapsed,
-    delays,
-    getStorageDataLocal,
-    getStorageDataSync,
-    setNativeValue,
-    setContentEditableValue,
-    splitDateParts,
-    parseToISODate,
-    formatForNativeDateInput,
-    widgetAdapters,
-    getWidgetAdapter,
-    trySetValueWithAdapter,
-  });
-} catch (_) {}
-
-export {
-  fields,
-  keyDownEvent,
-  keyUpEvent,
-  mouseUpEvent,
-  changeEvent,
-  inputEvent,
-  sleep,
-  curDateStr,
-  scrollToTop,
-  base64ToArrayBuffer,
-  monthToNumber,
-  getTimeElapsed,
-  delays,
-  getStorageDataLocal,
-  getStorageDataSync,
-  setNativeValue,
-  setContentEditableValue,
-  splitDateParts,
-  parseToISODate,
-  formatForNativeDateInput,
-  widgetAdapters,
-  getWidgetAdapter,
-  trySetValueWithAdapter,
-};
+// Expose all helpers as globals for classic content script loading
+// (Content scripts are loaded as classic scripts sharing a scope — no ESM)
+// No-op if already on globalThis (e.g. Node test env).

@@ -1,16 +1,6 @@
-import {
-  sleep,
-  delays,
-  fields,
-  getStorageDataLocal,
-  base64ToArrayBuffer,
-  changeEvent,
-  inputEvent,
-  keyDownEvent,
-  keyUpEvent,
-  setNativeValue,
-  monthToNumber,
-} from "./utils.js";
+/* globals sleep, delays, fields, getStorageDataLocal, base64ToArrayBuffer,
+          changeEvent, inputEvent, keyDownEvent, keyUpEvent, setNativeValue,
+          monthToNumber */
 
 function getCurStageWorkday(form) {
   if (!form) return null;
@@ -70,7 +60,7 @@ function workdayQueryAll(jobParam, form, type) {
 
   return res;
 }
-export async function workDayAutofill(res) {
+async function workDayAutofill(res) {
   await sleep(delays.initial);
 
   let wrkDayFields = Object.assign({}, fields.workday);
@@ -406,3 +396,4 @@ async function handleDropdownElement(dropdownElement, fillValue) {
   }
   return false;
 }
+

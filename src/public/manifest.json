@@ -33,7 +33,6 @@
         "contentScripts/workday.js",
         "contentScripts/autofill.js"
       ],
-      "type": "module",
       "matches": [
         "https://job-boards.greenhouse.io/*",
         "https://boards.greenhouse.io/*",
