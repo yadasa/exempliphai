@@ -650,3 +650,22 @@ const delays = {
   medium: 400,
   long: 600,
 };
+
+export {
+  fields,
+  keyDownEvent,
+  keyUpEvent,
+  mouseUpEvent,
+  changeEvent,
+  inputEvent,
+  sleep,
+  curDateStr,
+  scrollToTop,
+  base64ToArrayBuffer,
+  monthToNumber,
+  getTimeElapsed,
+  delays,
+  getStorageDataLocal,
+  getStorageDataSync,
+  setNativeValue,
+};

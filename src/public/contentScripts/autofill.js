@@ -1,4 +1,3 @@
-/*
 import {
   keyDownEvent,
   keyUpEvent,
@@ -7,18 +6,15 @@ import {
   inputEvent,
   sleep,
   curDateStr,
-  scrollToTop,
   base64ToArrayBuffer,
-  monthToNumber,
   getTimeElapsed,
   delays,
   getStorageDataLocal,
   getStorageDataSync,
   setNativeValue,
-  fields
-} from "./utils";
-import { workDayAutofill } from './workday';
-*/
+  fields,
+} from "./utils.js";
+import { workDayAutofill } from "./workday.js";
 
 let initTime;
 window.addEventListener("load", (_) => {
