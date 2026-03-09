@@ -414,26 +414,32 @@ const fields = {
   }
 };
 
-const keyDownEvent = new KeyboardEvent("keydown", {
-  key: "Enter",
-  code: "Enter",
-  keyCode: 13,
-  which: 13,
-  bubbles: true,
-});
-const keyUpEvent = new KeyboardEvent("keyup", {
-  key: "Enter",
-  code: "Enter",
-  keyCode: 13,
-  which: 13,
-  bubbles: true,
-});
-const mouseUpEvent = new MouseEvent("mouseup", {
-  bubbles: true,
-  cancelable: true,
-});
-const changeEvent = new Event("change", { bubbles: true });
-const inputEvent = new Event("input", { bubbles: true });
+const keyDownEvent = typeof KeyboardEvent !== "undefined"
+  ? new KeyboardEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+    })
+  : null;
+const keyUpEvent = typeof KeyboardEvent !== "undefined"
+  ? new KeyboardEvent("keyup", {
+      key: "Enter",
+      code: "Enter",
+      keyCode: 13,
+      which: 13,
+      bubbles: true,
+    })
+  : null;
+const mouseUpEvent = typeof MouseEvent !== "undefined"
+  ? new MouseEvent("mouseup", {
+      bubbles: true,
+      cancelable: true,
+    })
+  : null;
+const changeEvent = typeof Event !== "undefined" ? new Event("change", { bubbles: true }) : null;
+const inputEvent = typeof Event !== "undefined" ? new Event("input", { bubbles: true }) : null;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -651,6 +657,336 @@ const delays = {
   long: 600,
 };
 
+/**
+ * Create an InputEvent when available; fallback to a plain Event.
+ * (Node does not implement InputEvent, so tests use the fallback.)
+ */
+function makeInputLikeEvent(type, init = {}, el = null) {
+  const bubbles = init.bubbles ?? true;
+  const cancelable = init.cancelable ?? type === "beforeinput";
+
+  // Use the element's realm when possible (important for DOM polyfills like linkedom).
+  const view = el?.ownerDocument?.defaultView || globalThis;
+
+  try {
+    const InputEventCtor = view?.InputEvent;
+    if (InputEventCtor) {
+      return new InputEventCtor(type, { ...init, bubbles, cancelable });
+    }
+  } catch (_) {}
+
+  try {
+    const EventCtor = view?.Event;
+    if (EventCtor) {
+      return new EventCtor(type, { bubbles, cancelable });
+    }
+  } catch (_) {}
+
+  try {
+    return new Event(type, { bubbles, cancelable });
+  } catch (_) {
+    return { type };
+  }
+}
+
+/**
+ * Set value for contenteditable / rich editor roots.
+ *
+ * Best-effort: tries execCommand('insertText') then falls back to textContent/innerHTML.
+ * Always dispatches beforeinput + input + change (when possible).
+ */
+function setContentEditableValue(el, value, opts = {}) {
+  if (!el) return false;
+
+  const nextValue = value ?? "";
+  const preferExecCommand = opts.preferExecCommand ?? true;
+  const useInnerHTML = opts.useInnerHTML ?? false;
+
+  const isCE =
+    !!el.isContentEditable ||
+    String(el.getAttribute?.("contenteditable") || "").toLowerCase() === "true" ||
+    (el.getAttribute?.("role") === "textbox" && el.getAttribute?.("aria-multiline") === "true");
+
+  if (!isCE) return false;
+
+  try {
+    el.focus?.();
+  } catch (_) {}
+
+  try {
+    el.dispatchEvent(
+      makeInputLikeEvent(
+        "beforeinput",
+        {
+          inputType: "insertText",
+          data: String(nextValue),
+        },
+        el
+      )
+    );
+  } catch (_) {}
+
+  let wrote = false;
+
+  if (preferExecCommand) {
+    try {
+      const doc = el.ownerDocument;
+      if (doc?.execCommand) {
+        try {
+          const sel = doc.getSelection?.();
+          const range = doc.createRange?.();
+          if (sel && range) {
+            range.selectNodeContents(el);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          }
+        } catch (_) {}
+
+        doc.execCommand("insertText", false, String(nextValue));
+        wrote = true;
+      }
+    } catch (_) {}
+  }
+
+  if (!wrote) {
+    try {
+      if (useInnerHTML) {
+        el.innerHTML = String(nextValue);
+      } else {
+        el.textContent = String(nextValue);
+      }
+      wrote = true;
+    } catch (_) {}
+  }
+
+  try {
+    el.dispatchEvent(
+      makeInputLikeEvent(
+        "input",
+        {
+          inputType: "insertText",
+          data: String(nextValue),
+        },
+        el
+      )
+    );
+  } catch (_) {}
+
+  try {
+    const view = el?.ownerDocument?.defaultView || globalThis;
+    const EventCtor = view?.Event || Event;
+    el.dispatchEvent(new EventCtor("change", { bubbles: true }));
+  } catch (_) {}
+
+  return wrote;
+}
+
+function pad2(n) {
+  const s = String(n);
+  return s.length === 1 ? "0" + s : s;
+}
+
+/**
+ * Split a date-like input into { year, month, day } (all zero-padded strings).
+ * Supports:
+ * - YYYY-MM-DD
+ * - DD/MM/YYYY and MM/DD/YYYY (order configurable)
+ * - Month name formats (e.g., "March 9, 2026", "9 March 2026")
+ */
+function splitDateParts(dateLike, options = {}) {
+  const order = String(options.order || "DMY").toUpperCase(); // DMY | MDY
+
+  if (dateLike instanceof Date && !Number.isNaN(dateLike.getTime?.())) {
+    return {
+      year: String(dateLike.getFullYear()),
+      month: pad2(dateLike.getMonth() + 1),
+      day: pad2(dateLike.getDate()),
+    };
+  }
+
+  const raw = String(dateLike || "").trim();
+  if (!raw) return null;
+
+  // ISO
+  let m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return { year: m[1], month: m[2], day: m[3] };
+
+  // Numeric with separators
+  m = raw.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2}|\d{4})$/);
+  if (m) {
+    const a = parseInt(m[1], 10);
+    const b = parseInt(m[2], 10);
+    let y = m[3];
+    if (y.length === 2) y = "20" + y;
+
+    let day, month;
+    // Heuristics if ambiguous
+    if (a > 12 && b <= 12) {
+      day = a;
+      month = b;
+    } else if (b > 12 && a <= 12) {
+      month = a;
+      day = b;
+    } else if (order === "MDY") {
+      month = a;
+      day = b;
+    } else {
+      day = a;
+      month = b;
+    }
+
+    return { year: String(y), month: pad2(month), day: pad2(day) };
+  }
+
+  // Month name formats
+  m = raw.match(/^([A-Za-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{4})$/i);
+  if (m) {
+    const monthNum = monthToNumber(m[1]);
+    if (!monthNum) return null;
+    return { year: m[3], month: pad2(monthNum), day: pad2(parseInt(m[2], 10)) };
+  }
+
+  m = raw.match(/^(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})$/i);
+  if (m) {
+    const monthNum = monthToNumber(m[2]);
+    if (!monthNum) return null;
+    return { year: m[3], month: pad2(monthNum), day: pad2(parseInt(m[1], 10)) };
+  }
+
+  return null;
+}
+
+/**
+ * Parse a date-like input into ISO YYYY-MM-DD (local date, not UTC-shifted).
+ */
+function parseToISODate(dateLike, options = {}) {
+  const parts = splitDateParts(dateLike, options);
+  if (!parts) return null;
+
+  const y = parseInt(parts.year, 10);
+  const m = parseInt(parts.month, 10);
+  const d = parseInt(parts.day, 10);
+
+  if (!y || y < 1000 || m < 1 || m > 12 || d < 1 || d > 31) return null;
+
+  // Validate that it is a real date
+  const dt = new Date(y, m - 1, d);
+  if (Number.isNaN(dt.getTime())) return null;
+  if (dt.getFullYear() !== y || dt.getMonth() + 1 !== m || dt.getDate() !== d) return null;
+
+  return String(y).padStart(4, "0") + "-" + pad2(m) + "-" + pad2(d);
+}
+
+/**
+ * Format a date-like input into the value string expected by <input type="date">.
+ */
+function formatForNativeDateInput(dateLike, options = {}) {
+  return parseToISODate(dateLike, options) || "";
+}
+
+/**
+ * Widget adapter abstraction (stub)
+ */
+const widgetAdapters = [
+  {
+    id: "react-select",
+    matches(el) {
+      try {
+        if (!el || el.getAttribute?.("role") !== "combobox") return false;
+        const describedBy = String(el.getAttribute?.("aria-describedby") || "");
+        if (describedBy.includes("react-select")) return true;
+        if (String(el.id || "").startsWith("react-select")) return true;
+        if (el.closest?.(".select-shell, .select__container, [class*=\"select__\"]")) return true;
+      } catch (_) {}
+      return false;
+    },
+    async setValue(_el, _value, _ctx = {}) {
+      // TODO: implement (typed input + listbox option click)
+      return false;
+    },
+  },
+  {
+    id: "aria-combobox",
+    matches(el) {
+      try {
+        if (!el || el.getAttribute?.("role") !== "combobox") return false;
+        const lbId = el.getAttribute?.("aria-controls") || el.getAttribute?.("aria-owns");
+        if (!lbId) return false;
+        return true;
+      } catch (_) {}
+      return false;
+    },
+    async setValue(_el, _value, _ctx = {}) {
+      // TODO: implement (open + listbox option click)
+      return false;
+    },
+  },
+  {
+    id: "mui",
+    matches(el) {
+      try {
+        if (!el) return false;
+        const cls = String(el.className || "");
+        if (cls.includes("Mui")) return true;
+        if (el.closest?.(".MuiAutocomplete-root, .MuiInputBase-root")) return true;
+      } catch (_) {}
+      return false;
+    },
+    async setValue(_el, _value, _ctx = {}) {
+      // TODO: implement (Autocomplete)
+      return false;
+    },
+  },
+];
+
+function getWidgetAdapter(el) {
+  for (const a of widgetAdapters) {
+    try {
+      if (a.matches?.(el)) return a;
+    } catch (_) {}
+  }
+  return null;
+}
+
+async function trySetValueWithAdapter(el, value, ctx = {}) {
+  const a = getWidgetAdapter(el);
+  if (!a || !a.setValue) return false;
+  try {
+    return await a.setValue(el, value, ctx);
+  } catch (_) {
+    return false;
+  }
+}
+
+// Expose helpers for other module content scripts (legacy)
+try {
+  Object.assign(globalThis, {
+    fields,
+    keyDownEvent,
+    keyUpEvent,
+    mouseUpEvent,
+    changeEvent,
+    inputEvent,
+    sleep,
+    curDateStr,
+    scrollToTop,
+    base64ToArrayBuffer,
+    monthToNumber,
+    getTimeElapsed,
+    delays,
+    getStorageDataLocal,
+    getStorageDataSync,
+    setNativeValue,
+    setContentEditableValue,
+    splitDateParts,
+    parseToISODate,
+    formatForNativeDateInput,
+    widgetAdapters,
+    getWidgetAdapter,
+    trySetValueWithAdapter,
+  });
+} catch (_) {}
+
 export {
   fields,
   keyDownEvent,
@@ -668,4 +1004,11 @@ export {
   getStorageDataLocal,
   getStorageDataSync,
   setNativeValue,
+  setContentEditableValue,
+  splitDateParts,
+  parseToISODate,
+  formatForNativeDateInput,
+  widgetAdapters,
+  getWidgetAdapter,
+  trySetValueWithAdapter,
 };
