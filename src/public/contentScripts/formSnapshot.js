@@ -20,6 +20,7 @@
 
   const MAX_LABEL_CHARS = 160;
   const MAX_NEARBY_CHARS = 160;
+  const MAX_QUESTION_CHARS = 320;
 
   function normalizeText(s) {
     if (s == null) return '';
@@ -185,6 +186,49 @@
     return { tag: '', type: '', role: '', id: '', name: '', autocomplete: '', required: false };
   }
 
+  function buildQuestionField({ kind, label, options }) {
+    try {
+      const base = clampText(label || '', MAX_QUESTION_CHARS);
+      if (!base) return '';
+
+      // For selects / comboboxes, append static options to make the question more explicit.
+      if (kind === 'select' || kind === 'combobox') {
+        const opts = Array.isArray(options) ? options : [];
+        const seen = new Set();
+        const labels = [];
+
+        for (const o of opts) {
+          try {
+            const l = normalizeText((o && (o.label != null ? o.label : o.value)) || '');
+            const v = normalizeText((o && o.value) || '');
+            if (!l && !v) continue;
+
+            // Skip placeholder-y options like "Select..." when value is empty.
+            const lLower = l.toLowerCase();
+            if (!v && (lLower === 'select...' || lLower === 'select…' || lLower.startsWith('select '))) {
+              continue;
+            }
+
+            const key = (l || v).toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            labels.push(l || v);
+          } catch (_) {}
+        }
+
+        if (labels.length) {
+          const joined = labels.slice(0, 12).join(' | ');
+          const more = labels.length > 12 ? '…' : '';
+          return clampText(base + ' Options: ' + joined + more, MAX_QUESTION_CHARS);
+        }
+      }
+
+      return base;
+    } catch (_) {}
+    return clampText(label || '', MAX_QUESTION_CHARS);
+  }
+
+
   /**
    * findControls(root)
    *
@@ -283,9 +327,12 @@
           });
 
           const meta = _controlMeta(el);
+          const question = buildQuestionField({ kind, label, options });
+
           out.push({
             kind,
             label,
+            question,
             section,
             options,
             control: meta,
@@ -310,9 +357,12 @@
           : [];
 
         const meta = _controlMeta(el);
+        const question = buildQuestionField({ kind, label, options });
+
         out.push({
           kind,
           label,
+          question,
           section,
           options,
           control: meta,
@@ -406,6 +456,28 @@
     }
   }
 
+
+  function looksLikeAuxiliaryText(el, text = null) {
+    try {
+      const meta = [
+        (el.getAttribute && el.getAttribute('class')) || '',
+        (el.getAttribute && el.getAttribute('data-testid')) || '',
+        (el.getAttribute && el.getAttribute('data-qa')) || '',
+        el.id || ''
+      ].join(' ').toLowerCase();
+
+      if (/(visually-hidden|sr-only)/.test(meta)) return true;
+      if (/(help|hint|error|tooltip|description|desc)/.test(meta)) return true;
+
+      const t = (text != null ? String(text) : normalizeText(el.textContent || '')).toLowerCase();
+      if (!t) return false;
+      if (t === 'select all that apply' || t.startsWith('select all that apply')) return true;
+      if (t.startsWith('optional')) return true;
+      if (t.startsWith('please select')) return true;
+    } catch (_) {}
+    return false;
+  }
+
   function isLabelLikeElement(el) {
     if (!el || el.nodeType !== 1) return false;
     const tag = (el.tagName || '').toLowerCase();
@@ -421,35 +493,117 @@
     const t = normalizeText(el.textContent || '');
     if (!t) return false;
     if (t.length > MAX_NEARBY_CHARS) return false;
+    if (looksLikeAuxiliaryText(el, t)) return false;
+
     // Avoid very generic boilerplate
-    if (t === '*' || t === ':' || t === '—') return false;
+    if (t == '*' || t == ':' || t == '—') return false;
     return true;
   }
 
-  function labelFromNearby(el) {
+  function looksQuestionLikeText(t) {
     try {
-      // 1) Search for a preceding label-like element in the DOM neighborhood.
+      if (!t) return false;
+      const s = normalizeText(t);
+      if (!s) return false;
+      if (s.length > 50) return true;
+      if (/[?]$/.test(s)) return true;
+      if (/[\*✱]$/.test(s)) return true;
+    } catch (_) {}
+    return false;
+  }
+
+  function bestQuestionTextFromContainer(container) {
+    if (!container || container.nodeType !== 1) return '';
+
+    // Prefer commonly used "question text" wrappers first.
+    const selectors = [
+      '.question-text',
+      '.questionText',
+      '.application-label .text',
+      '.application-label',
+      '.question .text',
+      '.question',
+      '.field-label',
+      '.fieldLabel'
+    ];
+
+    for (const sel of selectors) {
+      try {
+        const nodes = [];
+        if (container.matches && container.matches(sel)) nodes.push(container);
+        if (container.querySelectorAll) nodes.push(...Array.from(container.querySelectorAll(sel)));
+
+        for (const n of nodes) {
+          if (!isLabelLikeElement(n)) continue;
+          const txt = clampText(textFromElement(n), MAX_LABEL_CHARS);
+          if (txt && looksQuestionLikeText(txt)) return txt;
+        }
+      } catch (_) {}
+    }
+
+    // Generic fallback inside the container: any label-like element that looks like a question.
+    try {
+      const candidates = [];
+      if (isLabelLikeElement(container)) candidates.push(container);
+      if (container.querySelectorAll) {
+        candidates.push(...Array.from(container.querySelectorAll('label,span,div,p,strong,b,dt')).filter(isLabelLikeElement));
+      }
+      for (const n of candidates) {
+        const txt = clampText(textFromElement(n), MAX_LABEL_CHARS);
+        if (txt && looksQuestionLikeText(txt)) return txt;
+      }
+    } catch (_) {}
+
+    return '';
+  }
+
+  function labelFromPrecedingQuestionText(el) {
+    try {
       let cur = el;
       for (let depth = 0; depth < 4 && cur; depth++) {
         const parent = cur.parentElement;
         if (!parent) break;
 
-        // Walk siblings before `cur` from right-to-left.
         let sib = cur.previousElementSibling;
         let hops = 0;
-        while (sib && hops < 6) {
-          // Find the last label-like element in this sibling's subtree (or itself)
+        while (sib && hops < 10) {
+          const q = bestQuestionTextFromContainer(sib);
+          if (q) return q;
+          sib = sib.previousElementSibling;
+          hops++;
+        }
+
+        cur = parent;
+      }
+    } catch (_) {}
+
+    return '';
+  }
+
+  function labelFromNearbyShortText(el) {
+    try {
+      let cur = el;
+      for (let depth = 0; depth < 4 && cur; depth++) {
+        const parent = cur.parentElement;
+        if (!parent) break;
+
+        let sib = cur.previousElementSibling;
+        let hops = 0;
+        while (sib && hops < 8) {
+          // Check sibling itself first
           if (isLabelLikeElement(sib)) {
             const t = clampText(textFromElement(sib), MAX_LABEL_CHARS);
-            if (t) return t;
+            if (t && t.length <= 50) return t;
           }
-          // Subtree search for label-like elements
+
+          // Then scan the sibling's subtree for nearby label-like elements
           try {
             const candidates = Array.from(sib.querySelectorAll('label,span,div,p,strong,b,dt'))
               .filter(isLabelLikeElement);
-            if (candidates.length) {
-              const t = clampText(textFromElement(candidates[candidates.length - 1]), MAX_LABEL_CHARS);
-              if (t) return t;
+
+            for (const c of candidates) {
+              const t = clampText(textFromElement(c), MAX_LABEL_CHARS);
+              if (t && t.length <= 50) return t;
             }
           } catch (_) {}
 
@@ -459,14 +613,18 @@
 
         cur = parent;
       }
+    } catch (_) {}
 
-      // 2) Placeholder/title are fallbacks (helpful on unlabeled inputs)
+    return '';
+  }
+
+  function labelFromPlaceholderTitle(el) {
+    try {
       const ph = clampText(el.getAttribute && el.getAttribute('placeholder'), MAX_LABEL_CHARS);
       if (ph) return ph;
       const title = clampText(el.getAttribute && el.getAttribute('title'), MAX_LABEL_CHARS);
       if (title) return title;
     } catch (_) {}
-
     return '';
   }
 
@@ -494,16 +652,25 @@
     const a4 = labelFromWrappingLabel(el);
     if (a4) return a4;
 
-    // 5) nearby heuristics (field-specific label wrappers)
-    const a5 = labelFromNearby(el);
+    // 5) preceding sibling question text (.question-text / application label wrappers)
+    const a5 = labelFromPrecedingQuestionText(el);
     if (a5) return a5;
 
-    // 6) fieldset legend (section-level fallback)
-    const a6 = labelFromFieldsetLegend(el);
+    // 6) nearby short preceding text (p/span/div <50 chars)
+    const a6 = labelFromNearbyShortText(el);
     if (a6) return a6;
+
+    // 7) Placeholder/title fallbacks
+    const a7 = labelFromPlaceholderTitle(el);
+    if (a7) return a7;
+
+    // 8) fieldset legend (section-level fallback)
+    const a8 = labelFromFieldsetLegend(el);
+    if (a8) return a8;
 
     return '';
   }
+
 
   function findPreviousHeading(startEl, rootEl, maxLevel = 4) {
     const sel = Array.from({ length: maxLevel }, (_, i) => `h${i + 1}`).join(',');

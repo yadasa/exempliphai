@@ -78,9 +78,13 @@
     if (!provider) {
       if (providerName === 'gemini') {
         if (!args?.apiKey) throw new Error('AI mapping requires Gemini API Key');
-        // Use stub if gemini provider is not available in the global context
-        const geminiProviderFactory = global.__exempliphaiProviders?.gemini || (() => ({ mapFieldsToFillPlan: async () => ({ actions: [] }) }));
-        provider = geminiProviderFactory({ apiKey: args.apiKey, model: args.model, timeoutMs: args.timeoutMs, maxRetries: args.maxRetries });
+        // Support either a provider factory or a provider object in the global context.
+        const gemini = global.__exempliphaiProviders?.gemini;
+        if (typeof gemini === 'function') {
+          provider = gemini({ apiKey: args.apiKey, model: args.model, timeoutMs: args.timeoutMs, maxRetries: args.maxRetries });
+        } else {
+          provider = gemini || { mapFieldsToFillPlan: async () => ({ actions: [] }) };
+        }
       } else {
         throw new Error(`Unknown provider: ${providerName}`);
       }
@@ -138,14 +142,202 @@
       .filter((k) => !/\d{6,}/.test(k));
   }
 
+  function _err(code, message, extra = {}) {
+    return { code, message, ...extra };
+  }
+
+  function _isTransientProviderError(e) {
+    try {
+      const status = e && (e.status || e.statusCode);
+      if ([408, 425, 429, 500, 502, 503, 504].includes(Number(status))) return true;
+      const msg = String(e && e.message ? e.message : '').toLowerCase();
+      if (msg.includes('timeout') || msg.includes('timed out')) return true;
+      if (msg.includes('network') || msg.includes('temporarily')) return true;
+    } catch (_) {}
+    return false;
+  }
+
+  function _sanitizeValue(value, allowedProfileKeysSet) {
+    try {
+      const v = value && typeof value === 'object' ? { ...value } : {};
+      const source = String(v.source || 'skip');
+
+      if (source === 'skip') return { source: 'skip' };
+
+      if (source === 'profile') {
+        const k = v.source_key;
+        if (!k || !allowedProfileKeysSet || !allowedProfileKeysSet.has(String(k))) return { source: 'skip' };
+        return { source: 'profile', source_key: String(k) };
+      }
+
+      if (source === 'literal') {
+        if (typeof v.literal !== 'string' || !v.literal.trim()) return { source: 'skip' };
+        return { source: 'literal', literal: String(v.literal) };
+      }
+
+      if (source === 'derived') {
+        if (typeof v.derived !== 'string' || !v.derived.trim()) return { source: 'skip' };
+        return { source: 'derived', derived: String(v.derived) };
+      }
+
+      if (source === 'resume_details') {
+        const k = v.resume_details_key;
+        if (!k || typeof k !== 'string' || !k.trim()) return { source: 'skip' };
+        return { source: 'resume_details', resume_details_key: k };
+      }
+
+      // Unknown / unsupported source
+      return { source: 'skip' };
+    } catch (_) {}
+    return { source: 'skip' };
+  }
+
+  function _sanitizeActions(actions, { allowedFpsSet, allowedProfileKeysSet } = {}) {
+    const out = [];
+    const seen = new Set();
+
+    for (const a of Array.isArray(actions) ? actions : []) {
+      try {
+        const fp = String(a && a.field_fingerprint ? a.field_fingerprint : '');
+        if (!fp) continue;
+        if (allowedFpsSet && !allowedFpsSet.has(fp)) continue; // drop hallucinations
+        if (seen.has(fp)) continue; // de-dupe by fingerprint (first wins)
+        seen.add(fp);
+
+        const action = { ...a };
+        action.action_id = action.action_id || randId('a');
+        action.field_fingerprint = fp;
+        action.value = _sanitizeValue(action.value, allowedProfileKeysSet);
+        out.push(action);
+      } catch (_) {}
+    }
+
+    return out;
+  }
+
   /**
-   * AI mapping entry point: map unresolved fields using Gemini.
+   * AI mapping entry point: Tier-1 orchestration.
+   *
+   * Signature expected by unit tests + autofill:
+   *   generateTier1(snapshot, allowedProfileKeys, consents)
    */
-  global.generateTier1 = global.mapUnresolvedFieldsToFillPlan;
+  global.generateTier1 = async function generateTier1(snapshot, allowedProfileKeys, consents = {}) {
+    const allowAiMapping = !!consents?.allowAiMapping;
+    if (!allowAiMapping) {
+      return { ok: false, actions: [], plan: null, error: _err('ai_mapping_disabled', 'AI mapping disabled') };
+    }
+
+    const apiKey = consents?.apiKey;
+    if (!apiKey) {
+      return { ok: false, actions: [], plan: null, error: _err('missing_api_key', 'Missing API key') };
+    }
+
+    const domain = snapshot?.domain || global.location?.hostname || '';
+    const pageUrl = snapshot?.page_url || global.location?.href || '';
+    const snapshotHash = snapshot?.snapshot_hash || '';
+
+    const policy = global.__SmartApply?.policy;
+    const filteredSnapshot = policy?.filterSnapshot ? policy.filterSnapshot(snapshot) : (snapshot || {});
+
+    const unresolvedFields = Array.isArray(filteredSnapshot?.unresolved_fields)
+      ? filteredSnapshot.unresolved_fields
+      : [];
+
+    const allowedKeys = Array.isArray(allowedProfileKeys) ? allowedProfileKeys.filter(Boolean).map(String) : [];
+    const allowedProfileKeysSet = new Set(allowedKeys);
+    const allowedFpsSet = new Set(unresolvedFields.map((f) => String(f?.field_fingerprint || '')).filter(Boolean));
+
+    // Resolve provider (supports either a factory or a provider object).
+    let provider = consents?.provider;
+    if (!provider) {
+      const gemini = global.__exempliphaiProviders?.gemini;
+      if (typeof gemini === 'function') {
+        provider = gemini({ apiKey, model: consents?.model, timeoutMs: consents?.timeoutMs, maxRetries: consents?.maxRetries });
+      } else {
+        provider = gemini;
+      }
+    }
+
+    if (!provider || typeof provider.mapFieldsToFillPlan !== 'function') {
+      return { ok: false, actions: [], plan: null, error: _err('provider_missing', 'AI provider not available') };
+    }
+
+    // If nothing to map after filtering, return an empty-but-valid plan.
+    if (!unresolvedFields.length) {
+      const plan0 = ensureTopLevel({ actions: [] }, { domain, pageUrl, providerName: 'gemini', model: consents?.model });
+      if (snapshotHash) plan0.snapshot_hash = snapshotHash;
+      return { ok: true, actions: [], plan: plan0, error: null };
+    }
+
+    const outerRetries = Number.isFinite(consents?.outerRetries) ? Number(consents.outerRetries) : 0;
+
+    try {
+      let planRaw = null;
+      let attempt = 0;
+      // Retry loop for transient provider errors
+      while (true) {
+        try {
+          planRaw = await provider.mapFieldsToFillPlan({
+            apiKey,
+            model: consents?.model,
+            domain,
+            pageUrl,
+            snapshotHash,
+            allowedProfileKeys: allowedKeys,
+            unresolvedFields,
+            policy,
+            timeoutMs: consents?.timeoutMs,
+            maxRetries: consents?.maxRetries,
+          });
+          break;
+        } catch (e) {
+          if (attempt < outerRetries && _isTransientProviderError(e)) {
+            attempt++;
+            continue;
+          }
+          throw e;
+        }
+      }
+
+      const plan = ensureTopLevel(planRaw || {}, { domain, pageUrl, providerName: 'gemini', model: consents?.model });
+      if (snapshotHash && !plan.snapshot_hash) plan.snapshot_hash = snapshotHash;
+
+      plan.actions = _sanitizeActions(plan.actions || [], { allowedFpsSet, allowedProfileKeysSet });
+
+      // Validate after sanitization
+      const validate = global.__exempliphaiFillPlan?.validate;
+      const v = validate ? validate(plan) : { ok: false, errors: [{ path: '', message: 'validateFillPlan not found in global context' }] };
+      if (!v.ok) {
+        const msg = (v.errors || []).map((e) => `${e.path || '<root>'}: ${e.message}`).join('\n');
+        return { ok: false, actions: [], plan, error: _err('plan_invalid', msg, { errors: v.errors }) };
+      }
+
+      const actions = (plan.actions || []).filter((a) => a?.value?.source && a.value.source !== 'skip');
+      return { ok: true, actions, plan, error: null };
+    } catch (e) {
+      return {
+        ok: false,
+        actions: [],
+        plan: null,
+        error: _err('ai_mapping_failed', String(e && e.message ? e.message : e || 'AI mapping failed')),
+      };
+    }
+  };
 
   // Assign constants
   global.AI_PROVIDER_INTERFACE_VERSION = '0.1';
   global.GEMINI_DEFAULT_MODEL = 'gemini-3-flash-preview';
   global.GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+  // Attach to SmartApply namespace (used by other content scripts + unit tests)
+  global.__SmartApply = global.__SmartApply || {};
+  global.__SmartApply.aiFillPlan = {
+    mapUnresolvedFieldsToFillPlan: global.mapUnresolvedFieldsToFillPlan,
+    allowedProfileKeysFromSyncObject: global.allowedProfileKeysFromSyncObject,
+    generateTier1: global.generateTier1,
+    AI_PROVIDER_INTERFACE_VERSION: global.AI_PROVIDER_INTERFACE_VERSION,
+    GEMINI_DEFAULT_MODEL: global.GEMINI_DEFAULT_MODEL,
+    GEMINI_API_BASE: global.GEMINI_API_BASE,
+  };
 
 })(globalThis);

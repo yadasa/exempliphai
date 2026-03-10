@@ -69,7 +69,7 @@
     return score;
   }
 
-  function getElementValue || ((el) => el?.value || el?.textContent || '')(el) {
+  function getElementValue(el) {
     try {
       const tag = (el.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') return String(el.value ?? '');
@@ -80,14 +80,15 @@
   }
 
   function setElementValue(el, value) {
-    const setNativeValue = setNativeValue;
-    const setContentEditableValue = setContentEditableValue;
+    // utils.js attaches these to the page realm when present.
+    const setNativeValueFn = global?.setNativeValue;
+    const setContentEditableValueFn = global?.setContentEditableValue;
 
     const tag = (el.tagName || '').toLowerCase();
     const ce = el.getAttribute?.('contenteditable');
 
     if ((ce && ce !== 'false') || el.isContentEditable || tag === 'div') {
-      if (typeof setContentEditableValue === 'function') return !!setContentEditableValue(el, value);
+      if (typeof setContentEditableValueFn === 'function') return !!setContentEditableValueFn(el, value);
       try {
         el.textContent = String(value ?? '');
         return true;
@@ -96,9 +97,29 @@
       }
     }
 
-    if (typeof setNativeValue === 'function') {
+    // Linkedom's <select>.value is getter-only; set option.selected instead.
+    if (tag === 'select') {
       try {
-        setNativeValue(el, value);
+        const valStr = String(value ?? '');
+        const opts = Array.from(el?.querySelectorAll ? el.querySelectorAll('option') : (el.options || []));
+
+        for (const opt of opts) {
+          // @ts-ignore
+          opt.selected = false;
+        }
+
+        const matchOpt = opts.find((o) => String(o?.value ?? '') === valStr);
+        if (matchOpt) {
+          // @ts-ignore
+          matchOpt.selected = true;
+          return true;
+        }
+      } catch (_) {}
+    }
+
+    if (typeof setNativeValueFn === 'function') {
+      try {
+        setNativeValueFn(el, value);
         return true;
       } catch (_) {}
     }
@@ -115,10 +136,12 @@
     }
   }
 
-  function setBestSelectOption || ((el, val) => { el.value = val; return true;})(selectEl, fillValue) {
+  function setBestSelectOption(selectEl, fillValue) {
     try {
       if (!selectEl || (selectEl.tagName || '').toLowerCase() !== 'select') return false;
-      const options = Array.from(selectEl.options || []);
+      const options = Array.from(
+        selectEl?.querySelectorAll ? selectEl.querySelectorAll('option') : (selectEl.options || [])
+      );
       if (!options.length) return false;
 
       const yesSyn = ['yes', 'true', '1'];
@@ -142,7 +165,14 @@
       }
 
       if (!best.opt || best.score < 50) return false;
-      selectEl.value = best.opt.value;
+
+      // Linkedom: setting selected=false on a later option can clear the whole
+      // selection. Clear first, then set the winner last.
+      for (const opt of options) {
+        // @ts-ignore
+        opt.selected = false;
+      }
+      // @ts-ignore
       best.opt.selected = true;
 
       try {
@@ -294,7 +324,7 @@
       }
 
       const allowOverwrite = action?.apply?.allow_overwrite === true;
-      const cur = getElementValue || ((el) => el?.value || el?.textContent || '')(el);
+      const cur = getElementValue(el);
       if (!allowOverwrite && cur && cur.trim().length > 0) {
         results.push({ action_id, field_fingerprint: fp, status: 'skipped_overwrite', old_hash: hashValue(cur), new_hash: hashValue(cur) });
         continue;
@@ -313,12 +343,12 @@
       if (mode === 'set_value') {
         ok = setElementValue(el, rv.value);
       } else if (mode === 'select_best_option') {
-        ok = setBestSelectOption || ((el, val) => { el.value = val; return true;})(el, String(rv.value));
+        ok = setBestSelectOption(el, String(rv.value));
       } else {
         ok = false;
       }
 
-      const next = getElementValue || ((el) => el?.value || el?.textContent || '')(el);
+      const next = getElementValue(el);
       const newHash = hashValue(next);
 
       if (ok) {

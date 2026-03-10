@@ -10,6 +10,36 @@
           workDayAutofill */
 
 let initTime;
+
+// In some DOM test environments (e.g., linkedom), document.activeElement is not updated by .focus().
+// Install a best-effort polyfill without impacting real browsers.
+let _smartApplyLastFocusedEl = null;
+try {
+  const doc = globalThis.document;
+  const needsPolyfill = doc && !('activeElement' in doc);
+  if (needsPolyfill) {
+    const view = (doc && doc.defaultView) || globalThis;
+    const proto = view.HTMLElement && view.HTMLElement.prototype;
+    if (proto && !proto.__smartApplyFocusPatched) {
+      const origFocus = proto.focus;
+      proto.focus = function (...args) {
+        try {
+          _smartApplyLastFocusedEl = this;
+        } catch (_) {}
+        try {
+          if (this && this.ownerDocument) this.ownerDocument.activeElement = this;
+        } catch (_) {}
+        try {
+          return origFocus ? origFocus.apply(this, args) : undefined;
+        } catch (_) {
+          return undefined;
+        }
+      };
+      proto.__smartApplyFocusPatched = true;
+    }
+  }
+} catch (_) {}
+
 window.addEventListener("load", (_) => {
   console.log("SmartApply: found job page.");
 
@@ -119,6 +149,7 @@ async function tabToFirstInput(opts = {}) {
   const tabCount = Number.isFinite(opts.tabCount)
     ? opts.tabCount
     : (6 + Math.floor(Math.random() * 2)); // 6–7
+  const quiet = opts.quiet === true;
 
   const _sleep =
     opts.sleep ||
@@ -129,7 +160,7 @@ async function tabToFirstInput(opts = {}) {
   const first = _findFirstInputLike(root, doc);
   if (!first) return null;
 
-  console.log(`SmartApply: Tabbing to first field (Tab x${tabCount})`);
+  if (!quiet) console.log(`SmartApply: Tabbing to first field (Tab x${tabCount})`);
 
   // Prefer the utils.js factories when present, else create a best-effort event
   // using the element's realm.
@@ -241,9 +272,9 @@ function findBestForm() {
 async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
   if (smartApplyAutofillLock) return false;
 
-  // Greenhouse pages are keyboard/focus sensitive and often require an explicit
-  // user interaction. We keep them button-only to avoid half-filled forms.
-  if (!force && isGreenhouse()) return false;
+  // Greenhouse pages are keyboard/focus sensitive and often require focus to be
+  // inside the form. We allow auto-runs, but may send a few *optional* Tabs to
+  // establish focus before filling.
 
   const now = Date.now();
   if (!force && now - smartApplyLastAutofillAt < 1500) return false;
@@ -263,6 +294,35 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
 
   try {
     smartApplyLastRunForced = !!force;
+
+    // Greenhouse: if focus isn't inside a usable control yet, sending a few
+    // Tabs helps React-Select and other controls reliably accept input.
+    if (isGreenhouse()) {
+      try {
+        const root = form || document;
+        const active = document.activeElement;
+
+        // In some DOM test environments, document.activeElement is not updated by .focus().
+        const focusEl = _isUsableFormControl(active)
+          ? active
+          : (_isUsableFormControl(_smartApplyLastFocusedEl) ? _smartApplyLastFocusedEl : active);
+
+        const activeOk = _isUsableFormControl(focusEl) && (!root?.contains || root.contains(focusEl));
+        if (!activeOk) {
+          const tabCount = 6 + Math.floor(Math.random() * 2); // 6–7
+          console.log(`SmartApply: Optional tabs (x${tabCount}) → Starting autofill`);
+          await tabToFirstInput({
+            root,
+            document,
+            tabCount,
+            delayMs: 100,
+            sleep: typeof sleep === 'function' ? sleep : undefined,
+            quiet: true,
+          });
+        }
+      } catch (_) {}
+    }
+
     await autofill(form);
     return true;
   } catch (e) {
@@ -315,12 +375,6 @@ function injectAutofillNowButton() {
         // Reset filled elements and skip cooldowns so button always forces a full re-fill
         _filledElements = new WeakSet();
         _recentlySkipped = new Map();
-
-        // Greenhouse: simulate Tab a few times to get focus into the form before filling.
-        if (isGreenhouse()) {
-          const root = findBestForm() || document;
-          await tabToFirstInput({ root, delayMs: 100 });
-        }
 
         await tryAutofillNow({ force: true, reason: 'button' });
       } finally {
@@ -1075,8 +1129,7 @@ async function awaitForm() {
   const detected = detectJobFormKey();
   if (!detected && !isLikelyApplicationPage()) return;
 
-  // Greenhouse is button-only.
-  if (isGreenhouse()) return;
+  // Greenhouse: allow auto-trigger (tryAutofillNow handles optional focus tabs).
 
   // Try once immediately (some pages render the form before our MutationObserver sees any changes).
   await tryAutofillNow({ force: false, reason: 'initial' });
