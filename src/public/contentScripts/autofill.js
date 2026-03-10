@@ -1344,6 +1344,7 @@ async function processFields(jobForm, fieldMap, form, res) {
           }
         }
         
+        let reactSelectFilled = false;
         if (menu) {
           const options = Array.from(menu.querySelectorAll('[role="option"], [class*="option"]'));
           let bestOpt = { el: null, score: 0 };
@@ -1355,20 +1356,45 @@ async function processFields(jobForm, fieldMap, form, res) {
           if (bestOpt.el && bestOpt.score >= 50) {
             console.log(`SmartApply: React-Select "${jobParam}" → "${bestOpt.el.textContent.trim()}" (score ${bestOpt.score})`);
             bestOpt.el.click();
-            _filledElements.add(inputElement);
+            reactSelectFilled = true;
             await sleep(delays.short);
-            continue;
           } else {
-            console.log(`SmartApply: React-Select "${jobParam}" — no good option match for "${fillValue}" (best score: ${bestOpt.score})`);
+            console.log(`SmartApply: React-Select "${jobParam}" — no good option match for "${fillValue}" (best score: ${bestOpt.score}), clearing input`);
           }
         } else {
           console.log(`SmartApply: React-Select "${jobParam}" — dropdown menu not found after typing "${fillValue}"`);
         }
         
-        // If no option matched, dispatch Enter to confirm typed value (for free-text comboboxes)
-        inputElement.dispatchEvent(keyDownEvent);
-        await sleep(delays.short);
-        _filledElements.add(inputElement);
+        // Post-fill verify: check if an actual selection is visible in the value container.
+        // React-Select renders a .select__single-value element when an option is selected.
+        if (reactSelectFilled) {
+          const selectShell = inputElement.closest(".select-shell, .select__container");
+          const singleValue = selectShell?.querySelector('[class*="singleValue"], [class*="single-value"], .select__single-value');
+          if (singleValue && singleValue.textContent.trim()) {
+            _filledElements.add(inputElement);
+          } else {
+            // Selection click didn't stick — treat as unfilled
+            console.log(`SmartApply: React-Select "${jobParam}" — post-fill verify failed, no visible selection`);
+            reactSelectFilled = false;
+          }
+        }
+        
+        if (!reactSelectFilled) {
+          // No good match or selection didn't stick — clear the typed text via Backspace
+          // so the combobox returns to its placeholder "Select..." state.
+          try {
+            // Clear by selecting all + delete (works across React-Select versions)
+            setNativeValue(inputElement, '');
+            inputElement.dispatchEvent(new Event("input", { bubbles: true }));
+            await sleep(100);
+            // Also dispatch Escape to close any lingering dropdown
+            inputElement.dispatchEvent(new KeyboardEvent("keydown", {
+              key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true,
+            }));
+          } catch (_) {}
+          console.log(`SmartApply: React-Select "${jobParam}" — no option match, skipped (cleared input)`);
+          // Do NOT add to _filledElements — leave for manual fill or AI pass
+        }
       } catch (e) {
         console.error(`SmartApply: Error handling React-Select for "${jobParam}"`, e);
       }
