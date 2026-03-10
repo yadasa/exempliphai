@@ -4,6 +4,7 @@
           createArrowDownKeyDown, createArrowUpKeyDown,
           createEnterKeyDown, createEnterKeyUp,
           createEscapeKeyDown,
+          createTabKeyDown, createTabKeyUp,
           sleep, curDateStr, base64ToArrayBuffer, getTimeElapsed, delays,
           getStorageDataLocal, getStorageDataSync, setNativeValue, fields,
           workDayAutofill */
@@ -58,6 +59,130 @@ function detectJobFormKey() {
   return null;
 }
 
+function isGreenhouse(hostname = null) {
+  try {
+    const host = (hostname ?? window.location.hostname ?? "").toLowerCase();
+    return host.includes('greenhouse.io');
+  } catch (_) {}
+  return false;
+}
+
+function _isUsableFormControl(el) {
+  try {
+    if (!el) return false;
+    const tag = String(el.tagName || '').toLowerCase();
+    if (tag !== 'input' && tag !== 'select' && tag !== 'textarea') return false;
+
+    const type = String(el.getAttribute?.('type') || '').toLowerCase();
+    if (type === 'hidden') return false;
+
+    if (el.disabled) return false;
+    const tabIndexAttr = el.getAttribute?.('tabindex');
+    if (tabIndexAttr === '-1') return false;
+
+    const ariaHidden = String(el.getAttribute?.('aria-hidden') || '').toLowerCase();
+    if (ariaHidden === 'true') return false;
+
+    return true;
+  } catch (_) {}
+  return false;
+}
+
+function _findFirstInputLike(root, doc) {
+  try {
+    const scope = root && root.querySelectorAll ? root : doc;
+    const nodes = Array.from(scope.querySelectorAll('input, select, textarea'));
+    for (const el of nodes) {
+      if (_isUsableFormControl(el)) return el;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function tabToFirstInput(opts = {}) {
+  const doc = opts.document || document;
+  const root = opts.root || doc;
+  const delayMs = Number.isFinite(opts.delayMs) ? opts.delayMs : 100;
+  const tabCount = Number.isFinite(opts.tabCount)
+    ? opts.tabCount
+    : (6 + Math.floor(Math.random() * 2)); // 6–7
+
+  const _sleep =
+    opts.sleep ||
+    (typeof sleep === 'function'
+      ? sleep
+      : (ms) => new Promise((r) => setTimeout(r, ms)));
+
+  const first = _findFirstInputLike(root, doc);
+  if (!first) return null;
+
+  console.log(`SmartApply: Tabbing to first field (Tab x${tabCount})`);
+
+  // Prefer the utils.js factories when present, else create a best-effort event
+  // using the element's realm.
+  const makeTabKey = (type) => {
+    try {
+      const view = first?.ownerDocument?.defaultView || doc?.defaultView || globalThis;
+      const K = view?.KeyboardEvent || KeyboardEvent;
+      return new K(type, {
+        bubbles: true,
+        cancelable: true,
+        key: 'Tab',
+        code: 'Tab',
+        keyCode: 9,
+        which: 9,
+      });
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const tabDown = typeof createTabKeyDown === 'function'
+    ? createTabKeyDown
+    : () => makeTabKey('keydown');
+  const tabUp = typeof createTabKeyUp === 'function'
+    ? createTabKeyUp
+    : () => makeTabKey('keyup');
+
+  // Ensure a predictable target for key events.
+  try {
+    (doc.body || doc.documentElement || first).focus?.();
+  } catch (_) {}
+
+  for (let i = 0; i < tabCount; i++) {
+    const target = doc.activeElement || doc.body || first;
+
+    try {
+      const ev = tabDown();
+      if (ev) target.dispatchEvent(ev);
+    } catch (_) {}
+
+    try {
+      const ev = tabUp();
+      if (ev) target.dispatchEvent(ev);
+    } catch (_) {}
+
+    // Also dispatch on the document in case the page listens globally.
+    try {
+      const ev = tabDown();
+      if (ev && doc.dispatchEvent) doc.dispatchEvent(ev);
+    } catch (_) {}
+
+    try {
+      const ev = tabUp();
+      if (ev && doc.dispatchEvent) doc.dispatchEvent(ev);
+    } catch (_) {}
+
+    await _sleep(delayMs);
+  }
+
+  try {
+    first.focus?.();
+  } catch (_) {}
+
+  return first;
+}
+
 function isLikelyApplicationPage() {
   try {
     if (document.querySelector(applicationFormQuery)) return true;
@@ -102,6 +227,10 @@ function findBestForm() {
 
 async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
   if (smartApplyAutofillLock) return false;
+
+  // Greenhouse pages are keyboard/focus sensitive and often require an explicit
+  // user interaction. We keep them button-only to avoid half-filled forms.
+  if (!force && isGreenhouse()) return false;
 
   const now = Date.now();
   if (!force && now - smartApplyLastAutofillAt < 1500) return false;
@@ -173,6 +302,13 @@ function injectAutofillNowButton() {
         // Reset filled elements and skip cooldowns so button always forces a full re-fill
         _filledElements = new WeakSet();
         _recentlySkipped = new Map();
+
+        // Greenhouse: simulate Tab a few times to get focus into the form before filling.
+        if (isGreenhouse()) {
+          const root = findBestForm() || document;
+          await tabToFirstInput({ root, delayMs: 100 });
+        }
+
         await tryAutofillNow({ force: true, reason: 'button' });
       } finally {
         btn.textContent = prev;
@@ -925,6 +1061,9 @@ async function awaitForm() {
   // Avoid doing work on non-ATS pages (manifest matches are intentionally broad).
   const detected = detectJobFormKey();
   if (!detected && !isLikelyApplicationPage()) return;
+
+  // Greenhouse is button-only.
+  if (isGreenhouse()) return;
 
   // Try once immediately (some pages render the form before our MutationObserver sees any changes).
   await tryAutofillNow({ force: false, reason: 'initial' });

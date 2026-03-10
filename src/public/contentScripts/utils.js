@@ -544,6 +544,24 @@ function createEscapeKeyDown() {
   });
 }
 
+function createTabKeyDown() {
+  return _makeKeyEvent("keydown", {
+    key: "Tab",
+    code: "Tab",
+    keyCode: 9,
+    which: 9,
+  });
+}
+
+function createTabKeyUp() {
+  return _makeKeyEvent("keyup", {
+    key: "Tab",
+    code: "Tab",
+    keyCode: 9,
+    which: 9,
+  });
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

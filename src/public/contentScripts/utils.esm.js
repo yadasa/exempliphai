@@ -61,4 +61,6 @@ export const getTimeElapsed = sandbox.getTimeElapsed;
 export const getStorageDataLocal = sandbox.getStorageDataLocal;
 export const getStorageDataSync = sandbox.getStorageDataSync;
 export const makeInputLikeEvent = sandbox.makeInputLikeEvent;
+export const createTabKeyDown = sandbox.createTabKeyDown;
+export const createTabKeyUp = sandbox.createTabKeyUp;
 export const pad2 = sandbox.pad2;
