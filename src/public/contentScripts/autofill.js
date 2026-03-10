@@ -18,6 +18,7 @@ const AUTOFILL_NOW_BUTTON_ID = "smartapply-autofill-now";
 let smartApplyAutofillLock = false;
 let smartApplyLastAutofillAt = 0;
 let smartApplyMutationDebounce = null;
+let smartApplyLastRunForced = false;
 
 let _filledElements = new WeakSet();
 
@@ -94,6 +95,7 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
   smartApplyLastAutofillAt = now;
 
   try {
+    smartApplyLastRunForced = !!force;
     await autofill(form);
     return true;
   } catch (e) {
@@ -677,6 +679,265 @@ async function autofill(form) {
     console.log("SmartApply: No specific config found, using generic.");
     await processFields('generic', fields.generic, form, res);
   }
+
+  // Phase 2 (opt-in): run AI mapping for unresolved custom fields.
+  // To avoid repeated network calls from MutationObserver re-runs, only do this
+  // on explicit user-triggered runs (the 🚀 button / force=true).
+  if (smartApplyLastRunForced) {
+    try {
+      await tryHybridAiMapping(form, res);
+    } catch (e) {
+      console.warn('SmartApply: Hybrid AI mapping skipped/failed', e);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2: Hybrid AI mapping (opt-in)
+//
+// This is additive. Deterministic autofill stays as-is.
+// The AI mapping layer only runs on explicit user-triggered runs and only sends
+// minimal field descriptors + allowed profile KEY NAMES (never values).
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _smartApplyHybridModulesPromise = null;
+let _smartApplyHybridLastRunAt = 0;
+
+async function loadHybridModules() {
+  if (_smartApplyHybridModulesPromise) return _smartApplyHybridModulesPromise;
+  _smartApplyHybridModulesPromise = (async () => {
+    if (!chrome?.runtime?.getURL) throw new Error('chrome.runtime.getURL unavailable');
+    const aiFillPlanUrl = chrome.runtime.getURL('contentScripts/aiFillPlan.js');
+    const fillExecutorUrl = chrome.runtime.getURL('contentScripts/fillExecutor.js');
+    const policyUrl = chrome.runtime.getURL('contentScripts/policy.js');
+
+    const [aiFillPlan, fillExecutor, policy] = await Promise.all([
+      import(aiFillPlanUrl),
+      import(fillExecutorUrl),
+      import(policyUrl),
+    ]);
+
+    return { aiFillPlan, fillExecutor, policy };
+  })();
+  return _smartApplyHybridModulesPromise;
+}
+
+function inferSectionFromSnapshotCtx(sectionCtx) {
+  try {
+    if (!sectionCtx) return '';
+    const parts = [];
+    if (sectionCtx.legend) parts.push(sectionCtx.legend);
+    if (Array.isArray(sectionCtx.headings) && sectionCtx.headings.length) parts.push(sectionCtx.headings.join(' > '));
+    return parts.filter(Boolean).join(' | ');
+  } catch (_) {}
+  return '';
+}
+
+function isEmptyForAi(el) {
+  try {
+    const tag = (el.tagName || '').toLowerCase();
+    const type = (el.getAttribute?.('type') || '').toLowerCase();
+
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      const v = String(el.value || '').trim();
+      if (type === 'checkbox' || type === 'radio') return false;
+      return v.length === 0;
+    }
+
+    const ce = el.getAttribute?.('contenteditable');
+    if ((ce && ce !== 'false') || el.isContentEditable) {
+      const t = String(el.textContent || '').trim();
+      return t.length === 0;
+    }
+  } catch (_) {}
+  return false;
+}
+
+function shouldConsiderLabelForAi(label) {
+  const t = normalizeText(label);
+  if (!t) return false;
+  if (t.length < 6) return false;
+  if (t.length > 220) return false;
+
+  // Minimize requests: only send labels that look like mapping candidates.
+  const hints = [
+    'authorized',
+    'authorization',
+    'sponsorship',
+    'visa',
+    'work in the united states',
+    'salary',
+    'compensation',
+    'notice period',
+    'available',
+    'start date',
+    'relocate',
+    'linkedin',
+    'github',
+    'website',
+    'portfolio',
+    'location',
+    'city',
+    'state',
+    'country',
+    'zip',
+    'postal',
+    'phone',
+    'email',
+  ];
+
+  return hints.some((h) => t.includes(h));
+}
+
+function controlKindForElement(el) {
+  try {
+    const tag = (el.tagName || '').toLowerCase();
+    const role = (el.getAttribute?.('role') || '').toLowerCase();
+    if (role === 'combobox') return 'combobox';
+
+    if (tag === 'select') return 'select';
+    if (tag === 'textarea') return 'textarea';
+
+    if (tag === 'input') {
+      const type = (el.getAttribute?.('type') || 'text').toLowerCase();
+      if (type === 'file') return 'file';
+      if (type === 'date') return 'date';
+      if (type === 'time') return 'time';
+      if (type === 'datetime-local') return 'datetime-local';
+      return 'input';
+    }
+
+    const ce = el.getAttribute?.('contenteditable');
+    if ((ce && ce !== 'false') || el.isContentEditable) return 'contenteditable';
+  } catch (_) {}
+  return 'unknown';
+}
+
+async function tryHybridAiMapping(form, res) {
+  if (!form) return;
+
+  // Cooldown: avoid re-calling AI rapidly on multi-step pages.
+  const now = Date.now();
+  if (now - _smartApplyHybridLastRunAt < 15000) return;
+
+  const aiMappingEnabled = !!res?.aiMappingEnabled;
+  if (!aiMappingEnabled) return;
+
+  const apiKey = res?.['API Key'];
+  if (!apiKey) return;
+
+  const fs = globalThis.__SmartApply?.formSnapshot;
+  if (!fs?.findControls || !fs?.stableFingerprint || !fs?.computeBestLabel) {
+    console.warn('SmartApply: formSnapshot not loaded; cannot run hybrid mapping');
+    return;
+  }
+
+  const { aiFillPlan, fillExecutor, policy } = await loadHybridModules();
+
+  const domain = window.location.hostname || '';
+  const pageUrl = window.location.href || '';
+
+  const allowedProfileKeys = aiFillPlan.allowedProfileKeysFromSyncObject(res);
+
+  // Collect unresolved candidates.
+  const unresolvedFields = [];
+  const controls = fs.findControls(form);
+
+  for (const el of controls) {
+    try {
+      // v0: do not map boolean controls via AI.
+      const type = (el.getAttribute?.('type') || '').toLowerCase();
+      if (type === 'checkbox' || type === 'radio') continue;
+      if (type === 'file') continue;
+
+      if (_filledElements.has(el)) continue;
+      if (!isEmptyForAi(el)) continue;
+
+      const label = fs.computeBestLabel(el) || '';
+      const sectionCtx = fs.extractSectionContext ? fs.extractSectionContext(el) : null;
+      const section = inferSectionFromSnapshotCtx(sectionCtx);
+
+      // Policy gate BEFORE we send anything to AI.
+      const dec = policy.policyDecision({ label, section }, { allowSensitive: false });
+      if (!dec.allow) continue;
+
+      if (!shouldConsiderLabelForAi(label)) continue;
+
+      const fp = fs.stableFingerprint(el, { root: form });
+      if (!fp) continue;
+
+      const options = fs.extractOptions ? fs.extractOptions(el) : [];
+      const optStrings = Array.isArray(options)
+        ? Array.from(
+            new Set(
+              options
+                .map((o) => (o?.label || o?.value || '').toString().trim())
+                .filter(Boolean)
+            )
+          ).slice(0, 32)
+        : [];
+
+      unresolvedFields.push({
+        field_fingerprint: fp,
+        control: {
+          kind: controlKindForElement(el),
+          tag: (el.tagName || '').toLowerCase(),
+          type: (el.getAttribute?.('type') || '').toLowerCase(),
+          role: (el.getAttribute?.('role') || '').toLowerCase(),
+          name: el.getAttribute?.('name') || '',
+          id: el.getAttribute?.('id') || '',
+          autocomplete: el.getAttribute?.('autocomplete') || '',
+        },
+        descriptor: {
+          label,
+          section,
+          required: el.required || el.getAttribute?.('aria-required') === 'true',
+          visible: true,
+          options: optStrings,
+        },
+      });
+
+      if (unresolvedFields.length >= 10) break; // minimize
+    } catch (_) {}
+  }
+
+  if (!unresolvedFields.length) return;
+
+  _smartApplyHybridLastRunAt = now;
+
+  console.log('SmartApply: Hybrid mapping candidates', unresolvedFields.length);
+
+  const plan = await aiFillPlan.mapUnresolvedFieldsToFillPlan({
+    providerName: 'gemini',
+    apiKey,
+    domain,
+    pageUrl,
+    allowedProfileKeys,
+    unresolvedFields,
+    policy: { never_autofill_consent_checkboxes: true, sensitive_requires_review: true },
+    timeoutMs: 20000,
+    maxRetries: 1,
+  });
+
+  const index = fillExecutor.buildFingerprintIndex({
+    root: form,
+    findControls: fs.findControls,
+    stableFingerprint: (el, _opts) => fs.stableFingerprint(el, { root: form }),
+  });
+
+  const report = await fillExecutor.applyFillPlan({
+    plan,
+    root: form,
+    profile: res,
+    index,
+    formSnapshot: fs,
+    allowSensitive: false,
+    defaultAllowOverwrite: false,
+    setNativeValue,
+    setContentEditableValue,
+  });
+
+  console.log('SmartApply: Hybrid AI mapping report', report);
 }
 
 async function processFields(jobForm, fieldMap, form, res) {

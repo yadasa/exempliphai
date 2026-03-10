@@ -30,6 +30,7 @@
     {
       "js": [
         "contentScripts/utils.js",
+        "contentScripts/formSnapshot.js",
         "contentScripts/workday.js",
         "contentScripts/autofill.js"
       ],

@@ -11,6 +11,18 @@
             <div class="action-card">
                 <h3>AI</h3>
                 <p>Generate an answer for the last right-clicked field.</p>
+
+                <div class="toggle-container" style="margin: 0.75rem 0 0.5rem 0;">
+                    <label class="switch">
+                        <input type="checkbox" v-model="aiMappingEnabled" @change="toggleAiMapping" />
+                        <span class="slider round"></span>
+                    </label>
+                    <span>Enable AI-assisted autofill (field mapping)</span>
+                </div>
+                <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+                    Sends only form field labels/options + a list of your saved profile key names to Gemini (not your profile values).
+                </p>
+
                 <button @click="triggerAI" class="action-btn export-btn">AI Answer Last Right-Click Field</button>
                 <button @click="generateAllPending" class="action-btn export-btn" style="margin-top: 0.5rem;">Generate All Pending</button>
             </div>
@@ -54,17 +66,25 @@ export default {
     setup() {
         const fileInput = ref<HTMLInputElement | null>(null);
         const cloudSyncEnabled = ref(false);
+        const aiMappingEnabled = ref(false);
 
         const loadSettings = async () => {
             if (!chrome.storage) return;
-            chrome.storage.sync.get(['cloudSyncEnabled'], (result) => {
-                cloudSyncEnabled.value = !!result.cloudSyncEnabled;
+            chrome.storage.sync.get(['cloudSyncEnabled', 'aiMappingEnabled'], (result) => {
+                cloudSyncEnabled.value = !!(result as any).cloudSyncEnabled;
+                aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
             });
         };
 
         const toggleCloudSync = () => {
              chrome.storage.sync.set({ cloudSyncEnabled: cloudSyncEnabled.value }, () => {
                  console.log("Cloud sync toggled:", cloudSyncEnabled.value);
+             });
+        };
+
+        const toggleAiMapping = () => {
+             chrome.storage.sync.set({ aiMappingEnabled: aiMappingEnabled.value }, () => {
+                 console.log("AI mapping toggled:", aiMappingEnabled.value);
              });
         };
 
@@ -151,6 +171,8 @@ export default {
             fileInput,
             cloudSyncEnabled,
             toggleCloudSync,
+            aiMappingEnabled,
+            toggleAiMapping,
             triggerAI,
             generateAllPending
         };
