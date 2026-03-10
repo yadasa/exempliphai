@@ -896,12 +896,22 @@ const widgetAdapters = [
         const describedBy = String(el.getAttribute?.("aria-describedby") || "");
         if (describedBy.includes("react-select")) return true;
         if (String(el.id || "").startsWith("react-select")) return true;
+        // Greenhouse v2 wraps react-select in .select-shell/.select__container
         if (el.closest?.(".select-shell, .select__container, [class*=\"select__\"]")) return true;
+        // Greenhouse pattern: combobox input whose aria-describedby references
+        // a react-select placeholder (e.g. "react-select-question_XXX-placeholder")
+        if (/react-select/.test(describedBy)) return true;
+        // Greenhouse pattern: parent has remix-css-* classes (React-Select with CSS-in-JS)
+        const parent = el.parentElement;
+        if (parent) {
+          const cls = String(parent.className || "");
+          if (cls.includes("select__input-container") || cls.includes("remix-css-")) return true;
+        }
       } catch (_) {}
       return false;
     },
     async setValue(_el, _value, _ctx = {}) {
-      // TODO: implement (typed input + listbox option click)
+      // Implementation in autofill.js (React-Select combobox handler)
       return false;
     },
   },

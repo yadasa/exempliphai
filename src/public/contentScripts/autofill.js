@@ -22,6 +22,26 @@ let smartApplyLastRunForced = false;
 
 let _filledElements = new WeakSet();
 
+// Track elements that were recently attempted but had no matching option (e.g.,
+// React-Select with no dropdown or no good match).  Maps Element → timestamp.
+// Entries expire after 5 seconds so the same field isn't retried in a tight loop
+// by multiple fuzzy-matching param names (e.g. "experience years" / "total experience").
+let _recentlySkipped = new Map();
+
+function isRecentlySkipped(el) {
+  if (!_recentlySkipped.has(el)) return false;
+  const ts = _recentlySkipped.get(el);
+  if (Date.now() - ts > 5000) {
+    _recentlySkipped.delete(el);
+    return false;
+  }
+  return true;
+}
+
+function markRecentlySkipped(el) {
+  _recentlySkipped.set(el, Date.now());
+}
+
 function detectJobFormKey() {
   try {
     const host = (window.location.hostname || "").toLowerCase();
@@ -145,8 +165,9 @@ function injectAutofillNowButton() {
       btn.disabled = true;
       btn.style.opacity = '0.85';
       try {
-        // Reset filled elements so button always forces a full re-fill
+        // Reset filled elements and skip cooldowns so button always forces a full re-fill
         _filledElements = new WeakSet();
+        _recentlySkipped = new Map();
         await tryAutofillNow({ force: true, reason: 'button' });
       } finally {
         btn.textContent = prev;
@@ -949,6 +970,11 @@ async function tryHybridAiMapping(form, res) {
 }
 
 async function processFields(jobForm, fieldMap, form, res) {
+  // Track which DOM elements have already been attempted in THIS call to prevent
+  // multiple param keys (e.g. "experience years", "total experience", "relevant experience")
+  // from retrying the same combobox within one processFields pass.
+  const _attemptedThisPass = new WeakSet();
+
   for (let jobParam in fieldMap) {
     const param = fieldMap[jobParam];
     if (param === "Resume") {
@@ -1253,6 +1279,21 @@ async function processFields(jobForm, fieldMap, form, res) {
       continue;
     }
 
+    // Skip elements that were recently attempted but had no matching option
+    // (prevents "experience years"/"total experience"/"relevant experience" looping)
+    if (isRecentlySkipped(inputElement)) {
+      console.log(`SmartApply: Skip recently-skipped ${jobParam} (${inputElement.name || inputElement.id || inputElement.type})`);
+      continue;
+    }
+
+    // Skip elements already attempted in this processFields pass (dedup across
+    // different param names that fuzzy-match to the same DOM element)
+    if (_attemptedThisPass.has(inputElement)) {
+      console.log(`SmartApply: Skip already-attempted-this-pass ${jobParam} (${inputElement.name || inputElement.id || inputElement.type})`);
+      continue;
+    }
+    _attemptedThisPass.add(inputElement);
+
     // ── GREENHOUSE REACT-SELECT GUARD ──
     // Greenhouse custom questions use React-Select comboboxes (role="combobox" with
     // aria-labelledby pointing to a <label>). Before filling, verify the question label
@@ -1312,64 +1353,130 @@ async function processFields(jobForm, fieldMap, form, res) {
     }
 
     // ── GREENHOUSE REACT-SELECT COMBOBOX HANDLING ──
-    // Greenhouse uses react-select for dropdowns. These are <input role="combobox"> 
-    // inside .select__control containers. We need to:
-    // 1. Focus + type the value to filter options
-    // 2. Wait for the dropdown menu to appear
-    // 3. Click the best matching option
-    const isReactSelectCombobox = inputElement.getAttribute?.("role") === "combobox" && 
-      inputElement.closest?.(".select-shell, .select__container");
-    
+    // Greenhouse uses react-select for dropdowns. These are <input role="combobox">
+    // inside .select__control containers. The key challenge: React-Select ignores
+    // programmatic value changes — we must simulate real user interaction:
+    // 1. Click the control/indicator to open the dropdown
+    // 2. Type into the input to trigger React-Select's internal filtering
+    // 3. Wait for [role=listbox] to appear (up to 2s)
+    // 4. Extract options → best match → click
+    // 5. On failure: clear, mark _recentlySkipped to prevent retry loops
+    const isReactSelectCombobox = inputElement.getAttribute?.("role") === "combobox" &&
+      inputElement.closest?.(".select-shell, .select__container, [class*=\"select__\"]");
+
     if (isReactSelectCombobox) {
       try {
-        // Focus and clear existing value
+        const selectShell = inputElement.closest(".select-shell, .select__container, [class*=\"css\"]")
+          || inputElement.parentElement?.parentElement;
+
+        // Step 1: Click the dropdown indicator/control to open the menu.
+        // React-Select only opens when the control area or arrow is clicked.
+        const indicator = selectShell?.querySelector(
+          '.select__indicators button, [class*="indicatorContainer"], [class*="IndicatorsContainer"] button, .select__dropdown-indicator, svg'
+        );
+        const control = selectShell?.querySelector('.select__control, [class*="control"]');
+
+        if (indicator) {
+          try { indicator.click(); } catch (_) {}
+        } else if (control) {
+          try { control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })); } catch (_) {}
+        }
+        await sleep(200);
+
+        // Step 2: Focus the input and type the fill value using keyboard events.
+        // React-Select only responds to actual keyboard input, not programmatic value sets.
         inputElement.focus();
         await sleep(100);
-        
-        // Type the fill value to trigger filtering
+
+        // Clear any existing text first
+        setNativeValue(inputElement, '');
+        inputElement.dispatchEvent(new Event("input", { bubbles: true }));
+        await sleep(50);
+
+        // Type the fill value — dispatch both the native value change AND keydown events
+        // so React-Select's internal onChange fires.
         setNativeValue(inputElement, fillValue);
         inputElement.dispatchEvent(new Event("input", { bubbles: true }));
-        await sleep(delays.medium); // Wait for dropdown to render
-        
-        // Look for the dropdown menu that react-select renders
-        const menuId = inputElement.getAttribute("aria-controls") || 
-                       inputElement.getAttribute("aria-owns");
-        let menu = menuId ? document.getElementById(menuId) : null;
-        
-        // Fallback: find menu by class near the combobox
-        if (!menu) {
-          const selectShell = inputElement.closest(".select-shell, .select__container");
-          if (selectShell) {
-            menu = selectShell.querySelector('[class*="menu"], [role="listbox"]');
-          }
+        inputElement.dispatchEvent(new Event("change", { bubbles: true }));
+        // Also send a keyDown for the last character (triggers React-Select's onInputChange)
+        if (fillValue.length > 0) {
+          const lastChar = fillValue[fillValue.length - 1];
+          inputElement.dispatchEvent(new KeyboardEvent("keydown", {
+            key: lastChar, code: `Key${lastChar.toUpperCase()}`,
+            keyCode: lastChar.charCodeAt(0), which: lastChar.charCodeAt(0),
+            bubbles: true,
+          }));
         }
-        
+
+        // Step 3: Wait for the dropdown/listbox to appear (up to 2s with polling).
+        // React-Select renders [role=listbox] inside a portal or sibling div.
+        let menu = null;
+        const menuIdAttr = inputElement.getAttribute("aria-controls") ||
+                           inputElement.getAttribute("aria-owns");
+
+        const pollStart = Date.now();
+        while (Date.now() - pollStart < 2000) {
+          // Check by ID first (React-Select sets aria-controls dynamically)
+          const curMenuId = inputElement.getAttribute("aria-controls") ||
+                            inputElement.getAttribute("aria-owns") ||
+                            menuIdAttr;
+          if (curMenuId) {
+            menu = document.getElementById(curMenuId);
+          }
+          // Fallback: find listbox near the combobox or in document
+          if (!menu) {
+            menu = selectShell?.querySelector('[role="listbox"], [class*="menu-list"], [class*="MenuList"]');
+          }
+          if (!menu) {
+            // React-Select sometimes renders the menu as a portal outside the container
+            const allListboxes = document.querySelectorAll('[role="listbox"]');
+            for (const lb of allListboxes) {
+              // Match by aria ID pattern (react-select-<inputId>-listbox)
+              if (lb.id && lb.id.includes(inputElement.id)) { menu = lb; break; }
+            }
+          }
+          if (menu) break;
+          await sleep(200);
+        }
+
         let reactSelectFilled = false;
         if (menu) {
           const options = Array.from(menu.querySelectorAll('[role="option"], [class*="option"]'));
-          let bestOpt = { el: null, score: 0 };
-          for (const opt of options) {
-            const optText = opt.textContent || '';
-            const score = matchScore(fillValue, optText);
-            if (score > bestOpt.score) bestOpt = { el: opt, score };
-          }
-          if (bestOpt.el && bestOpt.score >= 50) {
-            console.log(`SmartApply: React-Select "${jobParam}" → "${bestOpt.el.textContent.trim()}" (score ${bestOpt.score})`);
-            bestOpt.el.click();
-            reactSelectFilled = true;
-            await sleep(delays.short);
+          if (options.length > 0) {
+            let bestOpt = { el: null, score: 0 };
+            for (const opt of options) {
+              const optText = opt.textContent || '';
+              const score = matchScore(fillValue, optText);
+              if (score > bestOpt.score) bestOpt = { el: opt, score };
+            }
+            if (bestOpt.el && bestOpt.score >= 50) {
+              console.log(`SmartApply: React-Select "${jobParam}" → "${bestOpt.el.textContent.trim()}" (score ${bestOpt.score})`);
+              bestOpt.el.click();
+              reactSelectFilled = true;
+              await sleep(delays.short);
+            } else {
+              // Try pressing Enter on the first option if it's the only one and reasonably close
+              if (options.length === 1 && bestOpt.score >= 35) {
+                console.log(`SmartApply: React-Select "${jobParam}" → only option "${bestOpt.el.textContent.trim()}" (score ${bestOpt.score}), selecting`);
+                bestOpt.el.click();
+                reactSelectFilled = true;
+                await sleep(delays.short);
+              } else {
+                console.log(`SmartApply: React-Select "${jobParam}" — no good option match for "${fillValue}" (best score: ${bestOpt.score}, ${options.length} options)`);
+              }
+            }
           } else {
-            console.log(`SmartApply: React-Select "${jobParam}" — no good option match for "${fillValue}" (best score: ${bestOpt.score}), clearing input`);
+            console.log(`SmartApply: React-Select "${jobParam}" — dropdown appeared but has 0 options for "${fillValue}"`);
           }
         } else {
-          console.log(`SmartApply: React-Select "${jobParam}" — dropdown menu not found after typing "${fillValue}"`);
+          console.log(`SmartApply: React-Select "${jobParam}" — dropdown menu not found after 2s for "${fillValue}"`);
         }
-        
+
         // Post-fill verify: check if an actual selection is visible in the value container.
         // React-Select renders a .select__single-value element when an option is selected.
         if (reactSelectFilled) {
-          const selectShell = inputElement.closest(".select-shell, .select__container");
-          const singleValue = selectShell?.querySelector('[class*="singleValue"], [class*="single-value"], .select__single-value');
+          const verifyShell = inputElement.closest(".select-shell, .select__container") || selectShell;
+          const singleValue = verifyShell?.querySelector('[class*="singleValue"], [class*="single-value"], .select__single-value');
           if (singleValue && singleValue.textContent.trim()) {
             _filledElements.add(inputElement);
           } else {
@@ -1378,25 +1485,27 @@ async function processFields(jobForm, fieldMap, form, res) {
             reactSelectFilled = false;
           }
         }
-        
+
         if (!reactSelectFilled) {
-          // No good match or selection didn't stick — clear the typed text via Backspace
+          // No good match or selection didn't stick — clear the typed text
           // so the combobox returns to its placeholder "Select..." state.
           try {
-            // Clear by selecting all + delete (works across React-Select versions)
             setNativeValue(inputElement, '');
             inputElement.dispatchEvent(new Event("input", { bubbles: true }));
             await sleep(100);
-            // Also dispatch Escape to close any lingering dropdown
+            // Dispatch Escape to close any lingering dropdown
             inputElement.dispatchEvent(new KeyboardEvent("keydown", {
               key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true,
             }));
           } catch (_) {}
           console.log(`SmartApply: React-Select "${jobParam}" — no option match, skipped (cleared input)`);
+          // Mark as recently skipped to prevent other param names from retrying
+          markRecentlySkipped(inputElement);
           // Do NOT add to _filledElements — leave for manual fill or AI pass
         }
       } catch (e) {
         console.error(`SmartApply: Error handling React-Select for "${jobParam}"`, e);
+        markRecentlySkipped(inputElement);
       }
       continue;
     }
