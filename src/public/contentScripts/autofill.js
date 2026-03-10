@@ -700,26 +700,32 @@ async function autofill(form) {
 // minimal field descriptors + allowed profile KEY NAMES (never values).
 // ─────────────────────────────────────────────────────────────────────────────
 
-let _smartApplyHybridModulesPromise = null;
 let _smartApplyHybridLastRunAt = 0;
+let _smartApplyAiDepsLoaded = false;
 
-async function loadHybridModules() {
-  if (_smartApplyHybridModulesPromise) return _smartApplyHybridModulesPromise;
-  _smartApplyHybridModulesPromise = (async () => {
-    if (!chrome?.runtime?.getURL) throw new Error('chrome.runtime.getURL unavailable');
-    const aiFillPlanUrl = chrome.runtime.getURL('contentScripts/aiFillPlan.js');
-    const fillExecutorUrl = chrome.runtime.getURL('contentScripts/fillExecutor.js');
-    const policyUrl = chrome.runtime.getURL('contentScripts/policy.js');
+async function ensureAiDepsLoaded() {
+  if (_smartApplyAiDepsLoaded) return true;
+  if (!chrome?.runtime?.getURL) return false;
 
-    const [aiFillPlan, fillExecutor, policy] = await Promise.all([
-      import(aiFillPlanUrl),
-      import(fillExecutorUrl),
-      import(policyUrl),
-    ]);
+  // Load the ESM validator + provider so they attach to globals:
+  // - __exempliphaiFillPlan
+  // - __exempliphaiProviders.gemini
+  try {
+    await import(chrome.runtime.getURL('contentScripts/fillPlanValidator.js'));
+  } catch (e) {
+    console.warn('SmartApply: Failed to load fillPlanValidator', e);
+    return false;
+  }
 
-    return { aiFillPlan, fillExecutor, policy };
-  })();
-  return _smartApplyHybridModulesPromise;
+  try {
+    await import(chrome.runtime.getURL('contentScripts/providers/gemini.js'));
+  } catch (e) {
+    console.warn('SmartApply: Failed to load gemini provider', e);
+    return false;
+  }
+
+  _smartApplyAiDepsLoaded = true;
+  return true;
 }
 
 function inferSectionFromSnapshotCtx(sectionCtx) {
@@ -820,32 +826,41 @@ async function tryHybridAiMapping(form, res) {
   const now = Date.now();
   if (now - _smartApplyHybridLastRunAt < 15000) return;
 
-  const aiMappingEnabled = !!res?.aiMappingEnabled;
-  if (!aiMappingEnabled) return;
+  if (!res?.aiMappingEnabled) return;
 
   const apiKey = res?.['API Key'];
   if (!apiKey) return;
 
   const fs = globalThis.__SmartApply?.formSnapshot;
+  const policy = globalThis.__SmartApply?.policy;
+  const aiFillPlan = globalThis.__SmartApply?.aiFillPlan;
+  const fillExecutor = globalThis.__SmartApply?.fillExecutor;
+
   if (!fs?.findControls || !fs?.stableFingerprint || !fs?.computeBestLabel) {
     console.warn('SmartApply: formSnapshot not loaded; cannot run hybrid mapping');
     return;
   }
+  if (!policy || !aiFillPlan || !fillExecutor) {
+    console.warn('SmartApply: Phase-2 modules missing (policy/aiFillPlan/fillExecutor)');
+    return;
+  }
 
-  const { aiFillPlan, fillExecutor, policy } = await loadHybridModules();
+  const depsOk = await ensureAiDepsLoaded();
+  if (!depsOk) return;
 
   const domain = window.location.hostname || '';
   const pageUrl = window.location.href || '';
 
-  const allowedProfileKeys = aiFillPlan.allowedProfileKeysFromSyncObject(res);
+  // Allowed profile KEYS only (never values)
+  const blockedKeys = new Set(['API Key', 'aiMappingEnabled', 'cloudSyncEnabled']);
+  const allowedProfileKeys = Object.keys(res || {}).filter((k) => k && !blockedKeys.has(k));
 
   // Collect unresolved candidates.
-  const unresolvedFields = [];
+  const unresolved_fields = [];
   const controls = fs.findControls(form);
 
   for (const el of controls) {
     try {
-      // v0: do not map boolean controls via AI.
       const type = (el.getAttribute?.('type') || '').toLowerCase();
       if (type === 'checkbox' || type === 'radio') continue;
       if (type === 'file') continue;
@@ -858,8 +873,8 @@ async function tryHybridAiMapping(form, res) {
       const section = inferSectionFromSnapshotCtx(sectionCtx);
 
       // Policy gate BEFORE we send anything to AI.
-      const dec = policy.policyDecision({ label, section }, { allowSensitive: false });
-      if (!dec.allow) continue;
+      if (policy.isConsentCheckbox?.({ label })) continue;
+      if (policy.isSensitiveField?.({ label, section })) continue;
 
       if (!shouldConsiderLabelForAi(label)) continue;
 
@@ -877,12 +892,12 @@ async function tryHybridAiMapping(form, res) {
           ).slice(0, 32)
         : [];
 
-      unresolvedFields.push({
+      unresolved_fields.push({
         field_fingerprint: fp,
         control: {
           kind: controlKindForElement(el),
           tag: (el.tagName || '').toLowerCase(),
-          type: (el.getAttribute?.('type') || '').toLowerCase(),
+          type: type,
           role: (el.getAttribute?.('role') || '').toLowerCase(),
           name: el.getAttribute?.('name') || '',
           id: el.getAttribute?.('id') || '',
@@ -897,47 +912,40 @@ async function tryHybridAiMapping(form, res) {
         },
       });
 
-      if (unresolvedFields.length >= 10) break; // minimize
+      if (unresolved_fields.length >= 10) break; // minimize
     } catch (_) {}
   }
 
-  if (!unresolvedFields.length) return;
+  if (!unresolved_fields.length) return;
 
   _smartApplyHybridLastRunAt = now;
 
-  console.log('SmartApply: Hybrid mapping candidates', unresolvedFields.length);
+  console.log('SmartApply: Hybrid mapping candidates', unresolved_fields.length);
 
-  const plan = await aiFillPlan.mapUnresolvedFieldsToFillPlan({
-    providerName: 'gemini',
-    apiKey,
-    domain,
-    pageUrl,
+  const tier1 = await aiFillPlan.generateTier1(
+    {
+      domain,
+      page_url: pageUrl,
+      snapshot_hash: `sha256:${now.toString(36)}`,
+      unresolved_fields,
+    },
     allowedProfileKeys,
-    unresolvedFields,
-    policy: { never_autofill_consent_checkboxes: true, sensitive_requires_review: true },
-    timeoutMs: 20000,
-    maxRetries: 1,
-  });
+    { apiKey, allowAiMapping: true, timeoutMs: 20000, outerRetries: 1 }
+  );
 
-  const index = fillExecutor.buildFingerprintIndex({
-    root: form,
-    findControls: fs.findControls,
-    stableFingerprint: (el, _opts) => fs.stableFingerprint(el, { root: form }),
-  });
+  if (!tier1?.ok) {
+    console.warn('SmartApply: AI mapping failed', tier1?.error);
+    return;
+  }
 
-  const report = await fillExecutor.applyFillPlan({
-    plan,
+  const execRes = await fillExecutor.execute(tier1.plan, {
     root: form,
     profile: res,
-    index,
-    formSnapshot: fs,
-    allowSensitive: false,
-    defaultAllowOverwrite: false,
-    setNativeValue,
-    setContentEditableValue,
+    force: false,
+    confidenceThreshold: 0.75,
   });
 
-  console.log('SmartApply: Hybrid AI mapping report', report);
+  console.log('SmartApply: Hybrid AI mapping executor result', execRes);
 }
 
 async function processFields(jobForm, fieldMap, form, res) {
