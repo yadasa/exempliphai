@@ -347,7 +347,7 @@
 
         // Options for selects, datalists, and ARIA listbox patterns.
         const opts = extractOptions(el) || [];
-        const options = Array.isArray(opts)
+        let options = Array.isArray(opts)
           ? opts
               .map((o) => ({
                 label: (o && o.label != null) ? String(o.label).trim() : '',
@@ -355,6 +355,19 @@
               }))
               .filter((o) => o.label || o.value)
           : [];
+
+        // React-Select and similar widgets only render options when opened.
+        // Best-effort: open → read listbox options → close, without changing the field value.
+        let dynamicOptions = false;
+        if (kind === 'combobox' && (!options || !options.length)) {
+          try {
+            const dyn = extractComboboxOptionsDynamic(el, { root: scope });
+            if (dyn && Array.isArray(dyn.options) && dyn.options.length) {
+              options = dyn.options;
+            }
+            if (dyn && dyn.dynamicOptions) dynamicOptions = true;
+          } catch (_) {}
+        }
 
         const meta = _controlMeta(el);
         const question = buildQuestionField({ kind, label, options });
@@ -365,6 +378,7 @@
           question,
           section,
           options,
+          ...(dynamicOptions ? { dynamicOptions: true } : {}),
           control: meta,
           fingerprint: stableFingerprint(el, { root: scope }),
         });
@@ -801,6 +815,313 @@
     } catch (_) {}
 
     return [];
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Dynamic combobox options (React-Select style)
+  //
+  // Many combobox widgets only render their listbox/options into the DOM after
+  // being opened. For snapshotting, we do a best-effort non-destructive open →
+  // read → close. If we detect the combobox opened (aria-expanded=true) we set
+  // `dynamicOptions: true` on the JSON descriptor.
+  //
+  // NOTE: findControls is synchronous (used by other modules). This helper
+  // relies on frameworks rendering options synchronously during the dispatched
+  // event handlers. When widgets render asynchronously, this may still miss.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  function _viewForEl(el) {
+    try {
+      return (el && el.ownerDocument && el.ownerDocument.defaultView) || global;
+    } catch (_) {
+      return global;
+    }
+  }
+
+  function _patchEventProps(ev, init) {
+    try {
+      if (!ev || !init) return ev;
+      for (const k of Object.keys(init)) {
+        try {
+          // Some DOM impls have read-only props; fall back to defineProperty.
+          ev[k] = init[k];
+        } catch (_) {
+          try {
+            Object.defineProperty(ev, k, { value: init[k], configurable: true });
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return ev;
+  }
+
+  function _makeGenericEvent(el, type, init) {
+    try {
+      const view = _viewForEl(el);
+      const EC = view && view.Event;
+      if (typeof EC !== 'function') return null;
+      const ev = new EC(type, { bubbles: true, cancelable: true });
+      return _patchEventProps(ev, init);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function _makeKeyEvent(el, type, init) {
+    try {
+      const view = _viewForEl(el);
+      const KE = view && view.KeyboardEvent;
+      if (typeof KE === 'function') {
+        return new KE(type, { bubbles: true, cancelable: true, ...init });
+      }
+    } catch (_) {}
+    return _makeGenericEvent(el, type, init);
+  }
+
+  function _dispatchKey(el, type, init) {
+    try {
+      if (!el || typeof el.dispatchEvent !== 'function') return false;
+      const ev = _makeKeyEvent(el, type, init);
+      if (!ev) return false;
+      el.dispatchEvent(ev);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function _makeMouseEvent(el, type, init) {
+    try {
+      const view = _viewForEl(el);
+      const ME = view && view.MouseEvent;
+      if (typeof ME === 'function') {
+        return new ME(type, { bubbles: true, cancelable: true, ...init });
+      }
+    } catch (_) {}
+    return _makeGenericEvent(el, type, init);
+  }
+
+  function _dispatchMouse(el, type, init) {
+    try {
+      if (!el || typeof el.dispatchEvent !== 'function') return false;
+      const ev = _makeMouseEvent(el, type, init);
+      if (!ev) return false;
+      el.dispatchEvent(ev);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function _focusNoScroll(el) {
+    try {
+      if (!el || typeof el.focus !== 'function') return false;
+      try {
+        el.focus({ preventScroll: true });
+      } catch (_) {
+        el.focus();
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function _getComboboxInput(el) {
+    try {
+      if (!el || el.nodeType !== 1) return null;
+      const tag = (el.tagName || '').toLowerCase();
+      const role = String((el.getAttribute && el.getAttribute('role')) || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return el;
+      if (role === 'combobox' && typeof el.focus === 'function') return el;
+      if (el.querySelector) {
+        return (
+          el.querySelector('input[role="combobox"]') ||
+          el.querySelector('input.select__input') ||
+          el.querySelector('input[type="text"],input')
+        );
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function _findListboxForCombobox(input) {
+    try {
+      const doc = (input && input.ownerDocument) || document;
+
+      // 1) aria-controls / aria-owns if present
+      try {
+        const listId = input.getAttribute && (input.getAttribute('aria-controls') || input.getAttribute('aria-owns'));
+        if (listId) {
+          const n = getById(doc, listId);
+          if (n) return n;
+        }
+      } catch (_) {}
+
+      // 2) React-Select conventional ids: react-select-${input.id}-listbox
+      const inputId = (input.getAttribute && input.getAttribute('id')) || input.id || '';
+      if (inputId) {
+        try {
+          const exact = getById(doc, `react-select-${inputId}-listbox`);
+          if (exact) return exact;
+        } catch (_) {}
+      }
+
+      // 3) Search within local container first
+      try {
+        const container = input.closest && input.closest('.select-shell,.select__container,.select,.Select');
+        if (container && container.querySelector) {
+          const local = container.querySelector('[role="listbox"],.select__menu-list,.select__menu');
+          if (local) return local;
+        }
+      } catch (_) {}
+
+      // 4) Global fallback: pick the best visible listbox candidate
+      const candidates = Array.from(doc.querySelectorAll('[role="listbox"],.select__menu-list[aria-expanded="true"],.select__menu-list'));
+      if (!candidates.length) return null;
+
+      // Prefer ones whose id includes the input id (helps avoid unrelated listboxes)
+      if (inputId) {
+        const byId = candidates.find((c) => {
+          try {
+            const id = (c.getAttribute && c.getAttribute('id')) || c.id || '';
+            return id && id.includes(inputId);
+          } catch (_) {
+            return false;
+          }
+        });
+        if (byId) return byId;
+      }
+
+      // Otherwise, just pick the first non-hidden candidate
+      const firstVisible = candidates.find((c) => !isProbablyHidden(c));
+      return firstVisible || candidates[0] || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function _extractOptionsFromListbox(listbox) {
+    try {
+      if (!listbox || listbox.nodeType !== 1) return [];
+
+      const nodes = [];
+      try {
+        if (listbox.querySelectorAll) {
+          nodes.push(...Array.from(listbox.querySelectorAll('[role="option"],.select__option')));
+        }
+      } catch (_) {}
+
+      // Some listbox containers are themselves option-like; include them just in case.
+      try {
+        const role = (listbox.getAttribute && listbox.getAttribute('role')) || '';
+        if (role === 'option') nodes.unshift(listbox);
+      } catch (_) {}
+
+      const out = [];
+      const seen = new Set();
+      for (const n of nodes) {
+        try {
+          const label = normalizeText(n.textContent || '');
+          if (!label) continue;
+          const value = String(
+            (n.getAttribute && (n.getAttribute('data-value') || n.getAttribute('value'))) ||
+              n.value ||
+              ''
+          );
+          const v = value || label;
+          const key = (label + '|' + v).toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push({ label, value: v });
+        } catch (_) {}
+      }
+
+      return out;
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function extractComboboxOptionsDynamic(el, { root = null } = {}) {
+    const input = _getComboboxInput(el);
+    if (!input) return { options: [], dynamicOptions: false };
+
+    // Backup current value and selection.
+    let oldValue = '';
+    let oldStart = null;
+    let oldEnd = null;
+    try {
+      oldValue = String(input.value || '');
+      oldStart = (typeof input.selectionStart === 'number') ? input.selectionStart : null;
+      oldEnd = (typeof input.selectionEnd === 'number') ? input.selectionEnd : null;
+    } catch (_) {}
+
+    let opened = false;
+
+    try {
+      _focusNoScroll(input);
+
+      // Try a few common open gestures.
+      _dispatchKey(input, 'keydown', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, which: 39 });
+      _dispatchKey(input, 'keyup', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, which: 39 });
+
+      _dispatchKey(input, 'keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, shiftKey: true });
+      _dispatchKey(input, 'keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, shiftKey: true });
+
+      // Mouse fallback: click the nearest toggle button (React-Select "Toggle flyout").
+      try {
+        const shell = input.closest && input.closest('.select-shell,.select__control,.select__container,.select');
+        const toggle = shell && shell.querySelector
+          ? shell.querySelector('button[aria-label*="Toggle"],button[aria-label*="toggle"],.select__indicator')
+          : null;
+        if (toggle) {
+          _dispatchMouse(toggle, 'mousedown', {});
+          _dispatchMouse(toggle, 'mouseup', {});
+          _dispatchMouse(toggle, 'click', {});
+        }
+      } catch (_) {}
+
+      try {
+        opened = (input.getAttribute && input.getAttribute('aria-expanded') === 'true') || false;
+      } catch (_) {}
+
+      // Read listbox/options if present.
+      const listbox = _findListboxForCombobox(input);
+      const options = listbox ? _extractOptionsFromListbox(listbox) : [];
+
+      // Close (best effort) and restore.
+      _dispatchKey(input, 'keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27 });
+      _dispatchKey(input, 'keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27 });
+
+      // Attempt to restore aria-expanded
+      try {
+        if (opened) input.setAttribute('aria-expanded', 'false');
+      } catch (_) {}
+
+      // Restore value and selection.
+      try {
+        if (String(input.value || '') !== oldValue) input.value = oldValue;
+        if (oldStart != null && oldEnd != null && typeof input.setSelectionRange === 'function') {
+          input.setSelectionRange(oldStart, oldEnd);
+        }
+      } catch (_) {}
+
+      return { options, dynamicOptions: opened || (listbox && options.length > 0) };
+    } catch (_) {
+      // Close + restore in case of error.
+      try {
+        _dispatchKey(input, 'keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27 });
+        _dispatchKey(input, 'keyup', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27 });
+      } catch (_) {}
+      try {
+        input.value = oldValue;
+        if (oldStart != null && oldEnd != null && typeof input.setSelectionRange === 'function') {
+          input.setSelectionRange(oldStart, oldEnd);
+        }
+      } catch (_) {}
+      return { options: [], dynamicOptions: false };
+    }
   }
 
   // 32-bit FNV-1a
