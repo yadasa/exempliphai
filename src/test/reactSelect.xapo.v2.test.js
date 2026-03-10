@@ -195,28 +195,38 @@ test('_attemptedThisPass: sandbox has processFields with dedup logic', () => {
 
 // ─── React-Select handling: improved dropdown trigger ────────────────────────
 
-test('React-Select handler clicks indicator/control before typing', () => {
+test('React-Select handler uses keyboard open (ArrowRight/Shift+Enter) + 3s poll + keyboard select', () => {
   const src = fs.readFileSync(
     path.join(__dirname, '../public/contentScripts/autofill.js'),
     'utf8'
   );
 
-  // The handler should click the indicator/control first
+  // Open triggers (keyboard-first)
   assert.ok(
-    src.includes('indicator') && src.includes('.click()'),
-    'should click indicator to open dropdown'
+    src.includes('ArrowRight') || src.includes('createArrowRightKeyDown'),
+    'should use ArrowRight key events to open react-select dropdown'
+  );
+  assert.ok(
+    src.includes('shiftKey: true') || src.includes('createShiftEnterKeyDown'),
+    'should use Shift+Enter as an alternate open trigger'
   );
 
-  // Should wait up to 2s for listbox (polling loop)
+  // Robust poll window: 3s total
   assert.ok(
-    src.includes('2000'),
-    'should poll up to 2000ms for dropdown to appear'
+    src.includes('timeoutMs: 3000') || src.includes('timeoutMs ?? 3000') || src.includes('< timeoutMs'),
+    'should poll up to ~3000ms for dropdown/options'
   );
 
-  // Should dispatch keyboard events to trigger React-Select filtering
+  // Match threshold lowered for Greenhouse numeric inputs
   assert.ok(
-    src.includes('keydown') && src.includes('lastChar'),
-    'should dispatch keydown events for React-Select filtering'
+    src.includes('minScore: 40') || src.includes('minScore ?? 40'),
+    'should use minScore ≈ 40 for best-option match'
+  );
+
+  // Keyboard selection
+  assert.ok(
+    src.includes('aria-activedescendant') && src.includes('ArrowDown') && src.includes('Enter'),
+    'should use ArrowDown/Enter selection (keyboard navigation)'
   );
 });
 

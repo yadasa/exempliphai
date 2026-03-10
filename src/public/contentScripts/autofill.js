@@ -1,4 +1,9 @@
 /* globals keyDownEvent, keyUpEvent, mouseUpEvent, changeEvent, inputEvent,
+          createShiftEnterKeyDown, createShiftEnterKeyUp,
+          createArrowRightKeyDown, createArrowRightKeyUp,
+          createArrowDownKeyDown, createArrowUpKeyDown,
+          createEnterKeyDown, createEnterKeyUp,
+          createEscapeKeyDown,
           sleep, curDateStr, base64ToArrayBuffer, getTimeElapsed, delays,
           getStorageDataLocal, getStorageDataSync, setNativeValue, fields,
           workDayAutofill */
@@ -252,6 +257,287 @@ function dispatchInputAndChange(el) {
   try {
     el.dispatchEvent(new Event("change", { bubbles: true }));
   } catch (_) {}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Greenhouse React-Select: keyboard-first fill helper
+//
+// Some Greenhouse/Remix builds do not reliably open react-select menus via
+// .click() on the indicator/control.  Keyboard triggers (ArrowRight or
+// Shift+Enter) are more consistent on these pages.
+//
+// Returns true when a visible single-value selection is present.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function fillReactSelectKeyboard(inputElement, fillValue, jobParam, ctx = {}) {
+  const TAG = ctx.tag || `SmartApply: React-Select "${jobParam}"`;
+  const timeoutMs = ctx.timeoutMs ?? 3000;
+  const minScore = ctx.minScore ?? 40;
+  const settleMs = ctx.settleMs ?? 500;
+
+  const makeKey = (type, init) => {
+    try {
+      return new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init });
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const k = {
+    shiftEnterDown: typeof createShiftEnterKeyDown === 'function'
+      ? createShiftEnterKeyDown
+      : () => makeKey('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, shiftKey: true }),
+    shiftEnterUp: typeof createShiftEnterKeyUp === 'function'
+      ? createShiftEnterKeyUp
+      : () => makeKey('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, shiftKey: true }),
+    arrowRightDown: typeof createArrowRightKeyDown === 'function'
+      ? createArrowRightKeyDown
+      : () => makeKey('keydown', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, which: 39 }),
+    arrowRightUp: typeof createArrowRightKeyUp === 'function'
+      ? createArrowRightKeyUp
+      : () => makeKey('keyup', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, which: 39 }),
+    arrowDown: typeof createArrowDownKeyDown === 'function'
+      ? createArrowDownKeyDown
+      : () => makeKey('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, which: 40 }),
+    arrowUp: typeof createArrowUpKeyDown === 'function'
+      ? createArrowUpKeyDown
+      : () => makeKey('keydown', { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38, which: 38 }),
+    enterDown: typeof createEnterKeyDown === 'function'
+      ? createEnterKeyDown
+      : () => makeKey('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13 }),
+    enterUp: typeof createEnterKeyUp === 'function'
+      ? createEnterKeyUp
+      : () => makeKey('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13 }),
+    escapeDown: typeof createEscapeKeyDown === 'function'
+      ? createEscapeKeyDown
+      : () => makeKey('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27 }),
+  };
+
+  const selectShell = ctx.selectShell ||
+    inputElement.closest?.('.select-shell, .select__container, [class*="select__"], [class*="css"]') ||
+    inputElement.parentElement?.parentElement;
+
+  const verifyShell = () => inputElement.closest?.('.select-shell, .select__container') || selectShell;
+
+  const getVisibleSelectionText = () => {
+    const shell = verifyShell();
+    const singleValue = shell?.querySelector?.('[class*="singleValue"], [class*="single-value"], .select__single-value');
+    const t = (singleValue?.textContent || '').trim();
+    return t || '';
+  };
+
+  const clearTypedText = async () => {
+    try {
+      setNativeValue(inputElement, '');
+      inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+    } catch (_) {}
+    await sleep(50);
+  };
+
+  // Step 0: focus + clear
+  inputElement.focus();
+  await sleep(50);
+  await clearTypedText();
+
+  // Step 1: OPEN (keyboard-first)
+  // Focus → ArrowRight → Shift+Enter, with a small settle time.
+  try {
+    const ev1 = k.arrowRightDown();
+    const ev2 = k.arrowRightUp();
+    if (ev1) inputElement.dispatchEvent(ev1);
+    if (ev2) inputElement.dispatchEvent(ev2);
+  } catch (_) {}
+
+  await sleep(80);
+
+  try {
+    const ev1 = k.shiftEnterDown();
+    const ev2 = k.shiftEnterUp();
+    if (ev1) inputElement.dispatchEvent(ev1);
+    if (ev2) inputElement.dispatchEvent(ev2);
+  } catch (_) {}
+
+  // Fallback: click/mousedown indicator/control
+  try {
+    const indicator = selectShell?.querySelector?.(
+      '.select__indicators button, [class*="indicatorContainer"], [class*="IndicatorsContainer"] button, .select__dropdown-indicator'
+    );
+    const control = selectShell?.querySelector?.('.select__control, [class*="control"]');
+    if (indicator) {
+      try {
+        indicator.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      } catch (_) {
+        try { indicator.click?.(); } catch (_) {}
+      }
+    } else if (control) {
+      try {
+        control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      } catch (_) {
+        try { control.click?.(); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  await sleep(settleMs);
+
+  // Step 2: TYPE/FILTER
+  try {
+    setNativeValue(inputElement, String(fillValue ?? ''));
+  } catch (_) {
+    try { inputElement.value = String(fillValue ?? ''); } catch (_) {}
+  }
+  dispatchInputAndChange(inputElement);
+
+  // Step 3: Robust poll (up to 3s) for listbox/menu + options
+  const start = Date.now();
+  let menu = null;
+  let options = [];
+
+  const findMenu = () => {
+    const controlsId = inputElement.getAttribute?.('aria-controls') || inputElement.getAttribute?.('aria-owns');
+    if (controlsId) {
+      const byId = document.getElementById(controlsId);
+      if (byId) return byId;
+    }
+
+    const near = selectShell?.querySelector?.('[role="listbox"], .select__menu-list, [class*="menu-list"], [class*="MenuList"]');
+    if (near) return near;
+
+    // Portals: search globally, prefer one that matches the input id
+    const listboxes = Array.from(document.querySelectorAll('[role="listbox"], .select__menu-list, [class*="menu-list"], [class*="MenuList"]'));
+    if (listboxes.length === 1) return listboxes[0];
+
+    const idHint = String(inputElement.id || '');
+    if (idHint) {
+      const best = listboxes.find(lb => String(lb.id || '').includes(idHint));
+      if (best) return best;
+    }
+
+    // If aria-expanded is true but we still can't find a good match, just pick the first visible listbox.
+    const expanded = String(inputElement.getAttribute?.('aria-expanded') || '') === 'true';
+    if (expanded) {
+      for (const lb of listboxes) {
+        const h = lb.getBoundingClientRect?.().height || lb.offsetHeight || 0;
+        if (h > 0) return lb;
+      }
+    }
+
+    return null;
+  };
+
+  while (Date.now() - start < timeoutMs) {
+    menu = findMenu();
+    if (menu) {
+      options = Array.from(menu.querySelectorAll('[role="option"], .select__option, [class*="option"]'))
+        .filter(o => (o.textContent || '').trim().length > 0);
+      if (options.length) break;
+    }
+    await sleep(100);
+  }
+
+  if (!menu) {
+    console.log(`${TAG} — dropdown menu not found after ${timeoutMs}ms for "${fillValue}"`);
+    try {
+      const ev = k.escapeDown();
+      if (ev) inputElement.dispatchEvent(ev);
+    } catch (_) {}
+    await clearTypedText();
+    return false;
+  }
+
+  if (!options.length) {
+    console.log(`${TAG} — dropdown appeared but has 0 options for "${fillValue}"`);
+    try {
+      const ev = k.escapeDown();
+      if (ev) inputElement.dispatchEvent(ev);
+    } catch (_) {}
+    await clearTypedText();
+    return false;
+  }
+
+  // Step 4: Find best match
+  let bestIndex = -1;
+  let bestScore = 0;
+  for (let i = 0; i < options.length; i++) {
+    const t = options[i].textContent || '';
+    const s = matchScore(fillValue, t);
+    if (s > bestScore) {
+      bestScore = s;
+      bestIndex = i;
+    }
+  }
+
+  if (bestIndex < 0 || bestScore < minScore) {
+    const bestText = bestIndex >= 0 ? (options[bestIndex].textContent || '').trim() : '';
+    console.log(`${TAG} — no good option match for "${fillValue}" (best score: ${bestScore}${bestText ? `, "${bestText}"` : ''}, ${options.length} options)`);
+    try {
+      const ev = k.escapeDown();
+      if (ev) inputElement.dispatchEvent(ev);
+    } catch (_) {}
+    await clearTypedText();
+    return false;
+  }
+
+  const bestText = (options[bestIndex].textContent || '').trim();
+
+  // Step 5: Select (keyboard ArrowDown/Up → Enter)
+  const actId = String(inputElement.getAttribute?.('aria-activedescendant') || '');
+  let focusedIndex = -1;
+  if (actId) focusedIndex = options.findIndex(o => String(o.id || '') === actId);
+  if (focusedIndex < 0) {
+    focusedIndex = options.findIndex(o => String(o.getAttribute?.('aria-selected') || '') === 'true');
+  }
+  if (focusedIndex < 0) {
+    focusedIndex = options.findIndex(o => String(o.className || '').includes('is-focused') || String(o.className || '').includes('isFocused'));
+  }
+
+  const press = async (evFactory, n) => {
+    for (let i = 0; i < n; i++) {
+      try {
+        const ev = evFactory();
+        if (ev) inputElement.dispatchEvent(ev);
+      } catch (_) {}
+      await sleep(30);
+    }
+  };
+
+  if (focusedIndex < 0) {
+    // No focused option yet: first ArrowDown moves to index 0.
+    await press(k.arrowDown, bestIndex + 1);
+  } else if (bestIndex > focusedIndex) {
+    await press(k.arrowDown, bestIndex - focusedIndex);
+  } else if (bestIndex < focusedIndex) {
+    await press(k.arrowUp, focusedIndex - bestIndex);
+  }
+
+  try {
+    const ev1 = k.enterDown();
+    const ev2 = k.enterUp();
+    if (ev1) inputElement.dispatchEvent(ev1);
+    if (ev2) inputElement.dispatchEvent(ev2);
+  } catch (_) {}
+
+  await sleep(200);
+
+  // Fallback: click the best option if keyboard didn't stick
+  if (!getVisibleSelectionText()) {
+    try { options[bestIndex].click?.(); } catch (_) {}
+    await sleep(200);
+  }
+
+  const selected = getVisibleSelectionText();
+  if (selected) {
+    console.log(`${TAG} → Selected "${selected || bestText}" (score ${bestScore})`);
+    return true;
+  }
+
+  console.log(`${TAG} — post-fill verify failed, no visible selection`);
+  try {
+    const ev = k.escapeDown();
+    if (ev) inputElement.dispatchEvent(ev);
+  } catch (_) {}
+  await clearTypedText();
+  return false;
 }
 
 function setBestSelectOption(selectEl, fillValue) {
@@ -1366,142 +1652,23 @@ async function processFields(jobForm, fieldMap, form, res) {
 
     if (isReactSelectCombobox) {
       try {
-        const selectShell = inputElement.closest(".select-shell, .select__container, [class*=\"css\"]")
+        const selectShell = inputElement.closest('.select-shell, .select__container, [class*="select__"], [class*="css"]')
           || inputElement.parentElement?.parentElement;
 
-        // Step 1: Click the dropdown indicator/control to open the menu.
-        // React-Select only opens when the control area or arrow is clicked.
-        const indicator = selectShell?.querySelector(
-          '.select__indicators button, [class*="indicatorContainer"], [class*="IndicatorsContainer"] button, .select__dropdown-indicator, svg'
-        );
-        const control = selectShell?.querySelector('.select__control, [class*="control"]');
+        const ok = await fillReactSelectKeyboard(inputElement, fillValue, jobParam, {
+          selectShell,
+          timeoutMs: 3000,
+          minScore: 40,
+          tag: `SmartApply: React-Select "${jobParam}"`,
+        });
 
-        if (indicator) {
-          try { indicator.click(); } catch (_) {}
-        } else if (control) {
-          try { control.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })); } catch (_) {}
-        }
-        await sleep(200);
-
-        // Step 2: Focus the input and type the fill value using keyboard events.
-        // React-Select only responds to actual keyboard input, not programmatic value sets.
-        inputElement.focus();
-        await sleep(100);
-
-        // Clear any existing text first
-        setNativeValue(inputElement, '');
-        inputElement.dispatchEvent(new Event("input", { bubbles: true }));
-        await sleep(50);
-
-        // Type the fill value — dispatch both the native value change AND keydown events
-        // so React-Select's internal onChange fires.
-        setNativeValue(inputElement, fillValue);
-        inputElement.dispatchEvent(new Event("input", { bubbles: true }));
-        inputElement.dispatchEvent(new Event("change", { bubbles: true }));
-        // Also send a keyDown for the last character (triggers React-Select's onInputChange)
-        if (fillValue.length > 0) {
-          const lastChar = fillValue[fillValue.length - 1];
-          inputElement.dispatchEvent(new KeyboardEvent("keydown", {
-            key: lastChar, code: `Key${lastChar.toUpperCase()}`,
-            keyCode: lastChar.charCodeAt(0), which: lastChar.charCodeAt(0),
-            bubbles: true,
-          }));
-        }
-
-        // Step 3: Wait for the dropdown/listbox to appear (up to 2s with polling).
-        // React-Select renders [role=listbox] inside a portal or sibling div.
-        let menu = null;
-        const menuIdAttr = inputElement.getAttribute("aria-controls") ||
-                           inputElement.getAttribute("aria-owns");
-
-        const pollStart = Date.now();
-        while (Date.now() - pollStart < 2000) {
-          // Check by ID first (React-Select sets aria-controls dynamically)
-          const curMenuId = inputElement.getAttribute("aria-controls") ||
-                            inputElement.getAttribute("aria-owns") ||
-                            menuIdAttr;
-          if (curMenuId) {
-            menu = document.getElementById(curMenuId);
-          }
-          // Fallback: find listbox near the combobox or in document
-          if (!menu) {
-            menu = selectShell?.querySelector('[role="listbox"], [class*="menu-list"], [class*="MenuList"]');
-          }
-          if (!menu) {
-            // React-Select sometimes renders the menu as a portal outside the container
-            const allListboxes = document.querySelectorAll('[role="listbox"]');
-            for (const lb of allListboxes) {
-              // Match by aria ID pattern (react-select-<inputId>-listbox)
-              if (lb.id && lb.id.includes(inputElement.id)) { menu = lb; break; }
-            }
-          }
-          if (menu) break;
-          await sleep(200);
-        }
-
-        let reactSelectFilled = false;
-        if (menu) {
-          const options = Array.from(menu.querySelectorAll('[role="option"], [class*="option"]'));
-          if (options.length > 0) {
-            let bestOpt = { el: null, score: 0 };
-            for (const opt of options) {
-              const optText = opt.textContent || '';
-              const score = matchScore(fillValue, optText);
-              if (score > bestOpt.score) bestOpt = { el: opt, score };
-            }
-            if (bestOpt.el && bestOpt.score >= 50) {
-              console.log(`SmartApply: React-Select "${jobParam}" → "${bestOpt.el.textContent.trim()}" (score ${bestOpt.score})`);
-              bestOpt.el.click();
-              reactSelectFilled = true;
-              await sleep(delays.short);
-            } else {
-              // Try pressing Enter on the first option if it's the only one and reasonably close
-              if (options.length === 1 && bestOpt.score >= 35) {
-                console.log(`SmartApply: React-Select "${jobParam}" → only option "${bestOpt.el.textContent.trim()}" (score ${bestOpt.score}), selecting`);
-                bestOpt.el.click();
-                reactSelectFilled = true;
-                await sleep(delays.short);
-              } else {
-                console.log(`SmartApply: React-Select "${jobParam}" — no good option match for "${fillValue}" (best score: ${bestOpt.score}, ${options.length} options)`);
-              }
-            }
-          } else {
-            console.log(`SmartApply: React-Select "${jobParam}" — dropdown appeared but has 0 options for "${fillValue}"`);
-          }
+        if (ok) {
+          _filledElements.add(inputElement);
         } else {
-          console.log(`SmartApply: React-Select "${jobParam}" — dropdown menu not found after 2s for "${fillValue}"`);
-        }
-
-        // Post-fill verify: check if an actual selection is visible in the value container.
-        // React-Select renders a .select__single-value element when an option is selected.
-        if (reactSelectFilled) {
-          const verifyShell = inputElement.closest(".select-shell, .select__container") || selectShell;
-          const singleValue = verifyShell?.querySelector('[class*="singleValue"], [class*="single-value"], .select__single-value');
-          if (singleValue && singleValue.textContent.trim()) {
-            _filledElements.add(inputElement);
-          } else {
-            // Selection click didn't stick — treat as unfilled
-            console.log(`SmartApply: React-Select "${jobParam}" — post-fill verify failed, no visible selection`);
-            reactSelectFilled = false;
-          }
-        }
-
-        if (!reactSelectFilled) {
-          // No good match or selection didn't stick — clear the typed text
-          // so the combobox returns to its placeholder "Select..." state.
-          try {
-            setNativeValue(inputElement, '');
-            inputElement.dispatchEvent(new Event("input", { bubbles: true }));
-            await sleep(100);
-            // Dispatch Escape to close any lingering dropdown
-            inputElement.dispatchEvent(new KeyboardEvent("keydown", {
-              key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true,
-            }));
-          } catch (_) {}
+          // fillReactSelectKeyboard already cleared/escaped; we add the canonical
+          // skip log + recently-skipped marker to prevent retry loops.
           console.log(`SmartApply: React-Select "${jobParam}" — no option match, skipped (cleared input)`);
-          // Mark as recently skipped to prevent other param names from retrying
           markRecentlySkipped(inputElement);
-          // Do NOT add to _filledElements — leave for manual fill or AI pass
         }
       } catch (e) {
         console.error(`SmartApply: Error handling React-Select for "${jobParam}"`, e);

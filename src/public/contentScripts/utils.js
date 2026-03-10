@@ -441,6 +441,109 @@ const mouseUpEvent = typeof MouseEvent !== "undefined"
 const changeEvent = typeof Event !== "undefined" ? new Event("change", { bubbles: true }) : null;
 const inputEvent = typeof Event !== "undefined" ? new Event("input", { bubbles: true }) : null;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Fresh key event factories (React-Select / keyboard-driven widgets)
+//
+// NOTE: Re-using the same Event object across multiple dispatches is unreliable
+// across browsers.  Prefer creating a new KeyboardEvent per dispatch.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _makeKeyEvent(type, init) {
+  try {
+    if (typeof KeyboardEvent === "undefined") return null;
+    return new KeyboardEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+function createShiftEnterKeyDown() {
+  return _makeKeyEvent("keydown", {
+    key: "Enter",
+    code: "Enter",
+    keyCode: 13,
+    which: 13,
+    shiftKey: true,
+  });
+}
+
+function createShiftEnterKeyUp() {
+  return _makeKeyEvent("keyup", {
+    key: "Enter",
+    code: "Enter",
+    keyCode: 13,
+    which: 13,
+    shiftKey: true,
+  });
+}
+
+function createArrowRightKeyDown() {
+  return _makeKeyEvent("keydown", {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    keyCode: 39,
+    which: 39,
+  });
+}
+
+function createArrowRightKeyUp() {
+  return _makeKeyEvent("keyup", {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    keyCode: 39,
+    which: 39,
+  });
+}
+
+function createArrowDownKeyDown() {
+  return _makeKeyEvent("keydown", {
+    key: "ArrowDown",
+    code: "ArrowDown",
+    keyCode: 40,
+    which: 40,
+  });
+}
+
+function createArrowUpKeyDown() {
+  return _makeKeyEvent("keydown", {
+    key: "ArrowUp",
+    code: "ArrowUp",
+    keyCode: 38,
+    which: 38,
+  });
+}
+
+function createEnterKeyDown() {
+  return _makeKeyEvent("keydown", {
+    key: "Enter",
+    code: "Enter",
+    keyCode: 13,
+    which: 13,
+  });
+}
+
+function createEnterKeyUp() {
+  return _makeKeyEvent("keyup", {
+    key: "Enter",
+    code: "Enter",
+    keyCode: 13,
+    which: 13,
+  });
+}
+
+function createEscapeKeyDown() {
+  return _makeKeyEvent("keydown", {
+    key: "Escape",
+    code: "Escape",
+    keyCode: 27,
+    which: 27,
+  });
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
