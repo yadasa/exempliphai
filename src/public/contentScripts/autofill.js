@@ -12,6 +12,19 @@
 let initTime;
 window.addEventListener("load", (_) => {
   console.log("SmartApply: found job page.");
+
+  // Console-friendly, AI-prompt-ready form snapshot
+  try {
+    const form = findBestForm();
+    const fs = globalThis.__SmartApply?.formSnapshot;
+    if (form && fs?.findControls) {
+      const snapshot = fs.findControls(form);
+      console.log('SmartApply: Form Snapshot JSON:', JSON.stringify(snapshot, null, 2));
+    }
+  } catch (e) {
+    console.warn('SmartApply: Form snapshot failed', e);
+  }
+
   initTime = new Date().getTime();
   setupLongTextareaHints();
   injectAutofillNowButton();
@@ -1303,7 +1316,9 @@ async function tryHybridAiMapping(form, res) {
 
   // Collect unresolved candidates.
   const unresolved_fields = [];
-  const controls = fs.findControls(form);
+  const controls = typeof fs.findControlElements === 'function'
+    ? fs.findControlElements(form)
+    : fs.findControls(form);
 
   for (const el of controls) {
     try {

@@ -96,11 +96,11 @@
   }
 
   /**
-   * findControls(root)
+   * findControlElements(root)
    *
-   * Returns an array of candidate controls in DOM order.
+   * Returns an array of candidate form controls (Elements) in DOM order.
    */
-  function findControls(root = document) {
+  function findControlElements(root = document) {
     const scope = root && root.querySelectorAll ? root : document;
 
     const selector = [
@@ -128,6 +128,202 @@
 
     return out;
   }
+
+  function _controlKindForElement(el) {
+    try {
+      if (!el) return 'unknown';
+
+      const tag = (el.tagName || '').toLowerCase();
+      const role = String((el.getAttribute && el.getAttribute('role')) || '').toLowerCase();
+
+      const ce = el.getAttribute && el.getAttribute('contenteditable');
+      if ((ce != null && ce !== 'false') || el.isContentEditable) return 'contenteditable';
+
+      if (role === 'combobox') return 'combobox';
+      if (role === 'textbox') return 'textarea';
+
+      if (tag === 'select') return 'select';
+      if (tag === 'textarea') return 'textarea';
+
+      if (tag === 'input') {
+        const type = String((el.getAttribute && el.getAttribute('type')) || 'text').toLowerCase();
+        if (type === 'file') return 'file';
+        if (type === 'date') return 'date';
+        if (type === 'time') return 'time';
+        if (type === 'datetime-local') return 'datetime-local';
+        return 'input';
+      }
+    } catch (_) {}
+    return 'unknown';
+  }
+
+  function _sectionToJson(sectionCtx) {
+    try {
+      if (!sectionCtx) return { legend: '', headings: [] };
+      const legend = sectionCtx.legend || '';
+      const headings = Array.isArray(sectionCtx.headings) ? sectionCtx.headings : [];
+      return { legend, headings };
+    } catch (_) {}
+    return { legend: '', headings: [] };
+  }
+
+  function _controlMeta(el) {
+    try {
+      const tag = (el.tagName || '').toLowerCase();
+      const type = String((el.getAttribute && el.getAttribute('type')) || '').toLowerCase();
+      const role = String((el.getAttribute && el.getAttribute('role')) || '').toLowerCase();
+      return {
+        tag,
+        type,
+        role,
+        id: (el.getAttribute && el.getAttribute('id')) || '',
+        name: (el.getAttribute && el.getAttribute('name')) || '',
+        autocomplete: (el.getAttribute && el.getAttribute('autocomplete')) || '',
+        required: !!(el.required || (el.getAttribute && el.getAttribute('aria-required') === 'true')),
+      };
+    } catch (_) {}
+    return { tag: '', type: '', role: '', id: '', name: '', autocomplete: '', required: false };
+  }
+
+  /**
+   * findControls(root)
+   *
+   * Returns an array of JSON-serializable control descriptors.
+   * Intended for console logging / AI prompt preparation.
+   */
+  function findControls(root = document) {
+    const scope = root && root.querySelectorAll ? root : document;
+
+    const els = findControlElements(scope);
+    const out = [];
+
+    const seenGroups = new Set();
+
+    for (const el of els) {
+      try {
+        const tag = (el.tagName || '').toLowerCase();
+        const type = String((el.getAttribute && el.getAttribute('type')) || '').toLowerCase();
+
+        // Group radios/checkboxes by name (or id fallback) so options appear once.
+        if (tag === 'input' && (type === 'radio' || type === 'checkbox')) {
+          const name = (el.getAttribute && el.getAttribute('name')) || '';
+          const id = (el.getAttribute && el.getAttribute('id')) || '';
+          const key = type + ':' + (name || id || stableFingerprint(el, { root: scope }));
+          if (seenGroups.has(key)) continue;
+          seenGroups.add(key);
+
+          let group = [el];
+          try {
+            if (name) {
+              const q = 'input[type="' + type + '"][name="' + safeCssEscape(name) + '"]';
+              group = Array.from(scope.querySelectorAll(q));
+              group = group.filter((g) => {
+                try {
+                  if (!isControlElement(g)) return false;
+                  if (g.disabled) return false;
+                  if (isAriaDisabled(g)) return false;
+                  if (isProbablyHidden(g)) return false;
+                  return true;
+                } catch (_) {
+                  return false;
+                }
+              });
+              if (!group.length) group = [el];
+            }
+          } catch (_) {}
+
+          const kind = type === 'radio' ? 'radio-group' : 'checkbox-group';
+
+          // Best-effort group label: prefer fieldset legend / aria-labelledby on a parent role=group/radiogroup.
+          let label = '';
+          try {
+            const fieldset = el.closest && el.closest('fieldset');
+            const legend = fieldset && fieldset.querySelector ? fieldset.querySelector('legend') : null;
+            const legendText = legend ? clampText(textFromElement(legend), MAX_LABEL_CHARS) : '';
+            if (legendText) label = legendText;
+          } catch (_) {}
+          if (!label) {
+            try {
+              const groupEl = el.closest && el.closest('[role="radiogroup"],[role="group"]');
+              const lb = groupEl && groupEl.getAttribute ? groupEl.getAttribute('aria-labelledby') : '';
+              if (lb) {
+                const doc = el.ownerDocument || document;
+                const parts = String(lb)
+                  .split(/\s+/)
+                  .map((id2) => {
+                    try {
+                      const n = doc.getElementById(id2);
+                      return (n && n.textContent) ? n.textContent.trim() : '';
+                    } catch (_) {
+                      return '';
+                    }
+                  })
+                  .filter(Boolean);
+                const t = clampText(parts.join(' '), MAX_LABEL_CHARS);
+                if (t) label = t;
+              }
+            } catch (_) {}
+          }
+          if (!label) {
+            // Fall back to whatever we can infer from the first element.
+            label = computeBestLabel(el) || '';
+          }
+
+          const section = _sectionToJson(extractSectionContext(el));
+
+          const options = group.map((g) => {
+            const v = String(g.value || '');
+            const optLabel = computeBestLabel(g) || normalizeText(v);
+            return {
+              label: optLabel,
+              value: v,
+              checked: !!g.checked,
+              disabled: !!g.disabled,
+            };
+          });
+
+          const meta = _controlMeta(el);
+          out.push({
+            kind,
+            label,
+            section,
+            options,
+            control: meta,
+            fingerprint: stableFingerprint(el, { root: scope }),
+          });
+          continue;
+        }
+
+        const kind = _controlKindForElement(el);
+        const label = computeBestLabel(el) || '';
+        const section = _sectionToJson(extractSectionContext(el));
+
+        // Options for selects, datalists, and ARIA listbox patterns.
+        const opts = extractOptions(el) || [];
+        const options = Array.isArray(opts)
+          ? opts
+              .map((o) => ({
+                label: (o && o.label != null) ? String(o.label).trim() : '',
+                value: (o && o.value != null) ? String(o.value) : '',
+              }))
+              .filter((o) => o.label || o.value)
+          : [];
+
+        const meta = _controlMeta(el);
+        out.push({
+          kind,
+          label,
+          section,
+          options,
+          control: meta,
+          fingerprint: stableFingerprint(el, { root: scope }),
+        });
+      } catch (_) {}
+    }
+
+    return out;
+  }
+
 
   function getById(doc, id) {
     try {
@@ -472,7 +668,7 @@
 
   function indexWithinRoot(el, root, baseKey) {
     try {
-      const controls = findControls(root);
+      const controls = findControlElements(root);
       const same = controls.filter((c) => baseKeyForFingerprint(c) === baseKey);
       const idx = same.indexOf(el);
       if (idx >= 0) return idx;
@@ -617,6 +813,7 @@
   global.__SmartApply = global.__SmartApply || {};
   global.__SmartApply.formSnapshot = {
     findControls,
+    findControlElements,
     computeBestLabel,
     extractSectionContext,
     extractOptions,

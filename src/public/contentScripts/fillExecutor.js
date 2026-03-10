@@ -184,7 +184,9 @@
     const fs = global.__SmartApply?.formSnapshot;
     if (!fs?.findControls || !fs?.stableFingerprint) return new Map();
     const scope = root || global.document;
-    const controls = fs.findControls(scope);
+    const controls = typeof fs.findControlElements === 'function'
+      ? fs.findControlElements(scope)
+      : fs.findControls(scope);
     const m = new Map();
     for (const el of controls) {
       try {
