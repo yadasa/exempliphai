@@ -860,13 +860,48 @@ async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = 
               const sc = matchScore(normalizeText(value), txt);
               if (sc > bestOpt.score) bestOpt = { v: o.value, score: sc };
             }
+
             if (bestOpt.v != null && bestOpt.score >= 55) {
               inputEl.value = bestOpt.v;
               try { inputEl.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
               try { inputEl.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
               filled++;
               await _saSleep(80);
+              continue;
             }
+
+            // AI fallback for tracked inputs (serialized queue): label + profile keys + options only.
+            try {
+              const aiEnabled = profile?.aiMappingEnabled === true;
+              const apiKey = profile?.['API Key'];
+              if (aiEnabled && apiKey) {
+                const picked = await _saAiPickBestDropdownOptionText({
+                  apiKey,
+                  label,
+                  allowedProfileKeys: _saAllowedProfileKeys(profile),
+                  options: opts.map((o) => (o.textContent || o.value || '').toString().trim()).filter(Boolean),
+                  timeoutMs: 8000,
+                });
+
+                if (picked) {
+                  let bestAi = { v: null, score: 0 };
+                  for (const o of opts) {
+                    const txt = (o.textContent || o.value || '').toString();
+                    const sc = matchScore(picked, txt);
+                    if (sc > bestAi.score) bestAi = { v: o.value, score: sc };
+                  }
+
+                  if (bestAi.v != null && bestAi.score >= 55) {
+                    inputEl.value = bestAi.v;
+                    try { inputEl.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+                    try { inputEl.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+                    filled++;
+                    await _saSleep(80);
+                  }
+                }
+              }
+            } catch (_) {}
+
             continue;
           }
 
@@ -1415,12 +1450,74 @@ async function fillReactSelectKeyboard(inputElement, fillValue, jobParam, ctx = 
   if (bestIndex < 0 || bestScore < minScore) {
     const bestText = bestIndex >= 0 ? (options[bestIndex].textContent || '').trim() : '';
     console.log(`${TAG} — no good option match for "${fillValue}" (best score: ${bestScore}${bestText ? `, "${bestText}"` : ''}, ${options.length} options)`);
+
+    // AI fallback (privacy-preserving): ask the provider to pick the best option
+    // based on label + allowed profile KEYS + visible options (never values).
     try {
-      const ev = k.escapeDown();
-      if (ev) inputElement.dispatchEvent(ev);
-    } catch (_) {}
-    await clearTypedText();
-    return false;
+      const ai = ctx?.ai;
+      const canUseAi = !!(ai?.enabled && ai?.apiKey);
+      if (canUseAi) {
+        const optionTexts = options.map((o) => (o.textContent || '').trim()).filter(Boolean);
+        const picked = await _saAiPickBestDropdownOptionText({
+          apiKey: ai.apiKey,
+          label: jobParam,
+          allowedProfileKeys: Array.isArray(ai.allowedProfileKeys) ? ai.allowedProfileKeys : [],
+          options: optionTexts,
+          model: ai.model,
+          timeoutMs: ai.timeoutMs ?? 8000,
+        });
+
+        if (picked) {
+          console.log(`${TAG} — AI picked option text "${picked}"; retrying react-select filter`);
+
+          await clearTypedText();
+          try {
+            setNativeValue(inputElement, String(picked));
+          } catch (_) {
+            try { inputElement.value = String(picked); } catch (_) {}
+          }
+          dispatchInputAndChange(inputElement);
+          await sleep(120);
+
+          // Re-read menu/options after filtering.
+          menu = findMenu();
+          if (menu) {
+            options = Array.from(menu.querySelectorAll('[role="option"], .select__option, [class*="option"]'))
+              .filter(o => (o.textContent || '').trim().length > 0);
+          }
+
+          if (options && options.length) {
+            let aiBestIndex = -1;
+            let aiBestScore = 0;
+            for (let i = 0; i < options.length; i++) {
+              const t = options[i].textContent || '';
+              const s = matchScore(picked, t);
+              if (s > aiBestScore) {
+                aiBestScore = s;
+                aiBestIndex = i;
+              }
+            }
+
+            if (aiBestIndex >= 0 && aiBestScore >= 50) {
+              bestIndex = aiBestIndex;
+              bestScore = aiBestScore;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`${TAG} — AI fallback failed`, e);
+    }
+
+    // If AI didn't help, bail.
+    if (bestIndex < 0 || bestScore < minScore) {
+      try {
+        const ev = k.escapeDown();
+        if (ev) inputElement.dispatchEvent(ev);
+      } catch (_) {}
+      await clearTypedText();
+      return false;
+    }
   }
 
   const bestText = (options[bestIndex].textContent || '').trim();
@@ -1485,7 +1582,7 @@ async function fillReactSelectKeyboard(inputElement, fillValue, jobParam, ctx = 
   return false;
 }
 
-function setBestSelectOption(selectEl, fillValue) {
+async function setBestSelectOption(selectEl, fillValue, ctx = {}) {
   if (!(selectEl instanceof HTMLSelectElement)) return false;
   const options = Array.from(selectEl.options || []);
   if (!options.length) return false;
@@ -1544,6 +1641,45 @@ function setBestSelectOption(selectEl, fillValue) {
   if (!best.opt) return false;
   if (best.score < 50) {
     console.log(`SmartApply: SKIP select option — best score ${best.score} < 50 for "${fillValue}" (best option: "${best.opt?.textContent?.trim()}")`);
+
+    // AI fallback (privacy-preserving): let the provider pick among visible options
+    // based on label + allowed profile KEY NAMES.
+    try {
+      const ai = ctx?.ai;
+      const label = ctx?.label || ctx?.jobParam || '';
+      const canUseAi = !!(ai?.enabled && ai?.apiKey && label);
+      if (canUseAi) {
+        const optionTexts = options.map((o) => (o.textContent || o.value || '').toString().trim()).filter(Boolean);
+        const picked = await _saAiPickBestDropdownOptionText({
+          apiKey: ai.apiKey,
+          label,
+          allowedProfileKeys: Array.isArray(ai.allowedProfileKeys) ? ai.allowedProfileKeys : [],
+          options: optionTexts,
+          model: ai.model,
+          timeoutMs: ai.timeoutMs ?? 8000,
+        });
+
+        if (picked) {
+          let bestAi = { opt: null, score: 0 };
+          for (const opt of options) {
+            if (opt.disabled) continue;
+            const sc = Math.max(matchScore(picked, opt.textContent), matchScore(picked, opt.value));
+            if (sc > bestAi.score) bestAi = { opt, score: sc };
+          }
+
+          if (bestAi.opt && bestAi.score >= 55) {
+            console.log(`SmartApply: AI Select "${label}" → "${bestAi.opt.textContent.trim() || bestAi.opt.value}" (score ${bestAi.score})`);
+            selectEl.value = bestAi.opt.value;
+            bestAi.opt.selected = true;
+            dispatchInputAndChange(selectEl);
+            return true;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('SmartApply: AI select fallback failed', e);
+    }
+
     return false;
   }
 
@@ -1959,6 +2095,14 @@ let _smartApplyAiDepsLoaded = false;
 
 async function ensureAiDepsLoaded() {
   if (_smartApplyAiDepsLoaded) return true;
+
+  // If a provider is already attached (e.g., preloaded in-page or in tests),
+  // don't attempt dynamic imports.
+  if (globalThis.__exempliphaiProviders?.gemini) {
+    _smartApplyAiDepsLoaded = true;
+    return true;
+  }
+
   if (!chrome?.runtime?.getURL) return false;
 
   // Load the ESM validator + provider so they attach to globals:
@@ -1980,6 +2124,106 @@ async function ensureAiDepsLoaded() {
 
   _smartApplyAiDepsLoaded = true;
   return true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI-assisted dropdown option picking (privacy-preserving)
+//
+// When we cannot confidently fuzzy-match a dropdown option (native <select> or
+// react-select combobox), we can ask the AI provider to choose the best option
+// *from the visible option list* given only:
+// - the field label
+// - allowed profile KEY NAMES (never values)
+// - the option texts
+//
+// This is intentionally low-volume and serialized via a simple queue to avoid
+// flooding the provider on pages with many controls.
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _smartApplyAiDropdownQueue = Promise.resolve();
+
+function _saEnqueueAiDropdownTask(fn) {
+  _smartApplyAiDropdownQueue = _smartApplyAiDropdownQueue
+    .then(() => fn())
+    .catch((e) => {
+      console.warn('SmartApply: AI dropdown task failed', e);
+      return null;
+    });
+  return _smartApplyAiDropdownQueue;
+}
+
+function _saAllowedProfileKeys(profile) {
+  try {
+    const blockedKeys = new Set(['API Key', 'aiMappingEnabled', 'cloudSyncEnabled']);
+    return Object.keys(profile || {}).filter((k) => k && !blockedKeys.has(k));
+  } catch (_) {
+    return [];
+  }
+}
+
+async function _saAiPickBestDropdownOptionText({
+  apiKey,
+  label,
+  allowedProfileKeys,
+  options,
+  model,
+  timeoutMs = 8000,
+} = {}) {
+  try {
+    if (!apiKey) return null;
+    if (!label) return null;
+    if (!Array.isArray(options) || options.length === 0) return null;
+
+    const depsOk = await ensureAiDepsLoaded();
+    if (!depsOk) return null;
+
+    const provider = globalThis.__exempliphaiProviders?.gemini;
+    if (!provider?.generateNarrativeAnswer) return null;
+
+    const cleanOptions = Array.from(
+      new Set(
+        options
+          .map((t) => String(t || '').trim())
+          .filter((t) => t.length > 0)
+          .slice(0, 60) // cap payload
+      )
+    );
+    if (!cleanOptions.length) return null;
+
+    const prompt = `Best option for "${String(label).trim()}" from profile keys [${(allowedProfileKeys || []).join(', ')}]:\n\nOptions:\n- ${cleanOptions.join('\n- ')}\n\nReturn ONLY the single best option text exactly as it appears in the list above. No quotes. No explanation.`;
+
+    const text = await _saEnqueueAiDropdownTask(() =>
+      provider.generateNarrativeAnswer({
+        apiKey,
+        questionText: prompt,
+        maxWords: 20,
+        tone: 'direct',
+        model,
+        timeoutMs,
+        maxRetries: 1,
+      })
+    );
+
+    const answer = String(text || '').trim();
+    if (!answer) return null;
+
+    // Prefer exact match to avoid surprises.
+    const exact = cleanOptions.find((o) => o === answer);
+    if (exact) return exact;
+
+    // Fallback: choose the closest option by fuzzy score.
+    let best = { t: null, score: 0 };
+    for (const o of cleanOptions) {
+      const sc = matchScore(answer, o);
+      if (sc > best.score) best = { t: o, score: sc };
+    }
+
+    if (best.t && best.score >= 55) return best.t;
+    return null;
+  } catch (e) {
+    console.warn('SmartApply: AI pick best dropdown option failed', e);
+    return null;
+  }
 }
 
 function inferSectionFromSnapshotCtx(sectionCtx) {
@@ -2659,7 +2903,14 @@ ${question}`
 
     // Native <select> and radio groups need special handling:
     if (inputElement instanceof HTMLSelectElement) {
-      if (setBestSelectOption(inputElement, fillValue)) _filledElements.add(inputElement);
+      if (await setBestSelectOption(inputElement, fillValue, {
+        label: jobParam,
+        ai: {
+          enabled: res?.aiMappingEnabled === true,
+          apiKey: res?.['API Key'],
+          allowedProfileKeys: _saAllowedProfileKeys(res),
+        },
+      })) _filledElements.add(inputElement);
       continue;
     }
 
@@ -2695,6 +2946,11 @@ ${question}`
           timeoutMs: 3000,
           minScore: 40,
           tag: `SmartApply: React-Select "${jobParam}"`,
+          ai: {
+            enabled: res?.aiMappingEnabled === true,
+            apiKey: res?.['API Key'],
+            allowedProfileKeys: _saAllowedProfileKeys(res),
+          },
         });
 
         if (ok) {

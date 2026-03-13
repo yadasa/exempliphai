@@ -291,3 +291,65 @@ test('xapo react-select: ArrowRight open → poll → best match → ArrowDown/E
     `logs should mention Selected 6+ years, got:\n${flat}`
   );
 });
+
+
+test('react-select dropdown: AI fallback picks option when fuzzy match is low', async () => {
+  const html = `<!doctype html><html><body>
+      <div class="select-shell">
+        <div class="select__control remix-css-13cymwt-control">
+          <div class="select__value-container remix-css-hlgwow">
+            <div class="select__placeholder" id="react-select-question_29351026004-placeholder">Select...</div>
+            <div class="select__input-container remix-css-19bb58m" data-value="">
+              <input class="select__input" id="question_29351026004" role="combobox" aria-expanded="false" aria-autocomplete="list" aria-haspopup="true" value="" />
+            </div>
+          </div>
+          <div class="select__indicators"><button type="button">v</button></div>
+        </div>
+      </div>
+    </body></html>`;
+
+  const { document, window } = parseHTML(html);
+
+  attachMockReactSelect({
+    document,
+    inputId: 'question_29351026004',
+    optionsText: ['0-1 years', '3-5 years', '6+ years', '10+ years'],
+  });
+
+  const { sandbox, logs } = createSandboxWithDom(document, window);
+
+  const utilsSrc = readSource('public/contentScripts/utils.js');
+  vm.runInContext(utilsSrc, sandbox);
+
+  const autofillSrc = readSource('public/contentScripts/autofill.js');
+  vm.runInContext(autofillSrc, sandbox);
+
+  // Pretend AI deps already loaded; inject a fake provider.
+  sandbox._smartApplyAiDepsLoaded = true;
+  sandbox.__exempliphaiProviders = {
+    gemini: {
+      generateNarrativeAnswer: async () => '6+ years',
+    },
+  };
+
+  const input = document.getElementById('question_29351026004');
+
+  // Use a high minScore so the initial fuzzy match fails and AI fallback triggers.
+  const ok = await sandbox.fillReactSelectKeyboard(input, '6', 'Years of experience', {
+    timeoutMs: 3000,
+    minScore: 95,
+    tag: 'SmartApply: React-Select "Years of experience"',
+    ai: {
+      enabled: true,
+      apiKey: 'test-key',
+      allowedProfileKeys: ['experience_years'],
+    },
+  });
+
+  const flat = logs.map(([, m]) => m).join('\n');
+  assert.equal(ok, true, `should select an option using AI fallback. Logs:\n${flat}`);
+
+  const selectedEl = document.querySelector('.select__single-value');
+  assert.ok(selectedEl, 'should render a single-value element after selection');
+  assert.equal(selectedEl.textContent.trim(), '6+ years');
+});
