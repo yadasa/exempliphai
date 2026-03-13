@@ -2295,7 +2295,67 @@ async function processFields(jobForm, fieldMap, form, res) {
             context += "Certifications:\n" + JSON.stringify(resumeDetails.certifications) + "\n";
           }
 
-          context += `Full Sync Storage:\n${JSON.stringify(fullSync, null, 2)}\n`;
+          // PRIVACY: do NOT send full sync storage to the model.
+          // Build a minimal, relevant subset for common application questions.
+          const pick = (obj, keys) => {
+            try {
+              for (const k of keys) {
+                if (obj && Object.prototype.hasOwnProperty.call(obj, k) && obj[k] != null && String(obj[k]).trim() !== '') {
+                  return obj[k];
+                }
+              }
+            } catch (_) {}
+            return undefined;
+          };
+
+          const profileSubset = {
+            first_name: pick(fullSync, ['first_name', 'First Name', 'firstName']),
+            last_name: pick(fullSync, ['last_name', 'Last Name', 'lastName']),
+            email: pick(fullSync, ['email', 'Email']),
+            phone: pick(fullSync, ['phone', 'Phone', 'phone_number', 'Phone Number']),
+            city: pick(fullSync, ['city', 'Location (City)']),
+            state: pick(fullSync, ['state', 'Location (State/Region)']),
+            country: pick(fullSync, ['country', 'Location (Country)']),
+            postal_code: pick(fullSync, ['postal_code', 'Zip', 'zip', 'Postal Code']),
+            linkedin: pick(fullSync, ['linkedin', 'LinkedIn']),
+            github: pick(fullSync, ['github', 'GitHub']),
+            portfolio: pick(fullSync, ['portfolio', 'Portfolio', 'website', 'Website']),
+            work_auth_us: pick(fullSync, ['work_auth_us', 'Work Authorization', 'work_authorization_us']),
+            sponsorship: pick(fullSync, ['sponsorship', 'Sponsorship', 'requires_sponsorship']),
+          };
+
+          // Remove empty keys
+          for (const k of Object.keys(profileSubset)) {
+            if (profileSubset[k] == null || String(profileSubset[k]).trim() === '') delete profileSubset[k];
+          }
+
+          // Tight summary of resume details (structured extraction only)
+          const resumeDetailsMin = (() => {
+            try {
+              const d = resumeDetails && typeof resumeDetails === 'object' ? resumeDetails : {};
+              const out = {};
+
+              if (Array.isArray(d.experiences) && d.experiences.length) {
+                out.experiences = d.experiences.slice(0, 6).map((x) => {
+                  const e = x && typeof x === 'object' ? x : {};
+                  return {
+                    title: e.title || e.role || e.position || undefined,
+                    company: e.company || e.employer || undefined,
+                    start: e.start || e.start_date || e.startDate || undefined,
+                    end: e.end || e.end_date || e.endDate || undefined,
+                    highlights: Array.isArray(e.highlights) ? e.highlights.slice(0, 3) : undefined,
+                  };
+                });
+              }
+
+              if (Array.isArray(d.skills) && d.skills.length) out.skills = d.skills.slice(0, 50);
+              if (Array.isArray(d.certifications) && d.certifications.length) out.certifications = d.certifications.slice(0, 12);
+
+              return JSON.stringify(out, null, 2);
+            } catch (_) {
+              return '';
+            }
+          })();
 
           let sitePrompt = '';
           const host = window.location.hostname.toLowerCase();
@@ -2309,62 +2369,88 @@ async function processFields(jobForm, fieldMap, form, res) {
           );
           const synonymHint = normalizedSynonyms[normalizeText(question)] || '';
 
-          // Construct Parts for Gemini
-          const parts = [
-            {
-              text: `You are a helpful assistant applying for a job.
-              ${context}
+          // Optional: attach PDFs only if they look valid; otherwise skip.
+          // This prevents Gemini errors like "The document has no pages" when stored data is empty/invalid.
+          const sanitizePdfBase64 = (b64) => {
+            try {
+              const s = String(b64 || '').trim();
+              if (!s) return null;
+              const stripped = s.startsWith('data:') ? s.slice(s.indexOf('base64,') + 7) : s;
+              if (!stripped || stripped.length < 64) return null;
 
-              ${sitePrompt ? `Site guidance: ${sitePrompt}` : ''}
-              ${synonymHint ? `Synonym hint: ${synonymHint}` : ''}
-              
-              Task: Write a professional, concise answer to the following job application question. Use the first person. Do not include placeholders like [Your Name]. Just the answer.
-              
-              Question: ${question}`
+              // Quick header check: decoded bytes should start with %PDF
+              const head = atob(stripped.slice(0, 64));
+              if (!head || !head.startsWith('%PDF')) return null;
+              return stripped;
+            } catch (_) {
+              return null;
             }
-          ];
+          };
 
-          if (resumeBase64) {
-            parts.push({
-              inline_data: {
-                data: resumeBase64,
-                mime_type: "application/pdf"
+          const resumePdf = sanitizePdfBase64(resumeBase64);
+          const linkedinPdf = sanitizePdfBase64(linkedinBase64);
+
+          const buildTextPart = () => ({
+            text: `You write concise, professional job-application answers in first person.
+Return ONLY the answer text.
+Do not include placeholders like [Company] or [Your Name].
+
+${sitePrompt ? `Site guidance: ${sitePrompt}\n\n` : ''}${synonymHint ? `Synonym hint: ${synonymHint}\n\n` : ''}Profile facts (minimal):
+${Object.keys(profileSubset).length ? JSON.stringify(profileSubset, null, 2) : '(none)'}
+
+Resume details (structured):
+${resumeDetailsMin || '(none)'}
+
+Question:
+${question}`
+          });
+
+          const callGemini = async (parts) => {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts }],
+                  generationConfig: { temperature: 0.2 },
+                }),
               }
-            });
-          }
+            );
 
-          if (linkedinBase64) {
-            parts.push({
-              inline_data: {
-                data: linkedinBase64,
-                mime_type: "application/pdf"
-              }
-            });
-          }
-
-          // 3. Call Gemini
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts }]
-              })
+            const json = await response.json();
+            if (json?.error) {
+              throw new Error(json.error.message || 'Unknown API Error');
             }
-          );
 
-          const json = await response.json();
-          if (json.error) {
-            throw new Error(json.error.message || "Unknown API Error");
+            const candidate = json?.candidates?.[0];
+            const answerText = candidate?.content?.parts?.[0]?.text;
+            if (!answerText) throw new Error('AI response missing text');
+            return String(answerText).trim();
+          };
+
+          // Default: text-only (most reliable). Attach PDFs only when valid.
+          const parts = [buildTextPart()];
+          const hadPdf = !!(resumePdf || linkedinPdf);
+          if (resumePdf) parts.push({ inline_data: { data: resumePdf, mime_type: 'application/pdf' } });
+          if (linkedinPdf) parts.push({ inline_data: { data: linkedinPdf, mime_type: 'application/pdf' } });
+
+          let answer = '';
+          try {
+            answer = await callGemini(parts);
+          } catch (e) {
+            const msg = String(e?.message || e || '').toLowerCase();
+            // Graceful fallback: retry without PDFs when Gemini cannot parse the document.
+            if (hadPdf && (msg.includes('no pages') || msg.includes('document has no pages'))) {
+              console.warn('SmartApply: Gemini PDF parse failed; retrying text-only');
+              answer = await callGemini([buildTextPart()]);
+            } else {
+              throw e;
+            }
           }
 
-          const candidate = json.candidates && json.candidates[0];
-          if (candidate) {
-            let answer = candidate.content.parts[0].text;
-            // Insert Answer
-            setNativeValue(element, answer);
-          }
+          // Insert Answer
+          if (answer) setNativeValue(element, answer);
 
         } catch (error) {
           console.error("AI Generation Error", error);
