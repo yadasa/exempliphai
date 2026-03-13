@@ -40,8 +40,19 @@ try {
   }
 } catch (_) {}
 
-window.addEventListener("load", (_) => {
+window.addEventListener("load", async (_) => {
   console.log("SmartApply: found job page.");
+
+  // Detect ATS using Simplify-derived URL patterns (best-effort)
+  try {
+    const det = globalThis.__SmartApply?.atsConfig?.detectATSKeyForUrl;
+    if (typeof det === 'function') {
+      const atsKey = await det(window.location.href);
+      if (atsKey) console.log('SmartApply: detected ATS', atsKey);
+    }
+  } catch (e) {
+    console.warn('SmartApply: ATS detection failed', e);
+  }
 
   // Console-friendly, AI-prompt-ready form snapshot
   try {
@@ -269,6 +280,727 @@ function findBestForm() {
   return null;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ATS selector-driven autofill (Simplify-style config)
+//
+// Uses config/simplify_ats.json loaded by contentScripts/atsConfig.js.
+// Executes sequential actions using containerPath + inputSelectors.
+// Values come from LOCAL_PROFILE (chrome.storage.local), local-only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _SA_XLATE_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const _SA_XLATE_LOWER = 'abcdefghijklmnopqrstuvwxyz';
+
+function _saIsProbablyXPath(sel) {
+  const s = String(sel || '').trim();
+  return s.startsWith('/') || s.startsWith('.//') || s.startsWith('..//') || s.startsWith('//');
+}
+
+function _saEvalXPathAll(xpath, root = document) {
+  try {
+    const doc = root?.ownerDocument || document;
+    const res = doc.evaluate(xpath, root, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+    const out = [];
+    for (let i = 0; i < res.snapshotLength; i++) out.push(res.snapshotItem(i));
+    return out;
+  } catch (_) {
+    return [];
+  }
+}
+
+function _saEvalXPathOne(xpath, root = document) {
+  const all = _saEvalXPathAll(xpath, root);
+  return all && all.length ? all[0] : null;
+}
+
+function _saQueryAll(css, root = document) {
+  try {
+    const scope = root && root.querySelectorAll ? root : document;
+    return Array.from(scope.querySelectorAll(css));
+  } catch (_) {
+    return [];
+  }
+}
+
+function _saWithValue(sel, value) {
+  if (sel == null) return sel;
+  if (Array.isArray(sel)) return sel.map((s) => _saWithValue(s, value));
+  if (typeof sel !== 'string') return sel;
+  return _saSubstitutePlaceholders(sel, { value });
+}
+
+function _saFindAll(sel, root = document) {
+  if (!sel) return [];
+  if (Array.isArray(sel)) {
+    const out = [];
+    for (const s of sel) out.push(..._saFindAll(s, root));
+    return out;
+  }
+  return _saIsProbablyXPath(sel) ? _saEvalXPathAll(String(sel), root) : _saQueryAll(String(sel), root);
+}
+
+function _saFindOne(sel, root = document) {
+  const all = _saFindAll(sel, root);
+  return all && all.length ? all[0] : null;
+}
+
+async function _saSleep(ms) {
+  try {
+    if (typeof sleep === 'function') return await sleep(ms);
+  } catch (_) {}
+  return await new Promise((r) => setTimeout(r, ms));
+}
+
+async function _saWaitFor({
+  sel,
+  root = document,
+  present = true,
+  timeoutMs = 4000,
+  pollMs = 100,
+} = {}) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const el = _saFindOne(sel, root);
+    if (present && el) return el;
+    if (!present && !el) return true;
+    await _saSleep(pollMs);
+  }
+  return present ? null : false;
+}
+
+async function _saLoadLocalProfile() {
+  try {
+    const got = await chrome.storage.local.get(['LOCAL_PROFILE', 'EXEMPLIPHAI_LOCAL_PROFILE']);
+    return got.LOCAL_PROFILE || got.EXEMPLIPHAI_LOCAL_PROFILE || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _saNormalize(v) {
+  return (v ?? '')
+    .toString()
+    .trim();
+}
+
+function _saDigitsOnly(v) {
+  const s = _saNormalize(v);
+  const d = s.replace(/\D+/g, '');
+  return d;
+}
+
+function _saResolveProfileValue(profile, key) {
+  if (!profile || !key) return undefined;
+  if (key in profile) return profile[key];
+
+  // Nested LOCAL_PROFILE shapes (older builds)
+  // - basics.firstName / basics.lastName / basics.email / basics.phone
+  // - links.linkedin / links.github / links.portfolio
+  try {
+    if (profile.basics && typeof profile.basics === 'object') {
+      const b = profile.basics;
+      if (key === 'first_name' && b.firstName) return b.firstName;
+      if (key === 'last_name' && b.lastName) return b.lastName;
+      if (key === 'email' && b.email) return b.email;
+      if (key === 'phone' && b.phone) return b.phone;
+      if (key === 'location' && b.location) return b.location;
+      if (key === 'city' && b.city) return b.city;
+      if (key === 'state' && (b.state || b.region)) return b.state || b.region;
+      if (key === 'country' && b.country) return b.country;
+      if (key === 'postal_code' && (b.postalCode || b.zip)) return b.postalCode || b.zip;
+    }
+    if (profile.links && typeof profile.links === 'object') {
+      const l = profile.links;
+      if (key === 'linkedin' && l.linkedin) return l.linkedin;
+      if (key === 'github' && l.github) return l.github;
+      if (key === 'portfolio' && l.portfolio) return l.portfolio;
+      if (key === 'additional_url' && (l.website || l.url)) return l.website || l.url;
+    }
+  } catch (_) {}
+
+  // Best-effort common aliases
+  const aliases = {
+    first_name: ['First Name', 'firstName', 'first_name'],
+    last_name: ['Last Name', 'lastName', 'last_name'],
+    email: ['Email', 'email'],
+    phone: ['Phone', 'phone', 'phone_number'],
+    phone_stripped: ['phone_stripped', 'phoneStripped'],
+    city: ['city', 'Location (City)'],
+    state: ['state', 'Location (State/Region)'],
+    country: ['country', 'Location (Country)'],
+    postal_code: ['postal_code', 'zip', 'Zip', 'Postal Code'],
+    linkedin: ['LinkedIn', 'linkedin', 'linkedIn'],
+    github: ['GitHub', 'github'],
+    portfolio: ['Portfolio', 'portfolio', 'website'],
+  };
+  const list = aliases[key];
+  if (Array.isArray(list)) {
+    for (const k of list) if (k in profile) return profile[k];
+  }
+
+  return undefined;
+}
+
+function _saCoerceValueForKey(key, raw) {
+  if (raw == null) return raw;
+  if (key === 'phone_stripped') return _saDigitsOnly(raw);
+  return raw;
+}
+
+function _saPickCanonicalKeyFromValuesMap(valuesMap, fillValue) {
+  // valuesMap: { canonicalKey: string|[string]|... }
+  const valNorm = normalizeText(fillValue);
+  if (!valNorm) return null;
+
+  for (const [canonical, candidates] of Object.entries(valuesMap || {})) {
+    if (Array.isArray(candidates)) {
+      for (const c of candidates) {
+        if (normalizeText(c) === valNorm) return canonical;
+      }
+    } else {
+      if (normalizeText(candidates) === valNorm) return canonical;
+    }
+
+    // also accept canonical itself
+    if (normalizeText(canonical) === valNorm) return canonical;
+  }
+
+  // fallback: if valuesMap has keys 'true'/'false'/'' and fillValue looks boolean
+  const booly = ['yes', 'true', '1'];
+  const falsy = ['no', 'false', '0'];
+  if (Object.prototype.hasOwnProperty.call(valuesMap || {}, 'true') && booly.some(b => valNorm === b)) return 'true';
+  if (Object.prototype.hasOwnProperty.call(valuesMap || {}, '') && falsy.some(f => valNorm === f)) return '';
+
+  return null;
+}
+
+function _saSubstitutePlaceholders(str, { value } = {}) {
+  const s = String(str || '');
+  const v = _saNormalize(value);
+  // NOTE: Simplify-style XPaths often use translate(., "%UPPERVALUE%", "%LOWERVALUE%")
+  // where %UPPERVALUE%/%LOWERVALUE% are alphabet maps, not the user's value.
+  return s
+    .replaceAll('%VALUE%', v)
+    .replaceAll('%UPPERVALUE%', _SA_XLATE_UPPER)
+    .replaceAll('%LOWERVALUE%', _SA_XLATE_LOWER);
+}
+
+function _saSetInputValue(el, value) {
+  try {
+    setNativeValue(el, value);
+  } catch (_) {
+    try { el.value = value; } catch (_) {}
+  }
+  dispatchInputAndChange(el);
+}
+
+async function _saDijitSelect(el, fillValue) {
+  if (!el) return false;
+  try { el.scrollIntoView?.({ block: 'center' }); } catch (_) {}
+  try { el.click?.(); } catch (_) {}
+  await _saSleep(150);
+
+  // Dijit menus are usually rendered in a popup div with visible style.
+  const opts = _saFindAll(
+    "//div[contains(@class, 'dijitPopup') and contains(@class, 'dijitMenuPopup')][contains(@style, 'visibility') and contains(@style, 'visible')]//td[contains(@class, 'dijitMenuItemLabel')]",
+    document
+  );
+
+  if (!opts.length) return false;
+
+  let best = { el: null, score: 0 };
+  for (const o of opts) {
+    const t = (o.textContent || '').trim();
+    const s = matchScore(fillValue, t);
+    if (s > best.score) best = { el: o, score: s };
+  }
+
+  if (!best.el || best.score < 40) return false;
+
+  try { best.el.click?.(); } catch (_) {}
+  await _saSleep(120);
+  return true;
+}
+
+async function _saUploadFromLocalBase64(fileInputEl, base64, filename, mimeType) {
+  if (!fileInputEl || !base64) return false;
+  try {
+    const dt = new DataTransfer();
+    const arrBfr = base64ToArrayBuffer(base64);
+    dt.items.add(new File([arrBfr], filename || 'document.pdf', { type: mimeType || 'application/pdf' }));
+    fileInputEl.files = dt.files;
+    try { fileInputEl.dispatchEvent(changeEvent); } catch (_) { dispatchInputAndChange(fileInputEl); }
+    return true;
+  } catch (e) {
+    console.warn('SmartApply: file upload failed', e);
+    return false;
+  }
+}
+
+async function _saExecuteActions(actions = [], ctx = {}) {
+  const root = ctx.root || document;
+  const value = ctx.value;
+  for (const a of actions || []) {
+    if (!a || typeof a !== 'object') continue;
+
+    if (Number.isFinite(a.time)) {
+      await _saSleep(a.time);
+      continue;
+    }
+
+    // Wait until a path is removed
+    if (a.path && a.removed) {
+      const sel = _saWithValue(a.path, value);
+      const ok = await _saWaitFor({ sel, root, present: false, timeoutMs: a.time || 4000 });
+      if (!ok) console.log('SmartApply: wait-for-removed timed out', a.path);
+      continue;
+    }
+
+    const method = String(a.method || '').toLowerCase();
+    if (method === 'click') {
+      const sel = _saWithValue(a.path, value);
+      const target = _saFindOne(sel, root);
+      try { target?.click?.(); } catch (_) {}
+      await _saSleep(100);
+      continue;
+    }
+
+    // Unhandled action method — keep going.
+  }
+}
+
+async function _saApplySelectorEntry(entry, { root, key, fillValue, profile } = {}) {
+  // entry: string XPath/CSS OR object {path, method, actions, values, valuePathMap, value}
+  if (!entry) return false;
+
+  if (typeof entry === 'string' || Array.isArray(entry)) {
+    const el = _saFindOne(entry, root);
+    if (!el) return false;
+
+    // Default: fill into controls, click for buttons.
+    const tag = (el.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+      _saSetInputValue(el, String(fillValue ?? ''));
+      return true;
+    }
+    try { el.click?.(); } catch (_) {}
+    return true;
+  }
+
+  if (typeof entry !== 'object') return false;
+
+  // Pick the first matching element from path list.
+  let effectiveValue = fillValue;
+  if (entry.value != null) effectiveValue = entry.value;
+
+  const path = _saWithValue(entry.path, effectiveValue);
+  const el = _saFindOne(path, root);
+  if (!el) return false;
+
+  // Pre-actions (wait/click sequences)
+  if (Array.isArray(entry.actions) && entry.actions.length) {
+    await _saExecuteActions(entry.actions, { root, value: effectiveValue });
+  }
+
+  const method = String(entry.method || '').toLowerCase();
+
+  // Resolve value mapping
+
+  // value map: translate fillValue into canonical keys for valuePathMap / template substitutions
+  let canonicalKey = null;
+  if (entry.values && typeof entry.values === 'object' && !Array.isArray(entry.values)) {
+    canonicalKey = _saPickCanonicalKeyFromValuesMap(entry.values, fillValue);
+    if (canonicalKey != null) {
+      // If valuesMap maps canonical->value strings (e.g. ids), treat canonicalKey as the intended value
+      // OR if it maps canonical->synonyms, use canonicalKey in valuePathMap.
+      const mapped = entry.values[canonicalKey];
+      if (typeof mapped === 'string' && mapped && !Array.isArray(mapped)) {
+        // Often dijit expects internal codes; use mapped string as effectiveValue
+        effectiveValue = mapped;
+      } else {
+        effectiveValue = canonicalKey;
+      }
+    }
+  }
+
+  // valuePathMap: click a specific element path based on canonical/effective value
+  if (entry.valuePathMap && typeof entry.valuePathMap === 'object') {
+    const mapKey = canonicalKey != null ? canonicalKey : String(effectiveValue ?? '');
+    const mappedPath = entry.valuePathMap[mapKey];
+    if (mappedPath) {
+      const sel = _saWithValue(mappedPath, effectiveValue);
+      const target = _saFindOne(sel, root);
+      if (target) {
+        try { target.click?.(); } catch (_) {}
+        await _saSleep(100);
+        return true;
+      }
+    }
+  }
+
+  if (method === 'click') {
+    try { el.click?.(); } catch (_) {}
+    await _saSleep(100);
+    return true;
+  }
+
+  if (method === 'dijit') {
+    const ok = await _saDijitSelect(el, String(effectiveValue ?? ''));
+    if (ok) return true;
+    // fallthrough to default fill/click
+  }
+
+  if (method === 'uploadresume' || method === 'uploadcoverletter') {
+    const localData = await getStorageDataLocal();
+    if (method === 'uploadresume') {
+      return await _saUploadFromLocalBase64(el, localData.Resume, localData.Resume_name || 'resume.pdf', 'application/pdf');
+    }
+    if (method === 'uploadcoverletter') {
+      return await _saUploadFromLocalBase64(el, localData['Cover Letter'], localData['Cover Letter_name'] || 'coverletter.pdf', 'application/pdf');
+    }
+  }
+
+  // Default fill if it's an input-like element
+  const tag = (el.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+    _saSetInputValue(el, String(effectiveValue ?? ''));
+    return true;
+  }
+
+  // As a last resort, attempt click.
+  try { el.click?.(); } catch (_) {}
+  return true;
+}
+
+function _saLooksEmpty(el) {
+  try {
+    const tag = (el.tagName || '').toLowerCase();
+    const type = (el.getAttribute?.('type') || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') {
+      if (type === 'checkbox' || type === 'radio' || type === 'file') return false;
+      return String(el.value || '').trim() === '';
+    }
+    if (tag === 'select') {
+      const v = String(el.value || '').trim();
+      return v === '' || v === '0';
+    }
+  } catch (_) {}
+  return false;
+}
+
+function _saTextFromFirstPath(paths, root) {
+  try {
+    const list = Array.isArray(paths) ? paths : (paths ? [paths] : []);
+    for (const p of list) {
+      const n = _saFindOne(p, root);
+      const t = (n?.textContent || n?.nodeValue || '').toString().trim();
+      if (t) return t;
+    }
+  } catch (_) {}
+  return '';
+}
+
+function _saBuildProfileKeyCandidates(profile) {
+  const keys = Object.keys(profile || {}).filter(Boolean);
+
+  // Common synonyms (minimal + local-only) — keeps fuzzy mapping stable.
+  const synonyms = {
+    first_name: ['first name', 'given name'],
+    last_name: ['last name', 'surname', 'family name'],
+    email: ['email', 'e-mail'],
+    phone: ['phone', 'phone number', 'mobile'],
+    location: ['location', 'current location'],
+    address: ['address', 'street address'],
+    city: ['city', 'town'],
+    state: ['state', 'province', 'region'],
+    country: ['country', 'country / region'],
+    postal_code: ['zip', 'zipcode', 'postal code'],
+    linkedin: ['linkedin', 'linked in'],
+    github: ['github'],
+    portfolio: ['portfolio', 'personal website'],
+    additional_url: ['website', 'url', 'personal site'],
+    work_auth_us: ['work authorization (us)', 'authorized to work in the united states'],
+    sponsorship: ['sponsorship', 'visa sponsorship', 'require sponsorship'],
+  };
+
+  const out = [];
+  for (const k of keys) {
+    const variants = new Set();
+    variants.add(k);
+    variants.add(k.replace(/_/g, ' '));
+    variants.add(k.replace(/_/g, ''));
+    const s = synonyms[k];
+    if (Array.isArray(s)) for (const v of s) variants.add(v);
+    out.push({ key: k, variants: Array.from(variants) });
+  }
+  return out;
+}
+
+function _saPickBestProfileKey(label, candidates) {
+  try {
+    const labelNorm = normalizeText(label);
+    if (!labelNorm) return { key: null, score: 0 };
+
+    let best = { key: null, score: 0 };
+    for (const c of candidates) {
+      for (const v of c.variants) {
+        const sc = matchScore(normalizeText(v), labelNorm);
+        if (sc > best.score) best = { key: c.key, score: sc };
+      }
+    }
+
+    return best;
+  } catch (_) {
+    return { key: null, score: 0 };
+  }
+}
+
+function _saOptionText(optEl, optTextPaths) {
+  try {
+    const fromPath = _saTextFromFirstPath(optTextPaths, optEl);
+    if (fromPath) return fromPath;
+    const t = (optEl?.textContent || '').toString().trim();
+    return t;
+  } catch (_) {}
+  return '';
+}
+
+function _saCoerceToYesNo(v) {
+  if (v === true) return 'yes';
+  if (v === false) return 'no';
+  const t = normalizeText(v);
+  if (t === 'true' || t === '1' || t === 'y' || t === 'yes') return 'yes';
+  if (t === 'false' || t === '0' || t === 'n' || t === 'no') return 'no';
+  return null;
+}
+
+async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = {}) {
+  if (!ats || !root || !profile) return { ok: false, reason: 'missing' };
+  const selectors = Array.isArray(ats.trackedInputSelectors) ? ats.trackedInputSelectors : [];
+  if (!selectors.length) return { ok: false, reason: 'no_tracked_selectors' };
+
+  // Conservative default: only run on explicit user action OR when user opts-in.
+  const optedIn = profile.trackedInputsFuzzy === true || profile.tracked_inputs_fuzzy === true;
+  if (!force && !optedIn) return { ok: false, reason: 'not_forced' };
+
+  const candidates = _saBuildProfileKeyCandidates(profile);
+  if (!candidates.length) return { ok: false, reason: 'no_profile_keys' };
+
+  let filled = 0;
+  let considered = 0;
+
+  for (const sel of selectors) {
+    const fieldPaths = Array.isArray(sel.fieldPath) ? sel.fieldPath : [];
+    if (!fieldPaths.length) continue;
+
+    const fieldNodes = _saFindAll(fieldPaths, root);
+    for (const fieldNode of fieldNodes) {
+      try {
+        const label = _saTextFromFirstPath(sel.labelPath, fieldNode);
+        const labelNorm = normalizeText(label);
+        if (!labelNorm || labelNorm.length < 4) continue;
+        if (labelNorm.includes('password')) continue;
+
+        // Input-like
+        const inputEl = sel.inputPath ? _saFindOne(sel.inputPath, fieldNode) : null;
+        const optionEls = sel.optionsPath ? _saFindAll(sel.optionsPath, fieldNode) : [];
+
+        if (!inputEl && !optionEls.length) continue;
+
+        // Skip already filled unless forced
+        if (!force && inputEl && !_saLooksEmpty(inputEl)) continue;
+
+        const best = _saPickBestProfileKey(label, candidates);
+        considered++;
+
+        // Tight threshold; avoids filling the wrong custom question.
+        if (!best.key || best.score < 72) continue;
+
+        let value = _saResolveProfileValue(profile, best.key);
+        value = _saCoerceValueForKey(best.key, value);
+        if (value == null || String(value).trim() === '') continue;
+
+        // Radio/checkbox style
+        if (!inputEl && optionEls.length) {
+          const yesNo = _saCoerceToYesNo(value);
+          const want = yesNo || String(value);
+
+          let bestOpt = { el: null, score: 0, txt: '' };
+          for (const optEl of optionEls) {
+            const txt = _saOptionText(optEl, sel.optionsTextPath);
+            const sc = matchScore(normalizeText(want), txt);
+            if (sc > bestOpt.score) bestOpt = { el: optEl, score: sc, txt };
+          }
+
+          if (bestOpt.el && bestOpt.score >= 55) {
+            // Click the actual input if possible
+            try {
+              bestOpt.el.click?.();
+            } catch (_) {
+              try { bestOpt.el.dispatchEvent?.(new Event('click', { bubbles: true })); } catch (_) {}
+            }
+            filled++;
+            await _saSleep(80);
+            continue;
+          }
+
+          continue;
+        }
+
+        // Standard inputs/selects/buttons
+        if (inputEl) {
+          const tag = (inputEl.tagName || '').toLowerCase();
+
+          if (tag === 'select') {
+            // Try exact-ish option match
+            const opts = Array.from(inputEl.options || []);
+            let bestOpt = { v: null, score: 0 };
+            for (const o of opts) {
+              const txt = (o.textContent || o.value || '').toString();
+              const sc = matchScore(normalizeText(value), txt);
+              if (sc > bestOpt.score) bestOpt = { v: o.value, score: sc };
+            }
+            if (bestOpt.v != null && bestOpt.score >= 55) {
+              inputEl.value = bestOpt.v;
+              try { inputEl.dispatchEvent(new Event('input', { bubbles: true })); } catch (_) {}
+              try { inputEl.dispatchEvent(new Event('change', { bubbles: true })); } catch (_) {}
+              filled++;
+              await _saSleep(80);
+            }
+            continue;
+          }
+
+          // Combobox-like button: use the ATS-provided fillActions if present.
+          const role = (inputEl.getAttribute?.('role') || '').toLowerCase();
+          const isComboBtn = tag === 'button' || role === 'combobox';
+          if (isComboBtn && Array.isArray(sel.fillActions) && sel.fillActions.length) {
+            await _saExecuteActions(sel.fillActions, { root: fieldNode, value: String(value) });
+            filled++;
+            await _saSleep(80);
+            continue;
+          }
+
+          // Default input fill
+          _saSetInputValue(inputEl, String(value));
+          filled++;
+          await _saSleep(60);
+        }
+      } catch (_) {}
+
+      // Minimize risk and runtime.
+      if (filled >= 8) break;
+    }
+    if (filled >= 8) break;
+  }
+
+  if (filled) {
+    console.log('SmartApply: tracked inputs fuzzy-fill', { filled, considered });
+  }
+
+  return { ok: true, filled, considered };
+}
+
+async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
+  try {
+    const det = globalThis.__SmartApply?.atsConfig?.detectATSKeyForUrl;
+    const getCfg = globalThis.__SmartApply?.atsConfig?.getATSConfig;
+    if (typeof det !== 'function' || typeof getCfg !== 'function') return { ok: false, reason: 'no_ats_config' };
+
+    const atsKey = await det(url || window.location.href);
+    if (!atsKey) return { ok: false, reason: 'no_match' };
+
+    const fullCfg = await getCfg();
+    const ats = fullCfg?.ATS?.[atsKey] || null;
+    if (!ats || !Array.isArray(ats.inputSelectors)) return { ok: false, reason: 'missing_selectors', atsKey };
+
+    const profile = await _saLoadLocalProfile();
+    if (!profile) return { ok: false, reason: 'no_local_profile', atsKey };
+
+    // Find container root
+    let root = document;
+    if (Array.isArray(ats.containerPath) && ats.containerPath.length) {
+      for (const p of ats.containerPath) {
+        const found = _saFindOne(p, document);
+        if (found) { root = found; break; }
+      }
+    }
+
+    console.log('SmartApply: ATS config match', atsKey, 'root=', root === document ? 'document' : root);
+
+    // Apply selectors sequentially
+    for (const row of ats.inputSelectors) {
+      try {
+        if (!Array.isArray(row) || row.length < 2) continue;
+        const key = row[0];
+        const selectorEntries = row[1];
+
+        let fillValue = _saResolveProfileValue(profile, key);
+        fillValue = _saCoerceValueForKey(key, fillValue);
+
+        // Skip when no value, except for upload methods where resume exists.
+        if (fillValue == null || String(fillValue).trim() === '') {
+          // allow resume/cover letter uploads to proceed even without profile value
+          const isUploadField = String(key).toLowerCase().includes('resume') || String(key).toLowerCase().includes('cover');
+          if (!isUploadField) continue;
+        }
+
+        let applied = false;
+        const candidates = Array.isArray(selectorEntries) ? selectorEntries : [selectorEntries];
+        for (const entry of candidates) {
+          applied = await _saApplySelectorEntry(entry, { root, key, fillValue, profile });
+          if (applied) break;
+        }
+
+        if (applied) {
+          await _saSleep(120);
+        }
+      } catch (e) {
+        console.warn('SmartApply: ATS selector row failed', row?.[0], e);
+      }
+    }
+
+    // Pass 2: tracked inputs (custom questions)
+    // Many ATS configs include trackedInputSelectors which describe how to discover
+    // arbitrary form fields and their labels. We use this to fill "custom" questions
+    // via fuzzy label→profile-key matching (local-only) and, optionally, AI.
+    try {
+      await _saAutofillTrackedInputs({ ats, root, profile, force });
+    } catch (e) {
+      console.warn('SmartApply: tracked inputs autofill failed', e);
+    }
+
+    // Optional AI mapping for remaining custom questions (explicit user-triggered runs only).
+    if (force) {
+      try {
+        const res = await getStorageDataSync();
+        await tryHybridAiMapping(root, res);
+      } catch (e) {
+        console.warn('SmartApply: ATS-mode AI mapping skipped/failed', e);
+      }
+    }
+
+    // Optional: click submit/next buttons only when user explicitly opts in.
+    // We do NOT auto-submit by default.
+    if (profile && (profile.autoSubmit === true || profile.auto_submit === true)) {
+      const paths = Array.isArray(ats.submitButtonPaths) ? ats.submitButtonPaths : [];
+      for (const p of paths) {
+        const btn = _saFindOne(p, document);
+        if (btn) {
+          console.log('SmartApply: autoSubmit enabled — clicking submit/next button');
+          try { btn.click?.(); } catch (_) {}
+          await _saSleep(200);
+          break;
+        }
+      }
+    }
+
+    return { ok: true, atsKey };
+  } catch (e) {
+    console.warn('SmartApply: ATS config autofill failed', e);
+    return { ok: false, reason: 'exception', error: String(e) };
+  }
+}
+
 async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
   if (smartApplyAutofillLock) return false;
 
@@ -278,6 +1010,16 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
 
   const now = Date.now();
   if (!force && now - smartApplyLastAutofillAt < 1500) return false;
+
+  // Prefer Simplify-style ATS selector config when available.
+  // This supports many ATS domains beyond our legacy hostname heuristics.
+  try {
+    const atsAttempt = await tryAutofillUsingAtsConfig({ url: window.location.href, force });
+    if (atsAttempt?.ok) {
+      console.log('SmartApply: ATS-config autofill complete', atsAttempt.atsKey);
+      return true;
+    }
+  } catch (_) {}
 
   const detected = detectJobFormKey();
   if (!detected && !force && !isLikelyApplicationPage()) return false;

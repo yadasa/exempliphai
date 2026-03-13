@@ -15,6 +15,7 @@
     "storage",
     "contextMenus"
   ],
+  "options_page": "local_profile.html",
   "background": {
     "service_worker": "background.js"
   },
@@ -29,6 +30,7 @@
   "content_scripts": [
     {
       "js": [
+        "contentScripts/atsConfig.js",
         "contentScripts/utils.js",
         "contentScripts/formSnapshot.js",
         "contentScripts/policy.js",
@@ -42,7 +44,6 @@
         "https://boards.greenhouse.io/*",
         "https://jobs.lever.co/*",
         "https://app.dover.com/*",
-        "https://*.com/*",
         "https://*.myworkdayjobs.com/*",
         "https://*.oraclecloud.com/*",
         "https://*.successfactors.eu/*",
@@ -52,6 +53,12 @@
       "world": "ISOLATED",
       "run_at": "document_end",
       "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["config/simplify_ats.json"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

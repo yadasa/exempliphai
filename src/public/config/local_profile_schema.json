@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "title": "LOCAL_PROFILE",
+  "description": "Local-only profile for ATS autofill. Keys are Simplify-compatible. Stored in chrome.storage.local.",
+  "categories": [
+    {
+      "id": "personal",
+      "title": "Personal Information",
+      "fields": [
+        {"key": "first_name", "label": "First Name", "type": "string", "required": true},
+        {"key": "last_name", "label": "Last Name", "type": "string", "required": true},
+        {"key": "email", "label": "Email", "type": "string", "required": true, "format": "email"},
+        {"key": "phone", "label": "Phone", "type": "string"},
+        {"key": "preferred_name", "label": "Preferred Name", "type": "string"},
+        {"key": "birthday", "label": "Birthday (YYYY-MM-DD)", "type": "string", "format": "date"}
+      ]
+    },
+    {
+      "id": "location",
+      "title": "Location",
+      "fields": [
+        {"key": "location", "label": "Location (freeform)", "type": "string"},
+        {"key": "address", "label": "Address", "type": "string"},
+        {"key": "city", "label": "City", "type": "string"},
+        {"key": "state", "label": "State / Province", "type": "string"},
+        {"key": "country", "label": "Country / Region", "type": "string"},
+        {"key": "postal_code", "label": "Postal Code", "type": "string"}
+      ]
+    },
+    {
+      "id": "work_auth",
+      "title": "Work Authorization",
+      "fields": [
+        {"key": "work_auth", "label": "Work Authorization (generic)", "type": "boolean"},
+        {"key": "work_auth_us", "label": "Work Authorization (US)", "type": "boolean"},
+        {"key": "work_auth_uk", "label": "Work Authorization (UK)", "type": "boolean"},
+        {"key": "work_auth_ca", "label": "Work Authorization (Canada)", "type": "boolean"},
+        {"key": "sponsorship", "label": "Need Sponsorship", "type": "boolean"}
+      ]
+    },
+    {
+      "id": "social",
+      "title": "Social & Links",
+      "fields": [
+        {"key": "linkedin", "label": "LinkedIn", "type": "string"},
+        {"key": "github", "label": "GitHub", "type": "string"},
+        {"key": "portfolio", "label": "Portfolio", "type": "string"},
+        {"key": "additional_url", "label": "Website", "type": "string"}
+      ]
+    },
+    {
+      "id": "eeo",
+      "title": "EEO (optional)",
+      "fields": [
+        {"key": "gender", "label": "Gender (1/2/3/4 depending on ATS)", "type": "string"},
+        {"key": "ethnicity", "label": "Ethnicity (string or array in some ATS)", "type": "string"},
+        {"key": "hispanic", "label": "Hispanic (true/false)", "type": "boolean"},
+        {"key": "veteran_v2", "label": "Veteran Status (1/2/3)", "type": "string"},
+        {"key": "disability_v2", "label": "Disability Status (1/2/3)", "type": "string"},
+        {"key": "lgbt_v2", "label": "LGBT (1/2/3)", "type": "string"}
+      ]
+    },
+    {
+      "id": "experience",
+      "title": "Experience (structured)",
+      "fields": [
+        {
+          "key": "experience",
+          "label": "Experience",
+          "type": "array",
+          "item": {
+            "title": "Experience Item",
+            "fields": [
+              {"key": "company", "label": "Company", "type": "string"},
+              {"key": "title", "label": "Title", "type": "string"},
+              {"key": "location", "label": "Location", "type": "string"},
+              {"key": "start_month", "label": "Start Month (1-12)", "type": "number"},
+              {"key": "start_year", "label": "Start Year", "type": "number"},
+              {"key": "end_month", "label": "End Month (1-12)", "type": "number"},
+              {"key": "end_year", "label": "End Year", "type": "number"},
+              {"key": "currently_working", "label": "Currently Working", "type": "boolean"},
+              {"key": "description", "label": "Description", "type": "string", "multiline": true}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "education",
+      "title": "Education (structured)",
+      "fields": [
+        {
+          "key": "education",
+          "label": "Education",
+          "type": "array",
+          "item": {
+            "title": "Education Item",
+            "fields": [
+              {"key": "school", "label": "School", "type": "string"},
+              {"key": "degree", "label": "Degree (numeric code in some ATS)", "type": "string"},
+              {"key": "major", "label": "Major", "type": "string"},
+              {"key": "gpa", "label": "GPA", "type": "string"},
+              {"key": "start_month", "label": "Start Month (1-12)", "type": "number"},
+              {"key": "start_year", "label": "Start Year", "type": "number"},
+              {"key": "grad_month", "label": "Graduation Month (1-12)", "type": "number"},
+              {"key": "grad_year", "label": "Graduation Year", "type": "number"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "skills",
+      "title": "Skills",
+      "fields": [
+        {"key": "skill", "label": "Skills (comma separated)", "type": "string"}
+      ]
+    },
+    {
+      "id": "settings",
+      "title": "Settings",
+      "fields": [
+        {"key": "autoSubmit", "label": "Auto-submit (dangerous)", "type": "boolean"}
+      ]
+    }
+  ],
+  "aliases": {
+    "First Name": "first_name",
+    "Last Name": "last_name",
+    "Email": "email",
+    "Phone": "phone",
+    "LinkedIn": "linkedin",
+    "GitHub": "github",
+    "Portfolio": "portfolio",
+    "Website": "additional_url",
+    "Work Authorization": "work_auth",
+    "Work Authorization (US)": "work_auth_us",
+    "Sponsorship": "sponsorship"
+  }
+}
