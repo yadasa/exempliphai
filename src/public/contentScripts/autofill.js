@@ -41,6 +41,7 @@ try {
 } catch (_) {}
 
 window.addEventListener("load", async (_) => {
+  injectAutofillIndicator();
   console.log("SmartApply: found job page.");
 
   // Detect ATS using Simplify-derived URL patterns (best-effort)
@@ -278,6 +279,91 @@ function findBestForm() {
     if (main) return main;
   } catch (_) {}
   return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Progress Indicator (spinning overlay with status text)
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _smartApplyIndicator = null;
+
+function injectAutofillIndicator() {
+  if (document.getElementById('smartapply-indicator')) return;
+
+  const style = document.createElement('style');
+  style.textContent = `
+    #smartapply-indicator {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      background: rgba(79, 70, 229, 0.95);
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      min-width: 200px;
+      text-align: center;
+      backdrop-filter: blur(12px);
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s ease;
+    }
+    #smartapply-indicator.show {
+      opacity: 1;
+      visibility: visible;
+      transform: translateX(-50%) translateY(0);
+    }
+    #smartapply-indicator .spinner {
+      width: 24px;
+      height: 24px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top: 2px solid white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 8px;
+      display: block;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  `;
+  document.head.appendChild(style);
+
+  const div = document.createElement('div');
+  div.id = 'smartapply-indicator';
+  div.innerHTML = `
+    <div class="spinner"></div>
+    <div class="status">Ready</div>
+  `;
+  document.body.appendChild(div);
+
+  _smartApplyIndicator = div;
+}
+
+function showIndicator(text = 'Starting...') {
+  if (!_smartApplyIndicator) {
+    injectAutofillIndicator();
+  }
+  const statusEl = _smartApplyIndicator.querySelector('.status');
+  if (statusEl) statusEl.textContent = text;
+  _smartApplyIndicator.classList.add('show');
+}
+
+function updateIndicator(text) {
+  if (!_smartApplyIndicator) return;
+  const statusEl = _smartApplyIndicator.querySelector('.status');
+  if (statusEl) statusEl.textContent = text;
+}
+
+function hideIndicator() {
+  if (!_smartApplyIndicator) return;
+  _smartApplyIndicator.classList.remove('show');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -775,6 +861,7 @@ function _saCoerceToYesNo(v) {
 }
 
 async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = {}) {
+  updateIndicator('Fuzzy matching custom fields...');
   if (!ats || !root || !profile) return { ok: false, reason: 'missing' };
   const selectors = Array.isArray(ats.trackedInputSelectors) ? ats.trackedInputSelectors : [];
   if (!selectors.length) return { ok: false, reason: 'no_tracked_selectors' };
@@ -875,7 +962,8 @@ async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = 
               const aiEnabled = profile?.aiMappingEnabled === true;
               const apiKey = profile?.['API Key'];
               if (aiEnabled && apiKey) {
-                const picked = await _saAiPickBestDropdownOptionText({
+                updateIndicator('🤖 AI picking dropdown option...');
+          const picked = await _saAiPickBestDropdownOptionText({
                   apiKey,
                   label,
                   allowedProfileKeys: _saAllowedProfileKeys(profile),
@@ -936,6 +1024,7 @@ async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = 
 }
 
 async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
+  updateIndicator('Using ATS config...');
   try {
     const det = globalThis.__SmartApply?.atsConfig?.detectATSKeyForUrl;
     const getCfg = globalThis.__SmartApply?.atsConfig?.getATSConfig;
@@ -1037,6 +1126,7 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
 }
 
 async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
+  showIndicator(force ? '🚀 Force autofill...' : 'Autofilling form...');
   if (smartApplyAutofillLock) return false;
 
   // Greenhouse pages are keyboard/focus sensitive and often require focus to be
@@ -2033,6 +2123,7 @@ async function awaitForm() {
 }
 
 async function autofill(form) {
+  updateIndicator('Filling standard fields...');
   console.log("SmartApply: Starting autofill.");
   let res = await getStorageDataSync();
   res["Current Date"] = curDateStr();
@@ -2318,6 +2409,7 @@ function controlKindForElement(el) {
 }
 
 async function tryHybridAiMapping(form, res) {
+  showIndicator('🤖 AI mapping custom questions...');
   if (!form) return;
 
   // Cooldown: avoid re-calling AI rapidly on multi-step pages.
@@ -2504,6 +2596,7 @@ async function processFields(jobForm, fieldMap, form, res) {
       });
 
       async function generateAIAnswer(element) {
+  showIndicator('🤖 Generating AI answer...');
         // Show loading state (simple cursor)
         const originalCursor = element.style.cursor;
         element.style.cursor = "wait";
@@ -2700,6 +2793,9 @@ ${question}`
           console.error("AI Generation Error", error);
           alert(`Failed to generate answer: ${error.message}`);
         } finally {
+          hideIndicator();
+          element.style.cursor = originalCursor;
+        }
           element.style.cursor = originalCursor;
         }
       }
