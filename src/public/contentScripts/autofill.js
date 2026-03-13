@@ -540,25 +540,25 @@ async function _saUploadFromLocalBase64(fileInputEl, base64, filename, mimeType)
 async function _saExecuteActions(actions = [], ctx = {}) {
   const root = ctx.root || document;
   const value = ctx.value;
-  for (const a of actions || []) {
-    if (!a || typeof a !== 'object') continue;
+  for (const action of actions || []) {
+    if (!action || typeof action !== 'object') continue;
 
-    if (Number.isFinite(a.time)) {
-      await _saSleep(a.time);
+    if (Number.isFinite(action.time)) {
+      await _saSleep(action.time);
       continue;
     }
 
     // Wait until a path is removed
-    if (a.path && a.removed) {
-      const sel = _saWithValue(a.path, value);
-      const ok = await _saWaitFor({ sel, root, present: false, timeoutMs: a.time || 4000 });
-      if (!ok) console.log('SmartApply: wait-for-removed timed out', a.path);
+    if (action.path && action.removed) {
+      const sel = _saWithValue(action.path, value);
+      const ok = await _saWaitFor({ sel, root, present: false, timeoutMs: action.time || 4000 });
+      if (!ok) console.log('SmartApply: wait-for-removed timed out', action.path);
       continue;
     }
 
-    const method = String(a.method || '').toLowerCase();
+    const method = String(action.method || '').toLowerCase();
     if (method === 'click') {
-      const sel = _saWithValue(a.path, value);
+      const sel = _saWithValue(action.path, value);
       const target = _saFindOne(sel, root);
       try { target?.click?.(); } catch (_) {}
       await _saSleep(100);
@@ -1145,8 +1145,8 @@ function setupLongTextareaHints() {
     };
 
     const scan = (root) => {
-      const r = root && root.querySelectorAll ? root : document;
-      const textareas = Array.from(r.querySelectorAll('textarea'));
+      const scopeRoot = root && root.querySelectorAll ? root : document;
+      const textareas = Array.from(scopeRoot.querySelectorAll('textarea'));
       for (const ta of textareas) applyHint(ta);
     };
 
@@ -1633,10 +1633,10 @@ function clickBestRadioInGroup(radioEl, fillValue, root) {
   const effectiveFillValue = overrideValue !== null ? overrideValue : fillValue;
 
   let best = { el: null, score: 0 };
-  for (const r of radios) {
-    const labelText = getRadioLabelText(r);
-    const score = Math.max(matchScore(effectiveFillValue, r.value), matchScore(effectiveFillValue, labelText));
-    if (score > best.score) best = { el: r, score };
+  for (const radio of radios) {
+    const labelText = getRadioLabelText(radio);
+    const score = Math.max(matchScore(effectiveFillValue, radio.value), matchScore(effectiveFillValue, labelText));
+    if (score > best.score) best = { el: radio, score };
   }
 
   if (!best.el) return false;
