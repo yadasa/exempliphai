@@ -39,26 +39,67 @@
     return atsConfig.config;
   }
 
+  function _patternToRegex(pattern) {
+    const p0 = String(pattern || '').trim();
+    if (!p0) return null;
+
+    // The Simplify-derived config uses Chrome match-pattern-like strings, e.g.
+    //   *://*.amazon.jobs/*
+    //   *://*.indeed.com/jobs?*
+    // Convert them to a safe RegExp.
+    let schemePrefix = '';
+    let p = p0;
+
+    // Treat *:// as http(s) only to avoid accidental matches on chrome-extension:// etc.
+    if (p.startsWith('*://')) {
+      schemePrefix = 'https?:\\/\\/';
+      p = p.slice(4); // remove *://
+    }
+
+    // Escape regex metacharacters except '*', then convert '*' → '.*'
+    const escaped = p
+      .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*');
+
+    try {
+      return new RegExp('^' + schemePrefix + escaped + '$');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Expose helper for tests/debugging (non-public API).
+  atsConfig._patternToRegex = _patternToRegex;
+  atsConfig._patternRegexCache = atsConfig._patternRegexCache || new Map();
+
+  function _cachedRegex(pattern) {
+    const key = String(pattern || '');
+    if (atsConfig._patternRegexCache.has(key)) return atsConfig._patternRegexCache.get(key);
+    const rx = _patternToRegex(key);
+    atsConfig._patternRegexCache.set(key, rx);
+    return rx;
+  }
+
   // Detect ATS key for current URL
   atsConfig.detectATSKeyForUrl = async (url) => {
     const config = await loadConfig();
+    const u = String(url || '').trim();
+    if (!u) return null;
+
     for (const [atsKey, atsData] of Object.entries(config.ATS || {})) {
       for (const pattern of atsData.urls || []) {
-        try {
-          const regex = new RegExp(pattern.replace(/\\\*/g, '.*').replace(/\*\//g, ''));
-          if (regex.test(url)) return atsKey;
-        } catch {}
+        const regex = _cachedRegex(pattern);
+        if (regex && regex.test(u)) return atsKey;
       }
     }
+
     for (const [boardKey, boardData] of Object.entries(config.Boards || {})) {
-      // similar for boards
       for (const pattern of boardData.urls || []) {
-        try {
-          const regex = new RegExp(pattern.replace(/\\\*/g, '.*'));
-          if (regex.test(url)) return boardKey;
-        } catch {}
+        const regex = _cachedRegex(pattern);
+        if (regex && regex.test(u)) return boardKey;
       }
     }
+
     return null;
   };
 

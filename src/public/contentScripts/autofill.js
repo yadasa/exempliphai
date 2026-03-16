@@ -426,7 +426,8 @@ function _saIsElementVisible(el) {
 
     const style = el.ownerDocument?.defaultView?.getComputedStyle?.(el);
     if (style) {
-      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+      const op = parseFloat(String(style.opacity || ''));
+      if (style.display === 'none' || style.visibility === 'hidden' || (Number.isFinite(op) && op <= 0.05)) return false;
     }
 
     // Hidden attribute
@@ -683,9 +684,45 @@ function _saClickSafely(el) {
   return false;
 }
 
+function _saClassifyAutoSubmitIntent(text) {
+  try {
+    const t = String(text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!t) return 'none';
+
+    // Terminal-ish actions
+    if (t.includes('submit')) return 'terminal';
+    if (t.includes('apply')) return 'terminal';
+    if (t.includes('finish')) return 'terminal';
+    if (t.includes('complete')) return 'terminal';
+    if (t.includes('send application')) return 'terminal';
+
+    // Progress actions
+    if (t === 'next' || t.includes(' next')) return 'progress';
+    if (t.includes('continue')) return 'progress';
+    if (t.includes('review')) return 'progress';
+    if (t.includes('save and continue') || t.includes('save & continue')) return 'progress';
+
+    return 'progress';
+  } catch (_) {
+    return 'none';
+  }
+}
+
 async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source = 'unknown' } = {}) {
   const enabled = await _saIsAutoSubmitEnabled();
-  if (!enabled) return false;
+  if (!enabled) {
+    return {
+      enabled: false,
+      attempted: false,
+      clicked: false,
+      intent: 'none',
+      clickedText: '',
+      why: '',
+      score: 0,
+      source,
+      reason: 'disabled',
+    };
+  }
 
   const st = _saGetAutoSubmitState();
   const MAX_CLICKS_PER_URL = 4;
@@ -694,9 +731,31 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
   const now = Date.now();
   if (st.clicks >= MAX_CLICKS_PER_URL) {
     console.log('SmartApply: Auto-submit enabled, but max clicks reached for this URL');
-    return false;
+    return {
+      enabled: true,
+      attempted: true,
+      clicked: false,
+      intent: 'none',
+      clickedText: '',
+      why: '',
+      score: 0,
+      source,
+      reason: 'max_clicks',
+    };
   }
-  if (now - (st.lastAttemptAt || 0) < COOLDOWN_MS) return false;
+  if (now - (st.lastAttemptAt || 0) < COOLDOWN_MS) {
+    return {
+      enabled: true,
+      attempted: true,
+      clicked: false,
+      intent: 'none',
+      clickedText: '',
+      why: '',
+      score: 0,
+      source,
+      reason: 'cooldown',
+    };
+  }
 
   st.lastAttemptAt = now;
 
@@ -706,26 +765,57 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
   const found = _saFindSubmitCandidate({ submitButtonPaths });
   if (!found?.el) {
     console.log(`SmartApply: Auto-submit enabled, but no submit/next button found (${source})`);
-    return false;
+    return {
+      enabled: true,
+      attempted: true,
+      clicked: false,
+      intent: 'none',
+      clickedText: '',
+      why: '',
+      score: 0,
+      source,
+      reason: 'no_candidate',
+    };
   }
 
+  const clickedText = _saGetActionText(found.el);
   const sig = _saElementSig(found.el);
   if (sig && sig === st.lastClickedSig) {
     console.log('SmartApply: Auto-submit: refusing to click same element twice');
-    return false;
+    return {
+      enabled: true,
+      attempted: true,
+      clicked: false,
+      intent: 'none',
+      clickedText,
+      why: found.why,
+      score: found.score || 0,
+      source,
+      reason: 'dedupe',
+    };
   }
 
   // Require at least a modest confidence score for heuristic-based picks.
   if (found.why !== 'ats.submitButtonPaths' && (found.score || 0) < 55) {
-    console.log('SmartApply: Auto-submit: best candidate score too low — skipping', { score: found.score, text: _saGetActionText(found.el) });
-    return false;
+    console.log('SmartApply: Auto-submit: best candidate score too low — skipping', { score: found.score, text: clickedText });
+    return {
+      enabled: true,
+      attempted: true,
+      clicked: false,
+      intent: 'none',
+      clickedText,
+      why: found.why,
+      score: found.score || 0,
+      source,
+      reason: 'low_score',
+    };
   }
 
   console.log('SmartApply: Auto-submit enabled — clicking', {
     source,
     why: found.why,
     score: found.score,
-    text: _saGetActionText(found.el),
+    text: clickedText,
   });
 
   const ok = _saClickSafely(found.el);
@@ -733,10 +823,33 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
     st.clicks += 1;
     st.lastClickedSig = sig || st.lastClickedSig;
     await _saSleep(200);
-    return true;
+
+    const intent = _saClassifyAutoSubmitIntent(clickedText);
+
+    return {
+      enabled: true,
+      attempted: true,
+      clicked: true,
+      intent,
+      clickedText,
+      why: found.why,
+      score: found.score || 0,
+      source,
+      reason: 'clicked',
+    };
   }
 
-  return false;
+  return {
+    enabled: true,
+    attempted: true,
+    clicked: false,
+    intent: 'none',
+    clickedText,
+    why: found.why,
+    score: found.score || 0,
+    source,
+    reason: 'click_failed',
+  };
 }
 
 async function _saLoadLocalProfile() {
@@ -1398,6 +1511,19 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
   }
 }
 
+function _saSendListModeAutofillResult(payload = {}) {
+  try {
+    if (!chrome?.runtime?.sendMessage) return;
+    // Fire-and-forget; background decides whether it cares.
+    chrome.runtime.sendMessage({
+      action: 'LIST_MODE_AUTOFILL_RESULT',
+      finalUrl: String(window.location?.href || ''),
+      ts: Date.now(),
+      ...payload,
+    });
+  } catch (_) {}
+}
+
 async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
   if (smartApplyAutofillLock) return false;
 
@@ -1414,14 +1540,38 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
     const atsAttempt = await tryAutofillUsingAtsConfig({ url: window.location.href, force });
     if (atsAttempt?.ok) {
       console.log('SmartApply: ATS-config autofill complete', atsAttempt.atsKey);
+
+      let autoSubmitInfo = null;
       try {
-        await _saMaybeAutoSubmitAfterAutofill({
+        autoSubmitInfo = await _saMaybeAutoSubmitAfterAutofill({
           source: 'ats-config',
           submitButtonPaths: Array.isArray(atsAttempt.submitButtonPaths) ? atsAttempt.submitButtonPaths : [],
         });
       } catch (e) {
         console.warn('SmartApply: auto-submit skipped/failed (ats-config)', e);
+        autoSubmitInfo = {
+          enabled: false,
+          attempted: false,
+          clicked: false,
+          intent: 'none',
+          clickedText: '',
+          why: '',
+          score: 0,
+          source: 'ats-config',
+          reason: 'exception',
+        };
       }
+
+      // Rate-limit + mutation de-dupe for ATS-config mode too.
+      smartApplyLastAutofillAt = now;
+
+      _saSendListModeAutofillResult({
+        ok: true,
+        source: 'ats-config',
+        autoSubmit: autoSubmitInfo,
+        reason,
+      });
+
       return true;
     }
   } catch (_) {}
@@ -1472,15 +1622,42 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
 
     await autofill(form);
 
+    let autoSubmitInfo = null;
     try {
-      await _saMaybeAutoSubmitAfterAutofill({ source: 'legacy' });
+      autoSubmitInfo = await _saMaybeAutoSubmitAfterAutofill({ source: 'legacy' });
     } catch (e) {
       console.warn('SmartApply: auto-submit skipped/failed (legacy)', e);
+      autoSubmitInfo = {
+        enabled: false,
+        attempted: false,
+        clicked: false,
+        intent: 'none',
+        clickedText: '',
+        why: '',
+        score: 0,
+        source: 'legacy',
+        reason: 'exception',
+      };
     }
+
+    _saSendListModeAutofillResult({
+      ok: true,
+      source: 'legacy',
+      autoSubmit: autoSubmitInfo,
+      reason,
+    });
 
     return true;
   } catch (e) {
     console.error('SmartApply: Autofill failed', { reason, e });
+
+    _saSendListModeAutofillResult({
+      ok: false,
+      source: 'legacy',
+      error: String(e?.message || e),
+      reason,
+    });
+
     return false;
   } finally {
     smartApplyAutofillLock = false;
