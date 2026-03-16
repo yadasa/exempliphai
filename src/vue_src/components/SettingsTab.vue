@@ -5,6 +5,17 @@
         <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
             <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--accent-color); text-decoration: none;">Get a free API Key here</a>
         </p>
+
+        <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0;">
+            <label class="switch">
+                <input type="checkbox" v-model="autoSubmitEnabled" @change="toggleAutoSubmit" />
+                <span class="slider round"></span>
+            </label>
+            <span>Auto-submit after autofill</span>
+        </div>
+        <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+            When enabled, Exempliphai will try to click the page’s <b>Submit</b>/<b>Next</b>/<b>Continue</b> button after it finishes autofilling.
+        </p>
         
         <h2 class="subheading">Data Management</h2>
         <div class="data-actions">
@@ -67,12 +78,14 @@ export default {
         const fileInput = ref<HTMLInputElement | null>(null);
         const cloudSyncEnabled = ref(false);
         const aiMappingEnabled = ref(false);
+        const autoSubmitEnabled = ref(false);
 
         const loadSettings = async () => {
             if (!chrome.storage) return;
-            chrome.storage.sync.get(['cloudSyncEnabled', 'aiMappingEnabled'], (result) => {
+            chrome.storage.sync.get(['cloudSyncEnabled', 'aiMappingEnabled', 'autoSubmitEnabled'], (result) => {
                 cloudSyncEnabled.value = !!(result as any).cloudSyncEnabled;
                 aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
+                autoSubmitEnabled.value = !!(result as any).autoSubmitEnabled;
             });
         };
 
@@ -85,6 +98,12 @@ export default {
         const toggleAiMapping = () => {
              chrome.storage.sync.set({ aiMappingEnabled: aiMappingEnabled.value }, () => {
                  console.log("AI mapping toggled:", aiMappingEnabled.value);
+             });
+        };
+
+        const toggleAutoSubmit = () => {
+             chrome.storage.sync.set({ autoSubmitEnabled: autoSubmitEnabled.value }, () => {
+                 console.log("Auto-submit toggled:", autoSubmitEnabled.value);
              });
         };
 
@@ -173,6 +192,8 @@ export default {
             toggleCloudSync,
             aiMappingEnabled,
             toggleAiMapping,
+            autoSubmitEnabled,
+            toggleAutoSubmit,
             triggerAI,
             generateAllPending
         };

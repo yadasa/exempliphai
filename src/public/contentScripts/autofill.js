@@ -368,6 +368,377 @@ async function _saWaitFor({
   return present ? null : false;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-submit (opt-in)
+//
+// Controlled by chrome.storage.sync → { autoSubmitEnabled: boolean }
+// Default: false
+//
+// After a successful autofill run, if enabled, we try to find a visible/enabled
+// "Submit" / "Apply" / "Next" / "Continue" button and click it.
+// Rate-limited + de-duped to avoid infinite loops on SPA/mutation reruns.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _saAutoSubmitStateHost() {
+  try {
+    // If we can access same-origin top, store state there to dedupe across frames.
+    return window.top || window;
+  } catch (_) {
+    return window;
+  }
+}
+
+function _saGetAutoSubmitState() {
+  const host = _saAutoSubmitStateHost();
+  host.__SmartApplyAutoSubmitState = host.__SmartApplyAutoSubmitState || {
+    lastUrl: '',
+    clicks: 0,
+    lastAttemptAt: 0,
+    lastClickedSig: '',
+  };
+
+  const st = host.__SmartApplyAutoSubmitState;
+  const url = String(window.location?.href || '');
+  if (st.lastUrl !== url) {
+    st.lastUrl = url;
+    st.clicks = 0;
+    st.lastAttemptAt = 0;
+    st.lastClickedSig = '';
+  }
+  return st;
+}
+
+async function _saIsAutoSubmitEnabled() {
+  try {
+    if (typeof getStorageDataSync !== 'function') return false;
+    const got = await getStorageDataSync(['autoSubmitEnabled']);
+    return !!(got && (got.autoSubmitEnabled === true));
+  } catch (_) {
+    return false;
+  }
+}
+
+function _saIsElementVisible(el) {
+  try {
+    if (!el) return false;
+    if (el.closest && el.closest(`#${AUTOFILL_NOW_BUTTON_ID}`)) return false;
+    if (el.id === AUTOFILL_NOW_BUTTON_ID) return false;
+
+    const style = el.ownerDocument?.defaultView?.getComputedStyle?.(el);
+    if (style) {
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+    }
+
+    // Hidden attribute
+    if (el.hasAttribute?.('hidden')) return false;
+
+    const rect = el.getBoundingClientRect?.();
+    if (!rect) return false;
+    if (rect.width < 2 || rect.height < 2) return false;
+    if (!el.getClientRects || el.getClientRects().length === 0) return false;
+
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function _saIsElementEnabled(el) {
+  try {
+    if (!el) return false;
+    if (el.disabled) return false;
+    const ariaDisabled = (el.getAttribute?.('aria-disabled') || '').toLowerCase();
+    if (ariaDisabled === 'true') return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function _saGetActionText(el) {
+  if (!el) return '';
+  try {
+    const tag = (el.tagName || '').toLowerCase();
+    const aria = el.getAttribute?.('aria-label') || '';
+    const title = el.getAttribute?.('title') || '';
+
+    if (tag === 'input') {
+      const v = el.getAttribute?.('value') || el.value || '';
+      return String(v || aria || title || '').trim();
+    }
+
+    const txt = (el.innerText || el.textContent || '').trim();
+    return String(txt || aria || title || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function _saElementSig(el) {
+  try {
+    const tag = (el.tagName || '').toLowerCase();
+    const id = el.id || '';
+    const cls = (typeof el.className === 'string' ? el.className : '') || '';
+    const txt = _saGetActionText(el).slice(0, 80);
+    return `${tag}#${id}.${cls}::${txt}`.toLowerCase();
+  } catch (_) {
+    return '';
+  }
+}
+
+function _saScoreSubmitCandidate(el) {
+  if (!_saIsElementVisible(el) || !_saIsElementEnabled(el)) return -1e9;
+
+  const tag = (el.tagName || '').toLowerCase();
+  const type = (el.getAttribute?.('type') || '').toLowerCase();
+  const id = (el.id || '').toLowerCase();
+  const cls = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+  const name = (el.getAttribute?.('name') || '').toLowerCase();
+  const dataTest = (el.getAttribute?.('data-testid') || el.getAttribute?.('data-test') || '').toLowerCase();
+
+  const txtRaw = _saGetActionText(el);
+  const txt = String(txtRaw || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+  // Hard exclusions
+  if (!txt && tag !== 'input') {
+    // allow type=submit buttons with no text, but mostly skip empty
+    if (type !== 'submit') return -100;
+  }
+
+  const neg = ['cancel', 'back', 'previous', 'prev', 'close', 'delete', 'remove', 'logout', 'sign out'];
+  for (const w of neg) {
+    if (txt.includes(w)) return -200;
+  }
+
+  let score = 0;
+
+  // Strong signals
+  if (type === 'submit') score += 90;
+  if (id === 'submit' || name === 'submit') score += 35;
+
+  const attrHay = `${id} ${cls} ${name} ${dataTest}`;
+  if (attrHay.includes('submit')) score += 40;
+  if (attrHay.includes('apply')) score += 24;
+  if (attrHay.includes('continue')) score += 18;
+  if (attrHay.includes('next')) score += 14;
+
+  // Text signals
+  if (txt.includes('submit')) score += 70;
+  if (txt.includes('apply')) score += 55;
+  if (txt.includes('continue')) score += 40;
+  if (txt === 'next' || txt.includes(' next')) score += 30;
+  if (txt.includes('finish')) score += 28;
+  if (txt.includes('complete')) score += 22;
+  if (txt.includes('review')) score += 16;
+  if (txt.includes('save and continue') || txt.includes('save & continue')) score += 35;
+
+  // Mild preference for likely final action
+  if (tag === 'button' || tag === 'input' || el.getAttribute?.('role') === 'button') score += 6;
+
+  // Prefer lower-on-page controls (common for submit)
+  try {
+    const rect = el.getBoundingClientRect();
+    const y = rect.top + (window.scrollY || 0);
+    const docH = Math.max(document.documentElement?.scrollHeight || 0, document.body?.scrollHeight || 0);
+    if (docH > 0) {
+      const frac = y / docH;
+      if (frac > 0.66) score += 10;
+      else if (frac > 0.5) score += 6;
+    }
+  } catch (_) {}
+
+  return score;
+}
+
+function _saCollectQueryRoots(doc = document) {
+  const roots = [doc];
+  const MAX_SHADOW_ROOTS = 40;
+  const MAX_IFRAMES = 10;
+
+  // Shadow roots (best-effort)
+  try {
+    let added = 0;
+    const walker = doc.createTreeWalker(doc.documentElement || doc.body || doc, NodeFilter.SHOW_ELEMENT);
+    while (walker.nextNode()) {
+      const el = walker.currentNode;
+      if (el && el.shadowRoot && !roots.includes(el.shadowRoot)) {
+        roots.push(el.shadowRoot);
+        added++;
+        if (added >= MAX_SHADOW_ROOTS) break;
+      }
+    }
+  } catch (_) {}
+
+  // Same-origin iframes (best-effort)
+  try {
+    const iframes = Array.from(doc.querySelectorAll('iframe')).slice(0, MAX_IFRAMES);
+    for (const f of iframes) {
+      try {
+        const d = f.contentDocument;
+        if (d && !roots.includes(d)) roots.push(d);
+      } catch (_) {}
+    }
+  } catch (_) {}
+
+  return roots;
+}
+
+function _saFindSubmitCandidate({ submitButtonPaths = [] } = {}) {
+  // 1) Prefer ATS-provided selectors (if any)
+  try {
+    const paths = Array.isArray(submitButtonPaths) ? submitButtonPaths : [];
+    for (const p of paths) {
+      const el = _saFindOne(p, document);
+      if (el && _saIsElementVisible(el) && _saIsElementEnabled(el)) return { el, score: 999, why: 'ats.submitButtonPaths' };
+    }
+  } catch (_) {}
+
+  // 2) Robust default selectors
+  const selectors = [
+    // type-based
+    'button[type="submit"]',
+    'input[type="submit"]',
+    '[type="submit"]',
+
+    // common ids/classes
+    '#submit',
+    '.submit-button',
+    '.submitButton',
+    '.btn-submit',
+    '.button-submit',
+
+    // test ids
+    'button[data-testid*="submit" i]',
+    'button[data-test*="submit" i]',
+
+    // aria/title
+    'button[aria-label*="submit" i]',
+    'button[title*="submit" i]',
+    '[role="button"][aria-label*="submit" i]',
+
+    // next/continue/apply signals
+    'button[class*="apply" i], button[id*="apply" i]',
+    'button[class*="continue" i], button[id*="continue" i]',
+    'button[class*="next" i], button[id*="next" i]',
+  ];
+
+  const roots = _saCollectQueryRoots(document);
+  const candidates = [];
+
+  for (const r of roots) {
+    for (const sel of selectors) {
+      for (const el of _saQueryAll(sel, r)) candidates.push(el);
+    }
+
+    // Also consider all buttons/role=button for text matches (covers :contains("Submit")-style intent)
+    for (const el of _saQueryAll('button, input[type="submit"], input[type="button"], [role="button"], a[role="button"]', r)) {
+      const t = _saGetActionText(el).toLowerCase();
+      if (t.includes('submit') || t.includes('apply') || t.includes('continue') || t.trim() === 'next' || t.includes('next ')) {
+        candidates.push(el);
+      }
+    }
+  }
+
+  // De-dupe
+  const uniq = [];
+  const seen = new Set();
+  for (const el of candidates) {
+    const sig = _saElementSig(el);
+    if (!sig) continue;
+    if (seen.has(sig)) continue;
+    seen.add(sig);
+    uniq.push(el);
+  }
+
+  let best = null;
+  for (const el of uniq) {
+    const score = _saScoreSubmitCandidate(el);
+    if (best == null || score > best.score) best = { el, score, why: 'heuristic' };
+  }
+
+  return best && best.el ? best : null;
+}
+
+function _saClickSafely(el) {
+  try {
+    el.scrollIntoView?.({ block: 'center', inline: 'center' });
+  } catch (_) {}
+  try {
+    el.focus?.({ preventScroll: true });
+  } catch (_) {
+    try { el.focus?.(); } catch (_) {}
+  }
+
+  try {
+    el.click?.();
+    return true;
+  } catch (_) {}
+
+  try {
+    const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+    el.dispatchEvent(evt);
+    return true;
+  } catch (_) {}
+
+  return false;
+}
+
+async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source = 'unknown' } = {}) {
+  const enabled = await _saIsAutoSubmitEnabled();
+  if (!enabled) return false;
+
+  const st = _saGetAutoSubmitState();
+  const MAX_CLICKS_PER_URL = 4;
+  const COOLDOWN_MS = 2200;
+
+  const now = Date.now();
+  if (st.clicks >= MAX_CLICKS_PER_URL) {
+    console.log('SmartApply: Auto-submit enabled, but max clicks reached for this URL');
+    return false;
+  }
+  if (now - (st.lastAttemptAt || 0) < COOLDOWN_MS) return false;
+
+  st.lastAttemptAt = now;
+
+  // Give client-side validation a moment to settle after autofill.
+  await _saSleep(450);
+
+  const found = _saFindSubmitCandidate({ submitButtonPaths });
+  if (!found?.el) {
+    console.log(`SmartApply: Auto-submit enabled, but no submit/next button found (${source})`);
+    return false;
+  }
+
+  const sig = _saElementSig(found.el);
+  if (sig && sig === st.lastClickedSig) {
+    console.log('SmartApply: Auto-submit: refusing to click same element twice');
+    return false;
+  }
+
+  // Require at least a modest confidence score for heuristic-based picks.
+  if (found.why !== 'ats.submitButtonPaths' && (found.score || 0) < 55) {
+    console.log('SmartApply: Auto-submit: best candidate score too low — skipping', { score: found.score, text: _saGetActionText(found.el) });
+    return false;
+  }
+
+  console.log('SmartApply: Auto-submit enabled — clicking', {
+    source,
+    why: found.why,
+    score: found.score,
+    text: _saGetActionText(found.el),
+  });
+
+  const ok = _saClickSafely(found.el);
+  if (ok) {
+    st.clicks += 1;
+    st.lastClickedSig = sig || st.lastClickedSig;
+    await _saSleep(200);
+    return true;
+  }
+
+  return false;
+}
+
 async function _saLoadLocalProfile() {
   try {
     const got = await chrome.storage.local.get(['LOCAL_PROFILE', 'EXEMPLIPHAI_LOCAL_PROFILE']);
@@ -1014,22 +1385,13 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
       }
     }
 
-    // Optional: click submit/next buttons only when user explicitly opts in.
-    // We do NOT auto-submit by default.
-    if (profile && (profile.autoSubmit === true || profile.auto_submit === true)) {
-      const paths = Array.isArray(ats.submitButtonPaths) ? ats.submitButtonPaths : [];
-      for (const p of paths) {
-        const btn = _saFindOne(p, document);
-        if (btn) {
-          console.log('SmartApply: autoSubmit enabled — clicking submit/next button');
-          try { btn.click?.(); } catch (_) {}
-          await _saSleep(200);
-          break;
-        }
-      }
-    }
-
-    return { ok: true, atsKey };
+    // Auto-submit (if enabled) is handled post-autofill in tryAutofillNow().
+    // Return ATS-specific submit selectors so we can prefer them there.
+    return {
+      ok: true,
+      atsKey,
+      submitButtonPaths: Array.isArray(ats.submitButtonPaths) ? ats.submitButtonPaths : [],
+    };
   } catch (e) {
     console.warn('SmartApply: ATS config autofill failed', e);
     return { ok: false, reason: 'exception', error: String(e) };
@@ -1052,6 +1414,14 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
     const atsAttempt = await tryAutofillUsingAtsConfig({ url: window.location.href, force });
     if (atsAttempt?.ok) {
       console.log('SmartApply: ATS-config autofill complete', atsAttempt.atsKey);
+      try {
+        await _saMaybeAutoSubmitAfterAutofill({
+          source: 'ats-config',
+          submitButtonPaths: Array.isArray(atsAttempt.submitButtonPaths) ? atsAttempt.submitButtonPaths : [],
+        });
+      } catch (e) {
+        console.warn('SmartApply: auto-submit skipped/failed (ats-config)', e);
+      }
       return true;
     }
   } catch (_) {}
@@ -1101,6 +1471,13 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
     }
 
     await autofill(form);
+
+    try {
+      await _saMaybeAutoSubmitAfterAutofill({ source: 'legacy' });
+    } catch (e) {
+      console.warn('SmartApply: auto-submit skipped/failed (legacy)', e);
+    }
+
     return true;
   } catch (e) {
     console.error('SmartApply: Autofill failed', { reason, e });
