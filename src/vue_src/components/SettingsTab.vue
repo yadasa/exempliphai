@@ -17,6 +17,67 @@
             When enabled, Exempliphai will try to click the page’s <b>Submit</b>/<b>Next</b>/<b>Continue</b> button after it finishes autofilling.
         </p>
 
+        <div class="range-container" style="margin: 0.9rem 0 0.35rem 0;">
+            <div class="range-row">
+                <span>Autofill delay (ms)</span>
+                <span class="range-value">{{ autofillDelayMs }} ms</span>
+            </div>
+            <input
+                class="range"
+                type="range"
+                min="0"
+                max="10000"
+                step="100"
+                v-model.number="autofillDelayMs"
+                @change="saveAutofillDelay"
+            />
+            <div class="range-row" style="margin-top: 0.35rem;">
+                <input
+                    class="range-number"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    step="100"
+                    v-model.number="autofillDelayMs"
+                    @change="saveAutofillDelay"
+                />
+                <span class="range-hint">0–10000</span>
+            </div>
+        </div>
+        <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+            Wait this long after the page loads before starting autofill. Helpful for slower sites.
+        </p>
+        <div class="range-container" style="margin: 0.9rem 0 0.35rem 0;">
+            <div class="range-row">
+                <span>Autofill delay (ms)</span>
+                <span class="range-value">{{ autofillDelayMs }} ms</span>
+            </div>
+            <input
+                class="range"
+                type="range"
+                min="0"
+                max="10000"
+                step="100"
+                v-model.number="autofillDelayMs"
+                @change="saveAutofillDelay"
+            />
+            <div class="range-row" style="margin-top: 0.35rem;">
+                <input
+                    class="range-number"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    step="100"
+                    v-model.number="autofillDelayMs"
+                    @change="saveAutofillDelay"
+                />
+                <span class="range-hint">0–10000</span>
+            </div>
+        </div>
+        <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+            Wait this long after the page loads before starting autofill. Helpful for slower sites.
+        </p>
+
 
         <h2 class="subheading">List Mode (Batch Apply)</h2>
         <div class="action-card" style="margin-bottom: 1rem;">
