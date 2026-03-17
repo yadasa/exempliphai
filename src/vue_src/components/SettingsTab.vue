@@ -236,6 +236,8 @@ function buildQueueFromCsv(text: string): Array<{ url: string; notes?: string }>
 
     const first = rows[0] || [];
 
+    const isUrl = (v: any): boolean => /^https?:\/\//i.test(String(v || '').trim());
+
     // Headered CSV (preferred)
     const header = first.map((h) => String(h || '').trim().toLowerCase());
     let urlIdx = header.findIndex((h) => h === 'url' || h === 'job_url' || h === 'job url' || h === 'link');
@@ -244,7 +246,7 @@ function buildQueueFromCsv(text: string): Array<{ url: string; notes?: string }>
     let startRow = 1;
 
     // Headerless CSV fallback: first cell looks like a URL
-    if (urlIdx === -1 && /^https?:\/\//i.test(String(first?.[0] || '').trim())) {
+    if (urlIdx === -1 && isUrl(first?.[0])) {
         urlIdx = 0;
         notesIdx = 1;
         startRow = 0;
@@ -256,7 +258,26 @@ function buildQueueFromCsv(text: string): Array<{ url: string; notes?: string }>
 
     const out: Array<{ url: string; notes?: string }> = [];
 
+    const headerlessFallback = startRow === 0 && urlIdx === 0 && notesIdx === 1;
+
     for (const r of rows.slice(startRow)) {
+        // Special-case: headerless CSV where the first row is a single line of comma-separated URLs.
+        // e.g. https://a,https://b,https://c
+        if (headerlessFallback) {
+            const cells = (Array.isArray(r) ? r : []).map((c) => String(c || '').trim()).filter(Boolean);
+            const allCellsAreUrls = cells.length > 0 && cells.every((c) => isUrl(c));
+
+            // Avoid breaking the normal 2-col headerless shape (url, notes).
+            // - If the row has 3+ URL cells, it's clearly "multi-url".
+            // - If the entire file is a single row, allow 2 URLs too.
+            const treatAsMultiUrlRow = allCellsAreUrls && (cells.length >= 3 || rows.length === 1);
+
+            if (treatAsMultiUrlRow) {
+                for (const u of cells) out.push({ url: u });
+                continue;
+            }
+        }
+
         const url = String(r?.[urlIdx] || '').trim();
         if (!url) continue;
         const notes = notesIdx >= 0 ? String(r?.[notesIdx] || '').trim() : '';
