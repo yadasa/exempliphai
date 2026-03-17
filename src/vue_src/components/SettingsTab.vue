@@ -47,36 +47,6 @@
         <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
             Wait this long after the page loads before starting autofill. Helpful for slower sites.
         </p>
-        <div class="range-container" style="margin: 0.9rem 0 0.35rem 0;">
-            <div class="range-row">
-                <span>Autofill delay (ms)</span>
-                <span class="range-value">{{ autofillDelayMs }} ms</span>
-            </div>
-            <input
-                class="range"
-                type="range"
-                min="0"
-                max="10000"
-                step="100"
-                v-model.number="autofillDelayMs"
-                @change="saveAutofillDelay"
-            />
-            <div class="range-row" style="margin-top: 0.35rem;">
-                <input
-                    class="range-number"
-                    type="number"
-                    min="0"
-                    max="10000"
-                    step="100"
-                    v-model.number="autofillDelayMs"
-                    @change="saveAutofillDelay"
-                />
-                <span class="range-hint">0–10000</span>
-            </div>
-        </div>
-        <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
-            Wait this long after the page loads before starting autofill. Helpful for slower sites.
-        </p>
 
 
         <h2 class="subheading">List Mode (Batch Apply)</h2>
@@ -322,6 +292,15 @@ export default {
         const listModeEnabled = ref(false);
         const closePreviousTabs = ref(false);
 
+        const normalizeAutofillDelayMs = (v: any): number => {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return 2500;
+            const stepped = Math.round(n / 100) * 100;
+            return Math.min(10000, Math.max(0, stepped));
+        };
+
+        const autofillDelayMs = ref<number>(2500);
+
         const jobQueue = ref<JobQueueItem[]>([]);
         const currentIndex = ref(0);
         const listModePaused = ref(true);
@@ -367,13 +346,17 @@ export default {
 
         const loadSettings = async () => {
             if (!chrome?.storage) return;
-            chrome.storage.sync.get(['cloudSyncEnabled', 'aiMappingEnabled', 'autoSubmitEnabled', 'listModeEnabled', 'closePreviousTabs'], (result) => {
-                cloudSyncEnabled.value = !!(result as any).cloudSyncEnabled;
-                aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
-                autoSubmitEnabled.value = !!(result as any).autoSubmitEnabled;
-                listModeEnabled.value = !!(result as any).listModeEnabled;
-                closePreviousTabs.value = !!(result as any).closePreviousTabs;
-            });
+            chrome.storage.sync.get(
+                ['cloudSyncEnabled', 'aiMappingEnabled', 'autoSubmitEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
+                (result) => {
+                    cloudSyncEnabled.value = !!(result as any).cloudSyncEnabled;
+                    aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
+                    autoSubmitEnabled.value = !!(result as any).autoSubmitEnabled;
+                    listModeEnabled.value = !!(result as any).listModeEnabled;
+                    closePreviousTabs.value = !!(result as any).closePreviousTabs;
+                    autofillDelayMs.value = normalizeAutofillDelayMs((result as any).autofillDelayMs);
+                }
+            );
         };
 
         const loadListModeState = async () => {
@@ -384,6 +367,15 @@ export default {
                 listModePaused.value = (result as any).listModePaused !== false;
                 listModeActiveJob.value = (result as any).listModeActiveJob || null;
                 listModeNextOpenAt.value = Number.isFinite((result as any).listModeNextOpenAt) ? (result as any).listModeNextOpenAt : 0;
+            });
+        };
+
+        const saveAutofillDelay = () => {
+            if (!chrome?.storage) return;
+            const next = normalizeAutofillDelayMs(autofillDelayMs.value);
+            autofillDelayMs.value = next;
+            chrome.storage.sync.set({ autofillDelayMs: next }, () => {
+                console.log('Autofill delay saved:', next);
             });
         };
 
@@ -556,11 +548,23 @@ export default {
 
         const onStorageChanged = (changes: any, areaName: string) => {
             if (areaName === 'sync') {
+                if (changes?.cloudSyncEnabled) {
+                    cloudSyncEnabled.value = !!changes.cloudSyncEnabled.newValue;
+                }
+                if (changes?.aiMappingEnabled) {
+                    aiMappingEnabled.value = !!changes.aiMappingEnabled.newValue;
+                }
+                if (changes?.autoSubmitEnabled) {
+                    autoSubmitEnabled.value = !!changes.autoSubmitEnabled.newValue;
+                }
                 if (changes?.listModeEnabled) {
                     listModeEnabled.value = !!changes.listModeEnabled.newValue;
                 }
                 if (changes?.closePreviousTabs) {
                     closePreviousTabs.value = !!changes.closePreviousTabs.newValue;
+                }
+                if (changes?.autofillDelayMs) {
+                    autofillDelayMs.value = normalizeAutofillDelayMs(changes.autofillDelayMs.newValue);
                 }
             }
             if (areaName === 'local') {
@@ -599,6 +603,10 @@ export default {
             toggleAiMapping,
             autoSubmitEnabled,
             toggleAutoSubmit,
+
+            autofillDelayMs,
+            saveAutofillDelay,
+
             triggerAI,
             generateAllPending,
 
