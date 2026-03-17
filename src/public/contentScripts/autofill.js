@@ -68,6 +68,7 @@ window.addEventListener("load", async (_) => {
 
   initTime = new Date().getTime();
   setupLongTextareaHints();
+  _saInstallAiAnswerHandlers();
   injectAutofillNowButton();
   awaitForm();
 });
