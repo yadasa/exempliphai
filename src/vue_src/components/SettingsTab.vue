@@ -369,14 +369,10 @@ export default {
         };
 
         const generateAllPending = () => {
-            chrome.storage.local.get(['last3Questions'], (result) => {
-                const last3Questions = Array.isArray((result as any)?.last3Questions) ? (result as any).last3Questions : [];
-                for (const item of last3Questions) {
-                    if (item?.tabId) {
-                        chrome.tabs.sendMessage(item.tabId, { action: 'TRIGGER_AI_REPLY' });
-                    }
-                }
-                chrome.storage.local.set({ last3Questions: [] });
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                const tabId = tabs?.[0]?.id;
+                if (!tabId) return;
+                chrome.tabs.sendMessage(tabId, { action: 'TRIGGER_AI_REPLY_ALL' });
             });
         };
 

@@ -50,7 +50,12 @@ try {
 //
 // Install once per tab, as early as possible.
 let _saAiHandlersInstalled = false;
-let _saLastRightClickedEl = null;
+let _saAiAnswerState = {
+  el: null,
+  question: '',
+  capturedAt: 0,
+};
+let _saAiBatchQueue = Promise.resolve();
 
 function _saIsAiFillableElement(el) {
   try {
@@ -116,7 +121,9 @@ function _saGetQuestionFromElement(element) {
   }
 }
 
-async function _saGenerateAiAnswer(element) {
+async function _saGenerateAiAnswer(element, opts = {}) {
+  const noAlert = opts && opts.noAlert === true;
+  const quiet = opts && opts.quiet === true;
   if (!element) return;
 
   // Show loading state (simple cursor)
@@ -134,7 +141,8 @@ async function _saGenerateAiAnswer(element) {
     const apiKey = fullSync["API Key"];
 
     if (!apiKey) {
-      alert('Please set your Gemini API Key in the Autofill Jobs extension settings.');
+      if (!noAlert) alert('Please set your Gemini API Key in the Autofill Jobs extension settings.');
+      else if (!quiet) console.warn('SmartApply: Missing Gemini API key for AI answer');
       return;
     }
 
@@ -313,7 +321,7 @@ ${question}`
     }
   } catch (error) {
     console.error('AI Generation Error', error);
-    alert(`Failed to generate answer: ${error.message}`);
+    if (!noAlert) alert(`Failed to generate answer: ${error.message}`);
   } finally {
     try {
       if (element?.style) element.style.cursor = originalCursor;
@@ -321,18 +329,240 @@ ${question}`
   }
 }
 
+
+function _saEnqueueAiBatchTask(fn) {
+  _saAiBatchQueue = _saAiBatchQueue
+    .then(() => fn())
+    .catch((e) => {
+      console.warn('SmartApply: AI batch task failed', e);
+      return { ok: false, error: String(e?.message || e) };
+    });
+  return _saAiBatchQueue;
+}
+
+let _saToastEl = null;
+let _saToastTimer = null;
+
+function _saShowToast(message, { timeoutMs = 1800 } = {}) {
+  try {
+    const doc = document;
+    if (!doc || !doc.createElement) return;
+
+    if (!_saToastEl) {
+      const el = doc.createElement('div');
+      el.id = 'smartapply-toast';
+      el.style.position = 'fixed';
+      el.style.zIndex = '2147483647';
+      el.style.right = '14px';
+      el.style.bottom = '14px';
+      el.style.maxWidth = '360px';
+      el.style.padding = '10px 12px';
+      el.style.borderRadius = '10px';
+      el.style.background = 'rgba(17, 24, 39, 0.92)';
+      el.style.color = '#fff';
+      el.style.fontSize = '13px';
+      el.style.fontFamily = 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+      el.style.boxShadow = '0 12px 30px rgba(0,0,0,0.25)';
+      el.style.backdropFilter = 'blur(6px)';
+      el.style.pointerEvents = 'none';
+      el.style.whiteSpace = 'pre-wrap';
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 140ms ease-in-out';
+      doc.documentElement.appendChild(el);
+      _saToastEl = el;
+    }
+
+    _saToastEl.textContent = String(message || '').slice(0, 500);
+    _saToastEl.style.opacity = '1';
+
+    if (_saToastTimer) clearTimeout(_saToastTimer);
+    _saToastTimer = setTimeout(() => {
+      try {
+        if (_saToastEl) _saToastEl.style.opacity = '0';
+      } catch (_) {}
+    }, Math.max(400, Number(timeoutMs || 1800)));
+  } catch (_) {}
+}
+
+function _saLooksLikeBasicProfileFieldLabel(label) {
+  const t = normalizeText(label);
+  if (!t) return false;
+  const basics = [
+    'first name',
+    'last name',
+    'full name',
+    'email',
+    'phone',
+    'mobile',
+    'city',
+    'state',
+    'country',
+    'zip',
+    'postal',
+    'address',
+    'linkedin',
+    'github',
+    'website',
+    'portfolio',
+  ];
+  return basics.some((b) => t === b || t.includes(b + ":") || t.includes(b));
+}
+
+function _saLooksLikeNarrativeQuestionLabel(label) {
+  const t = normalizeText(label);
+  if (!t) return false;
+
+  // Keep payload small and avoid obvious non-questions.
+  if (t.length < 12) return false;
+  if (t.length > 320) return false;
+
+  // Avoid EEO/sensitive prompts (usually not free-text, but be safe).
+  const sensitive = [
+    'gender',
+    'race',
+    'ethnicity',
+    'disability',
+    'veteran',
+    'equal employment',
+    'eeo',
+  ];
+  if (sensitive.some((s) => t.includes(s))) return false;
+
+  if (_saLooksLikeBasicProfileFieldLabel(t)) return false;
+
+  if (t.includes('?')) return true;
+
+  const hints = [
+    'tell us',
+    'describe',
+    'why',
+    'how',
+    'what',
+    'explain',
+    'elaborate',
+    'motivat',
+    'interested in',
+    'fit for',
+    'background',
+    'experience',
+    'cover letter',
+    'additional information',
+    'anything else',
+  ];
+  return hints.some((h) => t.includes(h));
+}
+
+function _saFindPendingAiAnswerElements({ limit = 8 } = {}) {
+  try {
+    const out = [];
+    const roots = typeof _saCollectQueryRoots === 'function' ? _saCollectQueryRoots(document) : [document];
+
+    const selector = 'textarea, input, [contenteditable="true"], [role="textbox"]';
+
+    for (const r of roots) {
+      if (!r || !r.querySelectorAll) continue;
+      const nodes = Array.from(r.querySelectorAll(selector));
+
+      for (const el of nodes) {
+        if (!el) continue;
+
+        const tag = String(el.tagName || '').toLowerCase();
+        if (tag === 'input') {
+          const type = String(el.getAttribute?.('type') || '').toLowerCase();
+          if (['hidden', 'file', 'checkbox', 'radio', 'submit', 'button'].includes(type)) continue;
+        }
+
+        if (!_saIsAiFillableElement(el)) continue;
+        if (typeof _saIsElementVisible === 'function' && !_saIsElementVisible(el)) continue;
+        if (typeof _saIsElementEnabled === 'function' && !_saIsElementEnabled(el)) continue;
+        if (typeof isEmptyForAi === 'function' && !isEmptyForAi(el)) continue;
+
+        const label = _saGetQuestionFromElement(el);
+        if (!_saLooksLikeNarrativeQuestionLabel(label)) {
+          // Avoid filling basic single-line inputs unless the label looks like a question.
+          if (tag !== 'textarea') continue;
+        }
+
+        out.push(el);
+        const lim = Number.isFinite(limit) ? limit : 8;
+        if (out.length >= lim) return out;
+      }
+    }
+
+    return out;
+  } catch (_) {
+    return [];
+  }
+}
+
+async function _saGenerateAllPendingAiAnswers({ limit = 8, source = 'manual' } = {}) {
+  return _saEnqueueAiBatchTask(async () => {
+    const targets = _saFindPendingAiAnswerElements({ limit });
+    if (!targets.length) {
+      _saShowToast('AI: no pending custom fields found.');
+      return { ok: true, total: 0, filled: 0, source };
+    }
+
+    _saShowToast('AI: answering ' + targets.length + ' field(s)…', { timeoutMs: 1600 });
+
+    let filled = 0;
+    let failed = 0;
+
+    for (let i = 0; i < targets.length; i++) {
+      const el = targets[i];
+      _saShowToast('AI: answering ' + (i + 1) + '/' + targets.length + '…', { timeoutMs: 1200 });
+
+      try {
+        await _saGenerateAiAnswer(el, { noAlert: true, quiet: true });
+      } catch (_) {}
+
+      // Best-effort success detection
+      try {
+        if (typeof isEmptyForAi === 'function' && isEmptyForAi(el)) failed += 1;
+        else filled += 1;
+      } catch (_) {
+        filled += 1;
+      }
+
+      await _saSleep(250);
+    }
+
+    if (failed) _saShowToast('AI: done (' + filled + ' ok, ' + failed + ' failed)', { timeoutMs: 2200 });
+    else _saShowToast('AI: done (' + filled + ')', { timeoutMs: 2000 });
+
+    return { ok: true, total: targets.length, filled, failed, source };
+  });
+}
 function _saInstallAiAnswerHandlers() {
   try {
     if (_saAiHandlersInstalled) return;
     _saAiHandlersInstalled = true;
 
+    // Track last focused element (fallback if the user uses the keyboard shortcut / toolbar click).
+    document.addEventListener(
+      'focusin',
+      (event) => {
+        try {
+          const el = _saFindAiAnswerTargetElement(event?.target);
+          if (el && _saIsAiFillableElement(el)) _smartApplyLastFocusedEl = el;
+        } catch (_) {}
+      },
+      true
+    );
+
     // Context menu: remember last right-clicked field and store question in background.
     document.addEventListener(
       'contextmenu',
       (event) => {
-        _saLastRightClickedEl = _saFindAiAnswerTargetElement(event?.target);
+        const el = _saFindAiAnswerTargetElement(event?.target);
+        const q = _saGetQuestionFromElement(el);
+        _saAiAnswerState = {
+          el: el || null,
+          question: q || '',
+          capturedAt: Date.now(),
+        };
+
         try {
-          const q = _saGetQuestionFromElement(_saLastRightClickedEl);
           const chromeApi = globalThis.chrome;
           if (q && chromeApi?.runtime?.sendMessage) {
             chromeApi.runtime.sendMessage({ action: 'STORE_LAST_QUESTION', question: q });
@@ -342,12 +572,22 @@ function _saInstallAiAnswerHandlers() {
       true
     );
 
-    // Settings → "AI Answer Last Right-Click Field" / "Generate All Pending"
     const chromeApi = globalThis.chrome;
     if (chromeApi?.runtime?.onMessage?.addListener) {
       chromeApi.runtime.onMessage.addListener((request) => {
         if (request?.action === 'TRIGGER_AI_REPLY') {
-          if (_saLastRightClickedEl) _saGenerateAiAnswer(_saLastRightClickedEl);
+          const fallback = _saFindAiAnswerTargetElement(document.activeElement || _smartApplyLastFocusedEl);
+          const target = _saAiAnswerState?.el || fallback;
+          if (!target) {
+            _saShowToast('AI: right-click a field (or focus it) first.');
+            return;
+          }
+          _saGenerateAiAnswer(target);
+          return;
+        }
+
+        if (request?.action === 'TRIGGER_AI_REPLY_ALL') {
+          _saGenerateAllPendingAiAnswers({ limit: 8, source: 'manual' });
         }
       });
     }
@@ -355,7 +595,6 @@ function _saInstallAiAnswerHandlers() {
     // swallow
   }
 }
-
 // Install immediately as well as on window load (idempotent).
 try {
   _saInstallAiAnswerHandlers();
@@ -717,6 +956,7 @@ function _saGetAutoSubmitState() {
     clicks: 0,
     lastAttemptAt: 0,
     lastClickedSig: '',
+    aiCustomsAttemptedAt: 0,
   };
 
   const st = host.__SmartApplyAutoSubmitState;
@@ -726,6 +966,7 @@ function _saGetAutoSubmitState() {
     st.clicks = 0;
     st.lastAttemptAt = 0;
     st.lastClickedSig = '';
+    st.aiCustomsAttemptedAt = 0;
   }
   return st;
 }
@@ -1083,6 +1324,49 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
 
   // Give client-side validation a moment to settle after autofill.
   await _saSleep(450);
+
+  // If free-text custom questions are still empty, try to answer them before clicking submit.
+  try {
+    st.aiCustomsAttemptedAt = Number.isFinite(st.aiCustomsAttemptedAt) ? st.aiCustomsAttemptedAt : 0;
+
+    const pending = _saFindPendingAiAnswerElements({ limit: 9 }).length;
+    const shouldAttempt = pending > 0 && (Date.now() - st.aiCustomsAttemptedAt > 2500);
+
+    if (shouldAttempt) {
+      st.aiCustomsAttemptedAt = Date.now();
+
+      _saShowToast('AI: answering pending custom fields before submit…', { timeoutMs: 1800 });
+      await _saGenerateAllPendingAiAnswers({ limit: 8, source: 'auto_submit' });
+
+      const startWait = Date.now();
+      while (Date.now() - startWait < 30000) {
+        const left = _saFindPendingAiAnswerElements({ limit: 1 }).length;
+        if (!left) break;
+        await _saSleep(650);
+      }
+
+      const still = _saFindPendingAiAnswerElements({ limit: 1 }).length;
+      if (still) {
+        console.log('SmartApply: Auto-submit: custom questions still pending; skipping submit');
+        _saShowToast('Auto-submit paused: custom questions still pending.', { timeoutMs: 2200 });
+
+        return {
+          enabled: true,
+          attempted: true,
+          clicked: false,
+          intent: 'progress',
+          clickedText: '',
+          why: '',
+          score: 0,
+          source,
+          reason: 'customs_pending_timeout',
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('SmartApply: Auto-submit: AI-customs step failed', e);
+  }
+
 
   const found = _saFindSubmitCandidate({ submitButtonPaths });
   if (!found?.el) {
