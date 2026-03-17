@@ -121,6 +121,353 @@ function _saGetQuestionFromElement(element) {
   }
 }
 
+function _saCleanJobTitleCandidate(raw) {
+  try {
+    let t = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+
+    // Common application-page prefixes
+    t = t.replace(/^apply\s+(for|to)\s+/i, '');
+    t = t.replace(/^application\s+(for|to)\s+/i, '');
+
+    // Common suffixes in <title>
+    t = t.replace(/\s*[\-|\|]\s*greenhouse(\.io)?\s*$/i, '');
+    t = t.replace(/\s*[\-|\|]\s*lever\s*$/i, '');
+
+    // Strip very long titles (likely full sentence)
+    if (t.length > 140) t = t.slice(0, 140).trimEnd() + '…';
+    return t;
+  } catch (_) {
+    return '';
+  }
+}
+
+function _saGuessJobTitleFromPage() {
+  try {
+    // 1) explicit globals (if other modules set them)
+    const g = globalThis.__SmartApply || {};
+    const direct = g.jobTitle || g.job_title || g?.currentJob?.title || g?.currentJob?.jobTitle;
+    const cleanedDirect = _saCleanJobTitleCandidate(direct);
+    if (cleanedDirect) return cleanedDirect;
+
+    // 2) OpenGraph / Twitter titles
+    const meta = document.querySelector?.('meta[property="og:title"], meta[name="twitter:title"]');
+    const metaTitle = _saCleanJobTitleCandidate(meta?.getAttribute?.('content'));
+    if (metaTitle) return metaTitle;
+
+    // 3) Visible H1 (often the job title)
+    const h1s = Array.from(document.querySelectorAll?.('h1') || []);
+    for (const h1 of h1s) {
+      const txt = _saCleanJobTitleCandidate(h1?.textContent);
+      if (txt && txt.length >= 3 && txt.length <= 120) return txt;
+    }
+
+    // 4) Document title heuristic
+    const dt = String(document.title || '').trim();
+    if (dt) {
+      // Greenhouse commonly: "Job Application for X at Y" or similar
+      const m = dt.match(/(?:job\s+application\s+for\s+)(.+?)(?:\s+at\s+.+)?$/i);
+      if (m && m[1]) {
+        const t = _saCleanJobTitleCandidate(m[1]);
+        if (t) return t;
+      }
+
+      const split = dt.split(/\s*[\-|\|]\s*/).map((x) => x.trim()).filter(Boolean);
+      if (split.length) {
+        const t = _saCleanJobTitleCandidate(split[0]);
+        if (t) return t;
+      }
+    }
+  } catch (_) {}
+  return '';
+}
+
+function _saGetJobTitleForAi(opts = {}) {
+  try {
+    const fromOpts =
+      opts?.jobTitle ||
+      opts?.job_title ||
+      opts?.snapshot?.jobTitle ||
+      opts?.snapshot?.job_title ||
+      opts?.formData?.jobTitle ||
+      opts?.formData?.job_title;
+    const cleaned = _saCleanJobTitleCandidate(fromOpts);
+    if (cleaned) return cleaned;
+
+    const guessed = _saGuessJobTitleFromPage();
+    if (guessed) return guessed;
+  } catch (_) {}
+  return '';
+}
+
+function _saDropdownTargetElement(rawEl) {
+  try {
+    const el = rawEl instanceof Element ? rawEl : null;
+    if (!el) return null;
+
+    const tag = String(el.tagName || '').toLowerCase();
+    if (tag === 'select') return el;
+
+    const role = String(el.getAttribute?.('role') || '').toLowerCase();
+    if (role === 'combobox') {
+      // Prefer the actual input when possible.
+      if (tag === 'input') return el;
+      const inner = el.querySelector?.('input[role="combobox"], input');
+      return inner || el;
+    }
+
+    // If the clicked target was inside a combobox shell, prefer the inner input.
+    const closestCombo = el.closest?.('[role="combobox"]');
+    if (closestCombo) {
+      const inner = closestCombo.querySelector?.('input[role="combobox"], input');
+      return inner || closestCombo;
+    }
+
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _saIsDropdownLike(el) {
+  try {
+    return !!_saDropdownTargetElement(el);
+  } catch (_) {
+    return false;
+  }
+}
+
+function _saMakeKeyEvent(type, init) {
+  try {
+    return new KeyboardEvent(type, { bubbles: true, cancelable: true, ...init });
+  } catch (_) {
+    return null;
+  }
+}
+
+async function _saOpenComboboxMenu(inputEl) {
+  try {
+    if (!inputEl) return;
+    inputEl.focus?.();
+  } catch (_) {}
+
+  await sleep(60);
+
+  // Keyboard triggers are more consistent on react-select (Greenhouse).
+  try {
+    const ev1 = typeof createArrowRightKeyDown === 'function'
+      ? createArrowRightKeyDown()
+      : _saMakeKeyEvent('keydown', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, which: 39 });
+    const ev2 = typeof createArrowRightKeyUp === 'function'
+      ? createArrowRightKeyUp()
+      : _saMakeKeyEvent('keyup', { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, which: 39 });
+    if (ev1) inputEl.dispatchEvent(ev1);
+    if (ev2) inputEl.dispatchEvent(ev2);
+  } catch (_) {}
+
+  await sleep(80);
+
+  try {
+    const ev1 = typeof createShiftEnterKeyDown === 'function'
+      ? createShiftEnterKeyDown()
+      : _saMakeKeyEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, shiftKey: true });
+    const ev2 = typeof createShiftEnterKeyUp === 'function'
+      ? createShiftEnterKeyUp()
+      : _saMakeKeyEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, shiftKey: true });
+    if (ev1) inputEl.dispatchEvent(ev1);
+    if (ev2) inputEl.dispatchEvent(ev2);
+  } catch (_) {}
+
+  // Fallback: click an obvious control/indicator.
+  try {
+    const shell = inputEl.closest?.('.select-shell, .select__container, [class*="select__"], [class*="react-select"], [class*="css"]') || inputEl.parentElement;
+    const indicator = shell?.querySelector?.(
+      '.select__indicators button, [class*="indicatorContainer"], [class*="IndicatorsContainer"] button, .select__dropdown-indicator'
+    );
+    const control = shell?.querySelector?.('.select__control, [class*="control"], [class*="Control"]');
+
+    if (indicator) {
+      try {
+        indicator.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      } catch (_) {
+        try { indicator.click?.(); } catch (_) {}
+      }
+    } else if (control) {
+      try {
+        control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      } catch (_) {
+        try { control.click?.(); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+
+  // Some combos open on ArrowDown.
+  try {
+    const ev = typeof createArrowDownKeyDown === 'function'
+      ? createArrowDownKeyDown()
+      : _saMakeKeyEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, which: 40 });
+    if (ev) inputEl.dispatchEvent(ev);
+  } catch (_) {}
+
+  await sleep(120);
+}
+
+function _saFindListboxForComboboxInput(inputEl) {
+  try {
+    if (!inputEl) return null;
+
+    const controlsId = inputEl.getAttribute?.('aria-controls') || inputEl.getAttribute?.('aria-owns');
+    if (controlsId) {
+      const byId = document.getElementById(controlsId);
+      if (byId) return byId;
+    }
+
+    // Look near the shell
+    const shell = inputEl.closest?.('.select-shell, .select__container, [class*="select__"], [class*="react-select"], [class*="css"]') || inputEl.parentElement;
+    const near = shell?.querySelector?.('[role="listbox"]');
+    if (near) return near;
+
+    // Portals / global listboxes: pick first visible.
+    const all = Array.from(document.querySelectorAll?.('[role="listbox"]') || []);
+    if (all.length === 1) return all[0];
+    for (const lb of all) {
+      const h = lb.getBoundingClientRect?.().height || lb.offsetHeight || 0;
+      if (h > 0) return lb;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function _saGetDropdownOptionTexts(rawEl, { timeoutMs = 2500 } = {}) {
+  try {
+    const el = _saDropdownTargetElement(rawEl);
+    if (!el) return [];
+
+    const tag = String(el.tagName || '').toLowerCase();
+    if (tag === 'select') {
+      const opts = Array.from(el.options || []);
+      const texts = opts
+        .map((o) => String(o?.textContent || o?.label || o?.value || '').trim())
+        .filter(Boolean);
+      return Array.from(new Set(texts)).slice(0, 80);
+    }
+
+    // Combobox: open and scrape visible options.
+    await _saOpenComboboxMenu(el);
+
+    const start = Date.now();
+    let lb = null;
+    let optionEls = [];
+
+    while (Date.now() - start < timeoutMs) {
+      lb = _saFindListboxForComboboxInput(el);
+      if (lb) {
+        optionEls = Array.from(lb.querySelectorAll?.('[role="option"], .select__option, [class*="option"]') || [])
+          .filter((o) => String(o?.textContent || '').trim().length > 0);
+        if (optionEls.length) break;
+      }
+      await sleep(100);
+    }
+
+    const texts = optionEls
+      .map((o) => String(o?.textContent || '').trim())
+      .filter(Boolean);
+
+    // Close menu (best-effort)
+    try {
+      const ev = typeof createEscapeKeyDown === 'function'
+        ? createEscapeKeyDown()
+        : _saMakeKeyEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27 });
+      if (ev) el.dispatchEvent(ev);
+    } catch (_) {}
+
+    return Array.from(new Set(texts)).slice(0, 80);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function _saSelectDropdownOptionByText(rawEl, desiredText, { timeoutMs = 3000 } = {}) {
+  try {
+    const el = _saDropdownTargetElement(rawEl);
+    const want = String(desiredText || '').trim();
+    if (!el || !want) return false;
+
+    const tag = String(el.tagName || '').toLowerCase();
+    if (tag === 'select') {
+      const opts = Array.from(el.options || []);
+      const exact = opts.find((o) => String(o?.textContent || o?.label || '').trim() === want);
+      let best = exact;
+
+      if (!best) {
+        let bestScore = 0;
+        for (const o of opts) {
+          const t = String(o?.textContent || o?.label || '').trim();
+          const s = matchScore(want, t);
+          if (s > bestScore) {
+            bestScore = s;
+            best = o;
+          }
+        }
+        if (!best || bestScore < 55) return false;
+      }
+
+      try {
+        el.value = best.value;
+      } catch (_) {
+        try { setNativeValue(el, best.value); } catch (_) {}
+      }
+
+      dispatchInputAndChange(el);
+      return true;
+    }
+
+    // Combobox (react-select etc)
+    await _saOpenComboboxMenu(el);
+
+    const start = Date.now();
+    let lb = null;
+    let optionEls = [];
+    while (Date.now() - start < timeoutMs) {
+      lb = _saFindListboxForComboboxInput(el);
+      if (lb) {
+        optionEls = Array.from(lb.querySelectorAll?.('[role="option"], .select__option, [class*="option"]') || [])
+          .filter((o) => String(o?.textContent || '').trim().length > 0);
+        if (optionEls.length) break;
+      }
+      await sleep(100);
+    }
+
+    if (!optionEls.length) return false;
+
+    const exact = optionEls.find((o) => String(o.textContent || '').trim() === want);
+    let bestEl = exact;
+    if (!bestEl) {
+      let bestScore = 0;
+      for (const o of optionEls) {
+        const t = String(o.textContent || '').trim();
+        const s = matchScore(want, t);
+        if (s > bestScore) {
+          bestScore = s;
+          bestEl = o;
+        }
+      }
+      if (!bestEl || bestScore < 55) return false;
+    }
+
+    try { bestEl.click?.(); } catch (_) {
+      try { bestEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); } catch (_) {}
+      try { bestEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true })); } catch (_) {}
+      try { bestEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); } catch (_) {}
+    }
+
+    await sleep(120);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function _saGenerateAiAnswer(element, opts = {}) {
   const noAlert = opts && opts.noAlert === true;
   const quiet = opts && opts.quiet === true;
@@ -225,6 +572,10 @@ async function _saGenerateAiAnswer(element, opts = {}) {
     );
     const synonymHint = normalizedSynonyms[normalizeText(question)] || '';
 
+    // Job title context (best-effort) — included in prompts to tailor tone/details.
+    const jobTitle = _saGetJobTitleForAi(opts);
+    const jobTitleForPrompt = jobTitle ? jobTitle : '(unknown)';
+
     // Optional: attach PDFs only if they look valid; otherwise skip.
     // This prevents Gemini errors like "The document has no pages" when stored data is empty/invalid.
     const sanitizePdfBase64 = (b64) => {
@@ -251,7 +602,10 @@ async function _saGenerateAiAnswer(element, opts = {}) {
 Return ONLY the answer text.
 Do not include placeholders like [Company] or [Your Name].
 
-${sitePrompt ? `Site guidance: ${sitePrompt}\n\n` : ''}${synonymHint ? `Synonym hint: ${synonymHint}\n\n` : ''}Profile facts (minimal):
+${sitePrompt ? `Site guidance: ${sitePrompt}\n\n` : ''}${synonymHint ? `Synonym hint: ${synonymHint}\n\n` : ''}Job title:
+${jobTitleForPrompt}
+
+Profile facts (minimal):
 ${Object.keys(profileSubset).length ? JSON.stringify(profileSubset, null, 2) : '(none)'}
 
 Resume details (structured):
@@ -261,7 +615,7 @@ Question:
 ${question}`
     });
 
-    const callGemini = async (parts) => {
+    const callGemini = async (parts, { temperature = 0.2 } = {}) => {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
         {
@@ -269,7 +623,7 @@ ${question}`
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             contents: [{ parts }],
-            generationConfig: { temperature: 0.2 },
+            generationConfig: { temperature: Number.isFinite(temperature) ? temperature : 0.2 },
           }),
         }
       );
@@ -284,6 +638,60 @@ ${question}`
       if (!answerText) throw new Error('AI response missing text');
       return String(answerText).trim();
     };
+
+    // Dropdown / combobox: constrain answer to ONE exact visible option.
+    // This helps on Greenhouse/react-select EEO-like dropdowns and other constrained fields.
+    try {
+      if (_saIsDropdownLike(element)) {
+        const optionTexts = await _saGetDropdownOptionTexts(element, { timeoutMs: 3000 });
+        const cleanOptions = Array.from(
+          new Set(
+            (Array.isArray(optionTexts) ? optionTexts : [])
+              .map((t) => String(t || '').trim())
+              .filter(Boolean)
+              .slice(0, 60)
+          )
+        );
+
+        if (cleanOptions.length) {
+          const dropdownPrompt = `Pick the single best option EXACTLY from the list below.
+Return ONLY the option text exactly as it appears in the list. No quotes. No explanation.
+
+Q: ${String(question || '').trim()}
+job: ${jobTitleForPrompt}
+
+profile (minimal facts):
+${Object.keys(profileSubset).length ? JSON.stringify(profileSubset, null, 2) : '(none)'}
+
+resume (structured):
+${resumeDetailsMin || '(none)'}
+
+options:
+- ${cleanOptions.join('\n- ')}`;
+
+          const pickedRaw = await callGemini([{ text: dropdownPrompt }], { temperature: 0.0 });
+          const picked = String(pickedRaw || '').trim();
+
+          // Prefer exact match; else fuzzy match to the closest visible option.
+          let chosen = cleanOptions.find((o) => o === picked);
+          if (!chosen && picked) {
+            let best = { t: null, score: 0 };
+            for (const o of cleanOptions) {
+              const sc = matchScore(picked, o);
+              if (sc > best.score) best = { t: o, score: sc };
+            }
+            if (best.t && best.score >= 55) chosen = best.t;
+          }
+
+          if (chosen) {
+            const ok = await _saSelectDropdownOptionByText(element, chosen, { timeoutMs: 3500 });
+            if (ok) return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('SmartApply: AI dropdown/combobox constrain failed; falling back to free-text answer', e);
+    }
 
     // Default: text-only (most reliable). Attach PDFs only when valid.
     const parts = [buildTextPart()];
