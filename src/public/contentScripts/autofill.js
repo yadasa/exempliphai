@@ -40,6 +40,327 @@ try {
   }
 } catch (_) {}
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Answer (right-click → "AI Answer Last Right-Click Field")
+//
+// Historically this was installed only during resume-upload handling in
+// processFields(), which meant it often never ran (or ran too late), breaking:
+// - AI Answer Last Right-Click Field
+// - Generate All Pending (last3Questions)
+//
+// Install once per tab, as early as possible.
+let _saAiHandlersInstalled = false;
+let _saLastRightClickedEl = null;
+
+function _saIsAiFillableElement(el) {
+  try {
+    if (!el || !el.tagName) return false;
+    const tag = String(el.tagName || '').toLowerCase();
+    if (tag === 'textarea' || tag === 'select') return true;
+    if (tag === 'input') {
+      const type = String(el.getAttribute?.('type') || '').toLowerCase();
+      if (type === 'hidden' || type === 'file' || type === 'submit' || type === 'button') return false;
+      return true;
+    }
+    if (el.isContentEditable) return true;
+    const role = String(el.getAttribute?.('role') || '').toLowerCase();
+    if (role === 'textbox' || role === 'combobox') return true;
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
+function _saFindAiAnswerTargetElement(rawTarget) {
+  try {
+    const t = rawTarget instanceof Element ? rawTarget : rawTarget?.parentElement;
+    if (!t) return null;
+    if (_saIsAiFillableElement(t)) return t;
+
+    const closest = t.closest?.('textarea, input, select, [contenteditable="true"], [role="textbox"], [role="combobox"]');
+    if (closest && _saIsAiFillableElement(closest)) return closest;
+
+    // Fallback: keep original target (question extraction can still work)
+    return t;
+  } catch (_) {
+    return null;
+  }
+}
+
+function _saGetQuestionFromElement(element) {
+  try {
+    if (!element) return '';
+
+    let question = element.getAttribute?.('aria-label') || element.getAttribute?.('placeholder') || '';
+    if (!question) {
+      const id = element.id;
+      if (id) {
+        const label = document.querySelector(`label[for="${id}"]`);
+        if (label) question = label.innerText;
+      }
+    }
+    if (!question) {
+      // Try to find closest text
+      let parent = element.parentElement;
+      while (parent && !question && parent.tagName !== 'FORM') {
+        if (parent.innerText.length > 5 && parent.innerText.length < 200) {
+          question = parent.innerText;
+        }
+        parent = parent.parentElement;
+      }
+    }
+
+    return String(question || '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+async function _saGenerateAiAnswer(element) {
+  if (!element) return;
+
+  // Show loading state (simple cursor)
+  const originalCursor = element?.style?.cursor;
+  try {
+    if (element?.style) element.style.cursor = 'wait';
+  } catch (_) {}
+
+  try {
+    // 1) Context (Label/Question)
+    const question = _saGetQuestionFromElement(element);
+
+    // 2) User Data
+    const fullSync = await getStorageDataSync();
+    const apiKey = fullSync["API Key"];
+
+    if (!apiKey) {
+      alert('Please set your Gemini API Key in the Autofill Jobs extension settings.');
+      return;
+    }
+
+    const localData = await getStorageDataLocal(["Resume", "LinkedIn PDF", "Resume_details"]);
+    const resumeDetails = localData.Resume_details || {};
+    const resumeBase64 = localData.Resume;
+    const linkedinBase64 = localData["LinkedIn PDF"];
+
+    // PRIVACY: do NOT send full sync storage to the model.
+    // Build a minimal, relevant subset for common application questions.
+    const pick = (obj, keys) => {
+      try {
+        for (const k of keys) {
+          if (obj && Object.prototype.hasOwnProperty.call(obj, k) && obj[k] != null && String(obj[k]).trim() !== '') {
+            return obj[k];
+          }
+        }
+      } catch (_) {}
+      return undefined;
+    };
+
+    const profileSubset = {
+      first_name: pick(fullSync, ['first_name', 'First Name', 'firstName']),
+      last_name: pick(fullSync, ['last_name', 'Last Name', 'lastName']),
+      email: pick(fullSync, ['email', 'Email']),
+      phone: pick(fullSync, ['phone', 'Phone', 'phone_number', 'Phone Number']),
+      city: pick(fullSync, ['city', 'Location (City)']),
+      state: pick(fullSync, ['state', 'Location (State/Region)']),
+      country: pick(fullSync, ['country', 'Location (Country)']),
+      postal_code: pick(fullSync, ['postal_code', 'Zip', 'zip', 'Postal Code']),
+      linkedin: pick(fullSync, ['linkedin', 'LinkedIn']),
+      github: pick(fullSync, ['github', 'GitHub']),
+      portfolio: pick(fullSync, ['portfolio', 'Portfolio', 'website', 'Website']),
+      work_auth_us: pick(fullSync, ['work_auth_us', 'Work Authorization', 'work_authorization_us']),
+      sponsorship: pick(fullSync, ['sponsorship', 'Sponsorship', 'requires_sponsorship']),
+    };
+
+    // Remove empty keys
+    for (const k of Object.keys(profileSubset)) {
+      if (profileSubset[k] == null || String(profileSubset[k]).trim() === '') delete profileSubset[k];
+    }
+
+    // Tight summary of resume details (structured extraction only)
+    const resumeDetailsMin = (() => {
+      try {
+        const d = resumeDetails && typeof resumeDetails === 'object' ? resumeDetails : {};
+        const out = {};
+
+        if (Array.isArray(d.experiences) && d.experiences.length) {
+          out.experiences = d.experiences.slice(0, 6).map((x) => {
+            const e = x && typeof x === 'object' ? x : {};
+            return {
+              title: e.title || e.role || e.position || undefined,
+              company: e.company || e.employer || undefined,
+              start: e.start || e.start_date || e.startDate || undefined,
+              end: e.end || e.end_date || e.endDate || undefined,
+              highlights: Array.isArray(e.highlights) ? e.highlights.slice(0, 3) : undefined,
+            };
+          });
+        }
+
+        if (Array.isArray(d.skills) && d.skills.length) out.skills = d.skills.slice(0, 50);
+        if (Array.isArray(d.certifications) && d.certifications.length) out.certifications = d.certifications.slice(0, 12);
+
+        return JSON.stringify(out, null, 2);
+      } catch (_) {
+        return '';
+      }
+    })();
+
+    let sitePrompt = '';
+    const host = window.location.hostname.toLowerCase();
+    if (host.includes('lever') || host.includes('greenhouse')) sitePrompt = 'Keep under 200 words.';
+
+    const synonyms = {
+      'Veteran Status:Decline': 'Prefer not to say',
+    };
+    const normalizedSynonyms = Object.fromEntries(
+      Object.entries(synonyms).map(([k, v]) => [normalizeText(k), v])
+    );
+    const synonymHint = normalizedSynonyms[normalizeText(question)] || '';
+
+    // Optional: attach PDFs only if they look valid; otherwise skip.
+    // This prevents Gemini errors like "The document has no pages" when stored data is empty/invalid.
+    const sanitizePdfBase64 = (b64) => {
+      try {
+        const s = String(b64 || '').trim();
+        if (!s) return null;
+        const stripped = s.startsWith('data:') ? s.slice(s.indexOf('base64,') + 7) : s;
+        if (!stripped || stripped.length < 64) return null;
+
+        // Quick header check: decoded bytes should start with %PDF
+        const head = atob(stripped.slice(0, 64));
+        if (!head || !head.startsWith('%PDF')) return null;
+        return stripped;
+      } catch (_) {
+        return null;
+      }
+    };
+
+    const resumePdf = sanitizePdfBase64(resumeBase64);
+    const linkedinPdf = sanitizePdfBase64(linkedinBase64);
+
+    const buildTextPart = () => ({
+      text: `You write concise, professional job-application answers in first person.
+Return ONLY the answer text.
+Do not include placeholders like [Company] or [Your Name].
+
+${sitePrompt ? `Site guidance: ${sitePrompt}\n\n` : ''}${synonymHint ? `Synonym hint: ${synonymHint}\n\n` : ''}Profile facts (minimal):
+${Object.keys(profileSubset).length ? JSON.stringify(profileSubset, null, 2) : '(none)'}
+
+Resume details (structured):
+${resumeDetailsMin || '(none)'}
+
+Question:
+${question}`
+    });
+
+    const callGemini = async (parts) => {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: { temperature: 0.2 },
+          }),
+        }
+      );
+
+      const json = await response.json();
+      if (json?.error) {
+        throw new Error(json.error.message || 'Unknown API Error');
+      }
+
+      const candidate = json?.candidates?.[0];
+      const answerText = candidate?.content?.parts?.[0]?.text;
+      if (!answerText) throw new Error('AI response missing text');
+      return String(answerText).trim();
+    };
+
+    // Default: text-only (most reliable). Attach PDFs only when valid.
+    const parts = [buildTextPart()];
+    const hadPdf = !!(resumePdf || linkedinPdf);
+    if (resumePdf) parts.push({ inline_data: { data: resumePdf, mime_type: 'application/pdf' } });
+    if (linkedinPdf) parts.push({ inline_data: { data: linkedinPdf, mime_type: 'application/pdf' } });
+
+    let answer = '';
+    try {
+      answer = await callGemini(parts);
+    } catch (e) {
+      const msg = String(e?.message || e || '').toLowerCase();
+      // Graceful fallback: retry without PDFs when Gemini cannot parse the document.
+      if (hadPdf && (msg.includes('no pages') || msg.includes('document has no pages'))) {
+        console.warn('SmartApply: Gemini PDF parse failed; retrying text-only');
+        answer = await callGemini([buildTextPart()]);
+      } else {
+        throw e;
+      }
+    }
+
+    // Insert Answer + dispatch events (best-effort)
+    if (answer) {
+      try {
+        setNativeValue(element, answer);
+      } catch (_) {
+        // Fallback for contenteditable
+        try {
+          if (element.isContentEditable) element.textContent = answer;
+        } catch (_) {}
+      }
+      try {
+        if (typeof dispatchInputAndChange === 'function') dispatchInputAndChange(element);
+      } catch (_) {}
+    }
+  } catch (error) {
+    console.error('AI Generation Error', error);
+    alert(`Failed to generate answer: ${error.message}`);
+  } finally {
+    try {
+      if (element?.style) element.style.cursor = originalCursor;
+    } catch (_) {}
+  }
+}
+
+function _saInstallAiAnswerHandlers() {
+  try {
+    if (_saAiHandlersInstalled) return;
+    _saAiHandlersInstalled = true;
+
+    // Context menu: remember last right-clicked field and store question in background.
+    document.addEventListener(
+      'contextmenu',
+      (event) => {
+        _saLastRightClickedEl = _saFindAiAnswerTargetElement(event?.target);
+        try {
+          const q = _saGetQuestionFromElement(_saLastRightClickedEl);
+          const chromeApi = globalThis.chrome;
+          if (q && chromeApi?.runtime?.sendMessage) {
+            chromeApi.runtime.sendMessage({ action: 'STORE_LAST_QUESTION', question: q });
+          }
+        } catch (_) {}
+      },
+      true
+    );
+
+    // Settings → "AI Answer Last Right-Click Field" / "Generate All Pending"
+    const chromeApi = globalThis.chrome;
+    if (chromeApi?.runtime?.onMessage?.addListener) {
+      chromeApi.runtime.onMessage.addListener((request) => {
+        if (request?.action === 'TRIGGER_AI_REPLY') {
+          if (_saLastRightClickedEl) _saGenerateAiAnswer(_saLastRightClickedEl);
+        }
+      });
+    }
+  } catch (_) {
+    // swallow
+  }
+}
+
+// Install immediately as well as on window load (idempotent).
+try {
+  _saInstallAiAnswerHandlers();
+} catch (_) {}
+
 window.addEventListener("load", async (_) => {
   console.log("SmartApply: found job page.");
 
@@ -3012,252 +3333,9 @@ async function processFields(jobForm, fieldMap, form, res) {
   for (let jobParam in fieldMap) {
     const param = fieldMap[jobParam];
     if (param === "Resume") {
-      // Basic Context Menu Logic
-      let lastClickedElement = null;
+      // AI right-click handlers are installed globally on page load.
+      _saInstallAiAnswerHandlers();
 
-      const getQuestionFromElement = (element) => {
-        if (!element) return "";
-
-        let question = element.getAttribute?.("aria-label") || element.getAttribute?.("placeholder") || "";
-        if (!question) {
-          const id = element.id;
-          if (id) {
-            const label = document.querySelector(`label[for="${id}"]`);
-            if (label) question = label.innerText;
-          }
-        }
-        if (!question) {
-          // Try to find closest text
-          let parent = element.parentElement;
-          while (parent && !question && parent.tagName !== 'FORM') {
-            if (parent.innerText.length > 5 && parent.innerText.length < 200) {
-              question = parent.innerText;
-            }
-            parent = parent.parentElement;
-          }
-        }
-
-        return question;
-      };
-
-      document.addEventListener("contextmenu", (event) => {
-        lastClickedElement = event.target;
-        try {
-          const question = getQuestionFromElement(lastClickedElement);
-          if (question) {
-            chrome.runtime.sendMessage({ action: 'STORE_LAST_QUESTION', question });
-          }
-        } catch (_) {}
-      }, true);
-
-      chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-        if (request.action === "TRIGGER_AI_REPLY") {
-          if (lastClickedElement) {
-            generateAIAnswer(lastClickedElement);
-          }
-        }
-      });
-
-      async function generateAIAnswer(element) {
-        // Show loading state (simple cursor)
-        const originalCursor = element.style.cursor;
-        element.style.cursor = "wait";
-
-        try {
-          // 1. Get Context (Label/Question)
-          let question = getQuestionFromElement(element);
-
-          // 2. Get User Data
-          const fullSync = await getStorageDataSync();
-          const apiKey = fullSync["API Key"];
-
-          if (!apiKey) {
-            alert("Please set your Gemini API Key in the Autofill Jobs extension settings.");
-            element.style.cursor = originalCursor;
-            return;
-          }
-
-          const localData = await getStorageDataLocal(["Resume", "LinkedIn PDF", "Resume_details"]);
-          const resumeDetails = localData.Resume_details || {};
-          const resumeBase64 = localData.Resume;
-          const linkedinBase64 = localData["LinkedIn PDF"];
-
-          // Format Text Context
-          let context = "User Profile Context:\n";
-          if (resumeDetails.experiences) {
-            context += "Experience:\n" + JSON.stringify(resumeDetails.experiences) + "\n";
-          }
-          if (resumeDetails.skills) {
-            context += "Skills: " + (Array.isArray(resumeDetails.skills) ? resumeDetails.skills.join(", ") : resumeDetails.skills) + "\n";
-          }
-          if (resumeDetails.certifications) {
-            context += "Certifications:\n" + JSON.stringify(resumeDetails.certifications) + "\n";
-          }
-
-          // PRIVACY: do NOT send full sync storage to the model.
-          // Build a minimal, relevant subset for common application questions.
-          const pick = (obj, keys) => {
-            try {
-              for (const k of keys) {
-                if (obj && Object.prototype.hasOwnProperty.call(obj, k) && obj[k] != null && String(obj[k]).trim() !== '') {
-                  return obj[k];
-                }
-              }
-            } catch (_) {}
-            return undefined;
-          };
-
-          const profileSubset = {
-            first_name: pick(fullSync, ['first_name', 'First Name', 'firstName']),
-            last_name: pick(fullSync, ['last_name', 'Last Name', 'lastName']),
-            email: pick(fullSync, ['email', 'Email']),
-            phone: pick(fullSync, ['phone', 'Phone', 'phone_number', 'Phone Number']),
-            city: pick(fullSync, ['city', 'Location (City)']),
-            state: pick(fullSync, ['state', 'Location (State/Region)']),
-            country: pick(fullSync, ['country', 'Location (Country)']),
-            postal_code: pick(fullSync, ['postal_code', 'Zip', 'zip', 'Postal Code']),
-            linkedin: pick(fullSync, ['linkedin', 'LinkedIn']),
-            github: pick(fullSync, ['github', 'GitHub']),
-            portfolio: pick(fullSync, ['portfolio', 'Portfolio', 'website', 'Website']),
-            work_auth_us: pick(fullSync, ['work_auth_us', 'Work Authorization', 'work_authorization_us']),
-            sponsorship: pick(fullSync, ['sponsorship', 'Sponsorship', 'requires_sponsorship']),
-          };
-
-          // Remove empty keys
-          for (const k of Object.keys(profileSubset)) {
-            if (profileSubset[k] == null || String(profileSubset[k]).trim() === '') delete profileSubset[k];
-          }
-
-          // Tight summary of resume details (structured extraction only)
-          const resumeDetailsMin = (() => {
-            try {
-              const d = resumeDetails && typeof resumeDetails === 'object' ? resumeDetails : {};
-              const out = {};
-
-              if (Array.isArray(d.experiences) && d.experiences.length) {
-                out.experiences = d.experiences.slice(0, 6).map((x) => {
-                  const e = x && typeof x === 'object' ? x : {};
-                  return {
-                    title: e.title || e.role || e.position || undefined,
-                    company: e.company || e.employer || undefined,
-                    start: e.start || e.start_date || e.startDate || undefined,
-                    end: e.end || e.end_date || e.endDate || undefined,
-                    highlights: Array.isArray(e.highlights) ? e.highlights.slice(0, 3) : undefined,
-                  };
-                });
-              }
-
-              if (Array.isArray(d.skills) && d.skills.length) out.skills = d.skills.slice(0, 50);
-              if (Array.isArray(d.certifications) && d.certifications.length) out.certifications = d.certifications.slice(0, 12);
-
-              return JSON.stringify(out, null, 2);
-            } catch (_) {
-              return '';
-            }
-          })();
-
-          let sitePrompt = '';
-          const host = window.location.hostname.toLowerCase();
-          if (host.includes('lever') || host.includes('greenhouse')) sitePrompt = 'Keep under 200 words.';
-
-          const synonyms = {
-            'Veteran Status:Decline': 'Prefer not to say',
-          };
-          const normalizedSynonyms = Object.fromEntries(
-            Object.entries(synonyms).map(([k, v]) => [normalizeText(k), v])
-          );
-          const synonymHint = normalizedSynonyms[normalizeText(question)] || '';
-
-          // Optional: attach PDFs only if they look valid; otherwise skip.
-          // This prevents Gemini errors like "The document has no pages" when stored data is empty/invalid.
-          const sanitizePdfBase64 = (b64) => {
-            try {
-              const s = String(b64 || '').trim();
-              if (!s) return null;
-              const stripped = s.startsWith('data:') ? s.slice(s.indexOf('base64,') + 7) : s;
-              if (!stripped || stripped.length < 64) return null;
-
-              // Quick header check: decoded bytes should start with %PDF
-              const head = atob(stripped.slice(0, 64));
-              if (!head || !head.startsWith('%PDF')) return null;
-              return stripped;
-            } catch (_) {
-              return null;
-            }
-          };
-
-          const resumePdf = sanitizePdfBase64(resumeBase64);
-          const linkedinPdf = sanitizePdfBase64(linkedinBase64);
-
-          const buildTextPart = () => ({
-            text: `You write concise, professional job-application answers in first person.
-Return ONLY the answer text.
-Do not include placeholders like [Company] or [Your Name].
-
-${sitePrompt ? `Site guidance: ${sitePrompt}\n\n` : ''}${synonymHint ? `Synonym hint: ${synonymHint}\n\n` : ''}Profile facts (minimal):
-${Object.keys(profileSubset).length ? JSON.stringify(profileSubset, null, 2) : '(none)'}
-
-Resume details (structured):
-${resumeDetailsMin || '(none)'}
-
-Question:
-${question}`
-          });
-
-          const callGemini = async (parts) => {
-            const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts }],
-                  generationConfig: { temperature: 0.2 },
-                }),
-              }
-            );
-
-            const json = await response.json();
-            if (json?.error) {
-              throw new Error(json.error.message || 'Unknown API Error');
-            }
-
-            const candidate = json?.candidates?.[0];
-            const answerText = candidate?.content?.parts?.[0]?.text;
-            if (!answerText) throw new Error('AI response missing text');
-            return String(answerText).trim();
-          };
-
-          // Default: text-only (most reliable). Attach PDFs only when valid.
-          const parts = [buildTextPart()];
-          const hadPdf = !!(resumePdf || linkedinPdf);
-          if (resumePdf) parts.push({ inline_data: { data: resumePdf, mime_type: 'application/pdf' } });
-          if (linkedinPdf) parts.push({ inline_data: { data: linkedinPdf, mime_type: 'application/pdf' } });
-
-          let answer = '';
-          try {
-            answer = await callGemini(parts);
-          } catch (e) {
-            const msg = String(e?.message || e || '').toLowerCase();
-            // Graceful fallback: retry without PDFs when Gemini cannot parse the document.
-            if (hadPdf && (msg.includes('no pages') || msg.includes('document has no pages'))) {
-              console.warn('SmartApply: Gemini PDF parse failed; retrying text-only');
-              answer = await callGemini([buildTextPart()]);
-            } else {
-              throw e;
-            }
-          }
-
-          // Insert Answer
-          if (answer) setNativeValue(element, answer);
-
-        } catch (error) {
-          console.error("AI Generation Error", error);
-          alert(`Failed to generate answer: ${error.message}`);
-        } finally {
-          element.style.cursor = originalCursor;
-        }
-      }
       let localData = await getStorageDataLocal();
       if (!localData.Resume) continue;
 
