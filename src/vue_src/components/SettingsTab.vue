@@ -645,7 +645,7 @@ export default {
     box-shadow: 0 18px 35px rgba(34, 197, 94, 0.22);
 }
 
-.action-btn:hover {
+.action-btn:hover:not(:disabled) {
     transform: translateY(-1px);
     filter: brightness(1.02);
 }
