@@ -57,6 +57,60 @@ let _saAiAnswerState = {
 };
 let _saAiBatchQueue = Promise.resolve();
 
+// ─────────────────────────────────────────────────────────────────────────────
+// AI Usage Logging (local only)
+//
+// Stores a rolling log in chrome.storage.local.aiUsageLog (last 1000 entries):
+// { date, question, tokensIn, tokensOut, costCents }
+//
+// NOTE: Cost is an estimate based on Gemini 1.5 Flash public rates.
+let _saAiUsageLogQueue = Promise.resolve();
+
+// Gemini 1.5 Flash pricing (USD per 1M tokens)
+const _SA_GEMINI_15_FLASH_USD_PER_1M_INPUT = 0.35;
+const _SA_GEMINI_15_FLASH_USD_PER_1M_OUTPUT = 0.53;
+
+function _saEstimateGemini15FlashCostCents(tokensIn, tokensOut) {
+  try {
+    const tin = Number(tokensIn);
+    const tout = Number(tokensOut);
+    const inTok = Number.isFinite(tin) && tin > 0 ? tin : 0;
+    const outTok = Number.isFinite(tout) && tout > 0 ? tout : 0;
+
+    const usd =
+      (inTok * _SA_GEMINI_15_FLASH_USD_PER_1M_INPUT + outTok * _SA_GEMINI_15_FLASH_USD_PER_1M_OUTPUT) /
+      1_000_000;
+
+    // Keep 4 decimals of cents precision (token-level costs are tiny)
+    const cents = usd * 100;
+    return Math.round(cents * 10000) / 10000;
+  } catch (_) {
+    return 0;
+  }
+}
+
+function _saAppendAiUsageLog(entry) {
+  _saAiUsageLogQueue = _saAiUsageLogQueue
+    .then(async () => {
+      try {
+        if (!entry || !chrome?.storage?.local) return;
+
+        const res = await new Promise((resolve) => chrome.storage.local.get(['aiUsageLog'], (r) => resolve(r || {})));
+        const cur = Array.isArray(res.aiUsageLog) ? res.aiUsageLog : [];
+        const next = cur.concat([entry]).slice(-1000);
+
+        await new Promise((resolve) => chrome.storage.local.set({ aiUsageLog: next }, () => resolve(true)));
+      } catch (e) {
+        console.warn('SmartApply: failed to write aiUsageLog', e);
+      }
+    })
+    .catch((e) => {
+      console.warn('SmartApply: aiUsageLog queue failed', e);
+    });
+
+  return _saAiUsageLogQueue;
+}
+
 function _saIsAiFillableElement(el) {
   try {
     if (!el || !el.tagName) return false;
@@ -636,6 +690,33 @@ ${question}`
       const candidate = json?.candidates?.[0];
       const answerText = candidate?.content?.parts?.[0]?.text;
       if (!answerText) throw new Error('AI response missing text');
+
+      // Best-effort token/cost logging (Gemini returns usageMetadata for many models/tiers)
+      try {
+        const usage = json?.usageMetadata || json?.usage || {};
+        const tokensIn = Number(
+          usage.promptTokenCount ?? usage.prompt_tokens ?? usage.inputTokenCount ?? usage.input_tokens ?? 0
+        );
+        const tokensOut = Number(
+          usage.candidatesTokenCount ??
+            usage.candidates_tokens ??
+            usage.outputTokenCount ??
+            usage.output_tokens ??
+            usage.completionTokenCount ??
+            0
+        );
+
+        const entry = {
+          date: new Date().toISOString(),
+          question: String(question || '').trim().slice(0, 800),
+          tokensIn: Number.isFinite(tokensIn) ? tokensIn : 0,
+          tokensOut: Number.isFinite(tokensOut) ? tokensOut : 0,
+          costCents: _saEstimateGemini15FlashCostCents(tokensIn, tokensOut),
+        };
+
+        await _saAppendAiUsageLog(entry);
+      } catch (_) {}
+
       return String(answerText).trim();
     };
 

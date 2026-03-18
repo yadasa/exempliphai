@@ -132,6 +132,29 @@
             </div>
 
             <div class="action-card">
+                <h3>AI Usage</h3>
+                <p>Tracks token usage returned by Gemini and estimates cost using Gemini 1.5 Flash rates. Stored locally (last 1000 generations).</p>
+
+                <div v-if="aiUsageTotalGens > 0" class="listmode-status" style="margin-top: 0.5rem;">
+                    <div class="status-row"><b>Total generations:</b> {{ aiUsageTotalGens }}</div>
+                    <div class="status-row"><b>Tokens:</b> in {{ aiUsageTokensIn.toLocaleString() }}, out {{ aiUsageTokensOut.toLocaleString() }}, total {{ aiUsageTokensTotal.toLocaleString() }}</div>
+                    <div class="status-row"><b>Estimated cost:</b> {{ aiUsageCostCentsDisplay }}¢</div>
+                </div>
+                <p v-else style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+                    No AI usage logged yet.
+                </p>
+
+                <button
+                    @click="clearAiUsageLog"
+                    class="action-btn"
+                    style="margin-top: 0.5rem; background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; box-shadow: 0 18px 35px rgba(239, 68, 68, 0.22);"
+                    :disabled="aiUsageTotalGens === 0"
+                >
+                    Clear AI Usage Log
+                </button>
+            </div>
+
+            <div class="action-card">
                 <h3>Export Data</h3>
                 <p>Download a backup of your profile and resume data.</p>
                 <button @click="exportData" class="action-btn export-btn">Export to JSON</button>
@@ -173,6 +196,14 @@ type JobQueueItem = {
     lastUrl?: string;
     updatedAt?: string;
     completedAt?: string;
+};
+
+type AiUsageEntry = {
+    date?: string;
+    question?: string;
+    tokensIn?: number;
+    tokensOut?: number;
+    costCents?: number;
 };
 
 function parseCsv(text: string): string[][] {
@@ -312,6 +343,44 @@ export default {
         const autoSubmitEnabled = ref(false);
         const listModeEnabled = ref(false);
         const closePreviousTabs = ref(false);
+
+        // AI usage (local-only)
+        const aiUsageLog = ref<AiUsageEntry[]>([]);
+
+        const loadAiUsageLog = async () => {
+            if (!chrome?.storage) return;
+            chrome.storage.local.get(['aiUsageLog'], (result) => {
+                aiUsageLog.value = Array.isArray((result as any).aiUsageLog) ? (result as any).aiUsageLog : [];
+            });
+        };
+
+        const aiUsageTotalGens = computed(() => aiUsageLog.value.length);
+
+        const aiUsageTokensIn = computed(() =>
+            aiUsageLog.value.reduce((sum, e) => sum + (Number((e as any)?.tokensIn) || 0), 0)
+        );
+        const aiUsageTokensOut = computed(() =>
+            aiUsageLog.value.reduce((sum, e) => sum + (Number((e as any)?.tokensOut) || 0), 0)
+        );
+        const aiUsageTokensTotal = computed(() => aiUsageTokensIn.value + aiUsageTokensOut.value);
+
+        const aiUsageCostCents = computed(() =>
+            aiUsageLog.value.reduce((sum, e) => sum + (Number((e as any)?.costCents) || 0), 0)
+        );
+
+        const aiUsageCostCentsDisplay = computed(() => {
+            const c = Number(aiUsageCostCents.value || 0);
+            if (!Number.isFinite(c) || c <= 0) return '0.0000';
+            return c < 1 ? c.toFixed(4) : c.toFixed(2);
+        });
+
+        const clearAiUsageLog = async () => {
+            if (!chrome?.storage) return;
+            if (!confirm('Clear AI usage log?')) return;
+            chrome.storage.local.set({ aiUsageLog: [] }, () => {
+                aiUsageLog.value = [];
+            });
+        };
 
         const normalizeAutofillDelayMs = (v: any): number => {
             const n = Number(v);
@@ -594,12 +663,14 @@ export default {
                 if (changes?.listModePaused) listModePaused.value = changes.listModePaused.newValue !== false;
                 if (changes?.listModeActiveJob) listModeActiveJob.value = changes.listModeActiveJob.newValue || null;
                 if (changes?.listModeNextOpenAt) listModeNextOpenAt.value = Number.isFinite(changes.listModeNextOpenAt.newValue) ? changes.listModeNextOpenAt.newValue : 0;
+                if (changes?.aiUsageLog) aiUsageLog.value = Array.isArray(changes.aiUsageLog.newValue) ? changes.aiUsageLog.newValue : [];
             }
         };
 
         onMounted(() => {
             loadSettings();
             loadListModeState();
+            loadAiUsageLog();
 
             tickTimer = window.setInterval(() => {
                 nowTick.value = Date.now();
@@ -630,6 +701,14 @@ export default {
 
             triggerAI,
             generateAllPending,
+
+            // AI usage
+            aiUsageTotalGens,
+            aiUsageTokensIn,
+            aiUsageTokensOut,
+            aiUsageTokensTotal,
+            aiUsageCostCentsDisplay,
+            clearAiUsageLog,
 
             // List mode
             csvInput,
