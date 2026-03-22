@@ -8,6 +8,7 @@ import EnterSkill from '@/components/EnterSkill.vue';
 import EnterWorkExperience from '@/components/EnterWorkExperience.vue';
 import EnterCertification from '@/components/EnterCertification.vue';
 import JobTracker from '@/components/JobTracker.vue';
+import JobSearch from '@/components/JobSearch.vue';
 import SettingsTab from '@/components/SettingsTab.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 import { useTheme } from '@/composables/Theme';
@@ -155,6 +156,11 @@ const setTab = async (tab: string) => {
           <div v-if="activeTab === 'dashboard'">
               <JobTracker />
           </div>
+
+          <!-- Job Search Tab -->
+          <div v-if="activeTab === 'jobSearch'">
+              <JobSearch />
+          </div>
           
           <!-- Settings Tab -->
           <div v-if="activeTab === 'settings'">
@@ -172,6 +178,9 @@ const setTab = async (tab: string) => {
           </button>
           <button @click="setTab('dashboard')" :class="{ active: activeTab === 'dashboard' }">
              <span class="tab-icon">📊</span> Dashboard
+          </button>
+          <button @click="setTab('jobSearch')" :class="{ active: activeTab === 'jobSearch' }">
+             <span class="tab-icon">🔎</span> Job Search
           </button>
           <button @click="setTab('settings')" :class="{ active: activeTab === 'settings' }">
              <span class="tab-icon">⚙️</span> Settings

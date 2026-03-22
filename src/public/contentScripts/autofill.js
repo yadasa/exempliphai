@@ -1248,7 +1248,6 @@ try {
     _saJobContextListenerInstalled = true;
     chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       try {
-        if (request?.action !== 'SMARTAPPLY_EXTRACT_JOB_CONTEXT') return;
         // Only respond from top frame.
         try {
           if (window.top !== window) return;
@@ -1257,17 +1256,34 @@ try {
           return;
         }
 
-        const ctx = _saExtractJobContextFromPage();
-        sendResponse({
-          jobTitle: ctx.jobTitle || '',
-          jobDescription: ctx.jobDescription || '',
-          pageUrl: ctx.pageUrl || '',
-        });
+        if (request?.action === 'SMARTAPPLY_EXTRACT_JOB_CONTEXT') {
+          const ctx = _saExtractJobContextFromPage();
+          sendResponse({
+            jobTitle: ctx.jobTitle || '',
+            jobDescription: ctx.jobDescription || '',
+            pageUrl: ctx.pageUrl || '',
+          });
+          return;
+        }
+
+        if (request?.action === 'SMARTAPPLY_AUTOFILL_NOW') {
+          (async () => {
+            try {
+              const ok = await tryAutofillNow({
+                force: request?.force === true,
+                reason: String(request?.reason || 'ipc'),
+              });
+              sendResponse({ ok: true, ran: true, result: ok === true });
+            } catch (e) {
+              sendResponse({ ok: false, error: String(e?.message || e) });
+            }
+          })();
+          return true; // keep channel open for async sendResponse
+        }
       } catch (e) {
-        sendResponse({ jobTitle: '', jobDescription: '', pageUrl: '', error: String(e?.message || e) });
+        sendResponse({ ok: false, error: String(e?.message || e) });
       }
 
-      // Async not needed.
       return;
     });
   }

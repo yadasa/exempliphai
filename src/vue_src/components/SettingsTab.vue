@@ -64,6 +64,12 @@
             :placeHolder="['openai/gpt-5.2', 'openai/gpt-5.2-mini', 'openai/gpt-4.1', 'anthropic/claude-sonnet-4']"
         />
 
+        <InputField
+            label="Job Search Model"
+            explanation="Model used when generating job recommendations from your resume."
+            :placeHolder="['openai/gpt-5.2', 'openai/gpt-5.2-mini', 'openai/gpt-4.1', 'anthropic/claude-sonnet-4']"
+        />
+
         <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0;">
             <label class="switch">
                 <input type="checkbox" v-model="autoTailorResumes" @change="toggleAutoTailor" />

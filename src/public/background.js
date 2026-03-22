@@ -428,6 +428,7 @@ chrome.runtime.onInstalled.addListener(() => {
       'closePreviousTabs',
       'autoTailorResumes',
       'Tailor Resume Model',
+      'Job Search Model',
     ],
     (res) => {
       const next = {};
@@ -438,6 +439,10 @@ chrome.runtime.onInstalled.addListener(() => {
       if (!res || typeof res.autoTailorResumes !== 'boolean') next.autoTailorResumes = false;
       if (!res || typeof res['Tailor Resume Model'] !== 'string' || !String(res['Tailor Resume Model']).trim()) {
         next['Tailor Resume Model'] = 'openai/gpt-5.2';
+      }
+
+      if (!res || typeof res['Job Search Model'] !== 'string' || !String(res['Job Search Model']).trim()) {
+        next['Job Search Model'] = 'openai/gpt-5.2';
       }
 
       if (Object.keys(next).length) chrome.storage.sync.set(next);
@@ -620,6 +625,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         );
 
         sendResponse({ ok: true, ...(ctx || {}) });
+        return;
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+        return;
+      }
+    }
+
+    // Popup → background → content script: run autofill now on the active tab.
+    if (request?.action === 'SMARTAPPLY_AUTOFILL_NOW') {
+      try {
+        const tabs = await tabsQuery({ active: true, currentWindow: true });
+        const tabId = tabs?.[0]?.id;
+        if (!Number.isFinite(tabId)) {
+          sendResponse({ ok: false, reason: 'no_active_tab' });
+          return;
+        }
+
+        const resp = await tabsSendMessage(
+          tabId,
+          { action: 'SMARTAPPLY_AUTOFILL_NOW', force: true, reason: 'popup' },
+          { frameId: 0 }
+        );
+
+        sendResponse({ ok: true, ...(resp || {}) });
         return;
       } catch (e) {
         sendResponse({ ok: false, error: String(e?.message || e) });

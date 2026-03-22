@@ -1,0 +1,18 @@
+[
+  {
+    "title": "Senior Frontend Engineer (React)",
+    "company_types": ["B2B SaaS", "Developer tools"],
+    "salary_range": "$150k–$200k base (US) + equity",
+    "locations": ["Remote (US)", "NYC", "SF Bay Area"],
+    "why_match": "Strong React/TypeScript experience aligns with modern frontend stacks; prior ownership of UI performance and design systems maps well to senior IC roles.",
+    "search_link": "https://www.linkedin.com/jobs/search/?keywords=Senior%20Frontend%20Engineer%20React%20TypeScript%20Remote"
+  },
+  {
+    "title": "Full-Stack Engineer (Node + React)",
+    "company_types": ["Product-led startups", "Mid-size SaaS"],
+    "salary_range": "$140k–$190k base (US)",
+    "locations": ["Remote", "Austin", "Seattle"],
+    "why_match": "Balanced frontend + backend impact is a fit if the resume includes Node/REST APIs, feature delivery, and cross-functional collaboration.",
+    "search_link": "https://www.indeed.com/jobs?q=full%20stack%20engineer%20react%20node%20remote"
+  }
+]

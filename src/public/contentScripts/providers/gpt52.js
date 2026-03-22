@@ -22,12 +22,34 @@ function withTimeout(timeoutMs) {
   return { controller, cancel: () => clearTimeout(id) };
 }
 
-function extractFirstJsonObject(text) {
+function extractFirstJsonValue(text) {
   const s = (text ?? '').toString();
-  const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
+
+  // Find first JSON container (object or array), whichever occurs first.
+  const iObj = s.indexOf('{');
+  const iArr = s.indexOf('[');
+
+  let open = '{';
+  let close = '}';
+  let first = iObj;
+
+  if (iObj === -1 && iArr === -1) return null;
+  if (iObj === -1 || (iArr !== -1 && iArr < iObj)) {
+    open = '[';
+    close = ']';
+    first = iArr;
+  }
+
+  const last = s.lastIndexOf(close);
   if (first === -1 || last === -1 || last <= first) return null;
   return s.slice(first, last + 1);
+}
+
+// Back-compat (tailoring expects an object, but we now support arrays too).
+function extractFirstJsonObject(text) {
+  const v = extractFirstJsonValue(text);
+  if (!v) return null;
+  return v.trim().startsWith('{') ? v : null;
 }
 
 function safeString(x, max = 12000) {
@@ -107,6 +129,68 @@ Important:
 - Do not change jobTitle/jobEmployer/jobDuration/isCurrentEmployer values.
 - You MAY edit roleBulletsString to be more relevant, concise, and impact-focused.
 - Skills: reorder + adjust wording (no inventions).`;
+}
+
+/**
+ * System prompt for job search recommendations.
+ */
+export function buildJobSearchSystemPrompt() {
+  return `You are an expert career coach and recruiter.
+
+Task: analyze an anonymized resume and recommend 10–15 target jobs.
+
+Guidelines:
+- Recommend a mix of “at-par” roles and slightly aspirational roles (a reasonable career upgrade).
+- Prefer roles the candidate can plausibly land in the next 3–12 months.
+
+Privacy rules (critical):
+- Do NOT include any personal identifying info (name, email, phone, address, personal links).
+- Assume you only have anonymized resume content.
+
+Output rules (critical):
+- Return ONLY valid JSON. No markdown, no commentary.
+- Output MUST be a JSON array of 10–15 objects.
+- Each object MUST match this schema exactly:
+  {
+    "title": string,
+    "company_types": string[] | string,
+    "salary_range": string,
+    "locations": string[] | string,
+    "why_match": string,
+    "search_link": string
+  }
+
+Search link rules:
+- search_link MUST be a single https URL to a job search page on LinkedIn, Google, or Indeed.
+- Prefer LinkedIn (e.g., https://www.linkedin.com/jobs/search/?keywords=Senior%20Software%20Engineer%20React%20Remote).
+- The link should be immediately usable (URL-encoded keywords, include remote/hybrid when relevant).`;
+}
+
+/**
+ * User prompt for job search recommendations.
+ * Input can be structured JSON (preferred) or plain text.
+ */
+export function buildJobSearchUserPrompt({ resumeData, resumeText, countMin = 10, countMax = 15 } = {}) {
+  const nMin = Number.isFinite(countMin) ? countMin : 10;
+  const nMax = Number.isFinite(countMax) ? countMax : 15;
+
+  const structured = resumeData != null && resumeData !== '';
+  const resume = structured
+    ? (typeof resumeData === 'string' ? safeString(resumeData, 16000) : JSON.stringify(resumeData ?? {}, null, 2))
+    : safeString(resumeText, 16000);
+
+  return `Analyze the resume and recommend ${nMin}–${nMax} target jobs.
+
+Resume (anonymized):
+${resume || '(none provided)'}
+
+Return ONLY a JSON array with objects shaped exactly as:
+[{"title":"","company_types":[],"salary_range":"","locations":[],"why_match":"","search_link":"https://..."}]
+
+Constraints:
+- No PII.
+- Keep why_match to 1–3 concise sentences.
+- Make search_link a smart query link (LinkedIn/Google/Indeed) tailored to the role + key skills + preferred location/remote.`;
 }
 
 async function openRouterChatCompletion({
@@ -244,6 +328,56 @@ export function createGpt52Provider(cfg = {}) {
         throw err;
       }
     },
+
+    /**
+     * Recommend job targets based on an anonymized resume.
+     *
+     * @param {{ resumeData?: object|string, resumeText?: string, countMin?: number, countMax?: number, model?: string, timeoutMs?: number, maxRetries?: number }} args
+     * @returns {Promise<{ jobs: any[], tokensIn: number, tokensOut: number }>}
+     */
+    async recommendJobs(args = {}) {
+      const systemPrompt = buildJobSearchSystemPrompt();
+      const userPrompt = buildJobSearchUserPrompt(args);
+
+      const result = await withRetry(
+        () =>
+          openRouterChatCompletion({
+            apiKey,
+            model: args?.model || model,
+            systemPrompt,
+            userPrompt,
+            timeoutMs: args?.timeoutMs ?? timeoutMs,
+            temperature: 0.3,
+            maxTokens: 1600,
+            extraHeaders: {
+              'X-Title': 'Exempliphai Job Search',
+            },
+          }),
+        { maxRetries: args?.maxRetries ?? maxRetries }
+      );
+
+      const jsonText = extractFirstJsonValue(result.text) ?? result.text;
+
+      try {
+        const parsed = JSON.parse(jsonText);
+        const jobs = Array.isArray(parsed)
+          ? parsed
+          : (Array.isArray(parsed?.jobs) ? parsed.jobs : []);
+
+        return {
+          jobs,
+          tokensIn: result.tokensIn,
+          tokensOut: result.tokensOut,
+        };
+      } catch (e) {
+        const err = new Error('Failed to parse job recommendations JSON from GPT-5.2');
+        // @ts-ignore
+        err.cause = e;
+        // @ts-ignore
+        err.rawText = result.text;
+        throw err;
+      }
+    },
   };
 }
 
@@ -258,14 +392,28 @@ export async function tailorResume(args = {}) {
   return p.tailorResume(args);
 }
 
+/** Stateless convenience */
+export async function recommendJobs(args = {}) {
+  const p = createGpt52Provider({
+    apiKey: args?.apiKey,
+    model: args?.model,
+    timeoutMs: args?.timeoutMs,
+    maxRetries: args?.maxRetries,
+  });
+  return p.recommendJobs(args);
+}
+
 // Expose for classic-script usage
 try {
   globalThis.__exempliphaiProviders = globalThis.__exempliphaiProviders || {};
   globalThis.__exempliphaiProviders.gpt52 = {
     createGpt52Provider,
     tailorResume,
+    recommendJobs,
     buildTailorSystemPrompt,
     buildTailorUserPrompt,
+    buildJobSearchSystemPrompt,
+    buildJobSearchUserPrompt,
     GPT52_DEFAULT_MODEL,
     OPENROUTER_API_BASE,
   };
