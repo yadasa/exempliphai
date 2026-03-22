@@ -11,6 +11,31 @@
 
 ---
 
+## 0) Resume Tailoring (GPT-5.2) — 2026-03-22 add-on
+
+This repo now includes an opt-in resume tailoring flow using **GPT‑5.2 via OpenRouter**.
+
+**What’s implemented (high level):**
+- **Popup UI:** A **“Tailor Resume”** button appears under the **Resume** file field.
+- **Job context extraction:** Popup calls background IPC → content script heuristics to extract:
+  - job title (H1 / meta / <title>)
+  - job description (#job_description / .job__description / .job-description / main, etc)
+- **Core tailoring:** Sends *structured* `Resume_details` + job title + JD to GPT‑5.2 and stores:
+  - `chrome.storage.local.tailored_resume_details`
+  - `chrome.storage.local.tailored_resume_text`
+- **Preview + download:** Preview in modal, download as **.txt** or **PDF**.
+- **Settings:**
+  - `OpenRouter API Key`
+  - `Tailor Resume Model` (selector)
+  - `Auto-Tailor Resumes` toggle (default OFF)
+- **Autofill integration:** If auto-tailor is enabled, content script will tailor once per job (best-effort cache) and prefer `tailored_resume_details` for:
+  - Skills/certifications filling
+  - AI “Answer last field” resume context
+- **Cost logging:** GPT calls append to `chrome.storage.local.audit_log`:
+  - `{ model, input_tokens, output_tokens, cost_estimate }` (plus timestamp/event)
+
+---
+
 ## 1) Inventory Alignment (Report → Current Repo)
 
 The report’s “inventory table” matches the current structure closely; below is the alignment plus gaps relevant to AI FillPlan.

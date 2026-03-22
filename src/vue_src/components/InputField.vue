@@ -1,35 +1,128 @@
 <template>
-  <div class="inputFieldDiv">
-    <h2 style="align-items: center; display: flex; gap:1rem;">{{ label }} <svg v-if="explanation"
-        @click="showExplanation" style="cursor: pointer; color: var(--accent-color);" xmlns="http://www.w3.org/2000/svg" height="24px"
-        viewBox="0 -960 960 960" width="24px" fill="currentColor">
-        <path
-          d="M478-240q21 0 35.5-14.5T528-290q0-21-14.5-35.5T478-340q-21 0-35.5 14.5T428-290q0 21 14.5 35.5T478-240Zm-36-154h74q0-33 7.5-52t42.5-52q26-26 41-49.5t15-56.5q0-56-41-86t-97-30q-57 0-92.5 30T342-618l66 26q5-18 22.5-39t53.5-21q32 0 48 17.5t16 38.5q0 20-12 37.5T506-526q-44 39-54 59t-10 73Zm38 314q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z" />
-      </svg></h2>
+  <div>
+    <div class="inputFieldDiv">
+      <h2 style="align-items: center; display: flex; gap: 1rem;">
+        {{ label }}
+        <svg
+          v-if="explanation"
+          @click="showExplanation"
+          style="cursor: pointer; color: var(--accent-color);"
+          xmlns="http://www.w3.org/2000/svg"
+          height="24px"
+          viewBox="0 -960 960 960"
+          width="24px"
+          fill="currentColor"
+        >
+          <path
+            d="M478-240q21 0 35.5-14.5T528-290q0-21-14.5-35.5T478-340q-21 0-35.5 14.5T428-290q0 21 14.5 35.5T478-240Zm-36-154h74q0-33 7.5-52t42.5-52q26-26 41-49.5t15-56.5q0-56-41-86t-97-30q-57 0-92.5 30T342-618l66 26q5-18 22.5-39t53.5-21q32 0 48 17.5t16 38.5q0 20-12 37.5T506-526q-44 39-54 59t-10 73Zm38 314q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-83 31.5-156T197-763q54-54 127-85.5T480-880q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Zm0-80q134 0 227-93t93-227q0-134-93-227t-227-93q-134 0-227 93t-93 227q0 134 93 227t227 93Zm0-320Z"
+          />
+        </svg>
+      </h2>
 
-    <input v-if="!isDropdown && !files.includes(label)" :type="hidden" :placeholder="placeHolder"
-      v-model="inputValue" @input="saveData" @focus="onFocus" @blur="onBlur" />
-    <div v-if="files.includes(label)" class="inputFieldfileHolder">
-      <input v-if="files.includes(label)" type="file" title="" value="" :placeholder="placeHolder"
-        @change="saveResume" />
-      <h2 v-if="files.includes(label)">{{ inputValue }}</h2>
+      <input
+        v-if="!isDropdown && !files.includes(label)"
+        :type="hidden"
+        :placeholder="placeHolder"
+        v-model="inputValue"
+        @input="saveData"
+        @focus="onFocus"
+        @blur="onBlur"
+      />
+
+      <div
+        v-if="files.includes(label)"
+        class="inputFieldfileHolder"
+        style="display: flex; flex-direction: column; gap: 0.55rem;"
+      >
+        <input type="file" title="" value="" :placeholder="placeHolder" @change="saveResume" />
+        <h2>{{ inputValue }}</h2>
+
+        <button v-if="label === 'Resume'" type="button" class="tailorResumeBtn" @click="openTailorModal">
+          Tailor Resume
+        </button>
+      </div>
+
+      <CustomDropdown
+        v-if="isDropdown && !files.includes(label)"
+        :class="hidden"
+        :modelValue="inputValue"
+        :options="optionsForDropdown"
+        :placeholder="`Select ${label}`"
+        :disabled="false"
+        @update:modelValue="(val) => { inputValue = val as any; dropdownPrivacy(); }"
+      />
     </div>
 
-    <CustomDropdown
-      v-if="isDropdown && !files.includes(label)"
-      :class="hidden"
-      :modelValue="inputValue"
-      :options="optionsForDropdown"
-      :placeholder="`Select ${label}`"
-      :disabled="false"
-      @update:modelValue="(val) => { inputValue = val as any; dropdownPrivacy(); }"
-    />
+    <!-- Tailor Resume Modal -->
+    <div v-if="label === 'Resume' && showTailorModal" class="modalOverlay" role="dialog" aria-modal="true">
+      <div class="modalCard tailorModalCard">
+        <button class="modalCloseBtn" @click="closeTailorModal" aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -960 960 960">
+            <path
+              d="m256-200-56-56 224-224-224-224 56-56 224 224 224-224 56 56-224 224 224 224-56 56-224-224-224 224Z"
+            />
+          </svg>
+        </button>
 
+        <div class="modalHeader">
+          <h1 class="modalHeaderTitle">Tailor resume to current job</h1>
+        </div>
+
+        <div class="modalBody">
+          <div class="inputFieldDiv">
+            <h2>Job Title</h2>
+            <input v-model="tailorJobTitle" placeholder="Software Engineer" />
+          </div>
+
+          <div class="textAreaDiv" style="align-items: flex-start;">
+            <h2>Job Description</h2>
+            <textarea
+              v-model="tailorJobDescription"
+              placeholder="Paste the job description (or click Extract from page)"
+              style="height: 8.5rem; resize: vertical;"
+            />
+          </div>
+
+          <div class="tailorRow">
+            <button type="button" class="tailorSecondaryBtn" @click="extractJobContext" :disabled="tailoring">
+              Extract from page
+            </button>
+            <button type="button" class="tailorPrimaryBtn" @click="runTailor" :disabled="tailoring">
+              {{ tailoring ? 'Tailoring…' : 'Generate tailored resume' }}
+            </button>
+          </div>
+
+          <p v-if="tailorStatus" class="tailorStatus">{{ tailorStatus }}</p>
+          <p v-if="tailorError" class="tailorError">{{ tailorError }}</p>
+
+          <div v-if="tailoredResumeText">
+            <div class="textAreaDiv" style="align-items: flex-start;">
+              <h2>Preview</h2>
+              <textarea :value="tailoredResumeText" readonly style="height: 13rem; resize: vertical;" />
+            </div>
+
+            <div class="tailorRow">
+              <button type="button" class="tailorSecondaryBtn" @click="downloadTailoredTxt">
+                Download .txt
+              </button>
+              <button type="button" class="tailorSecondaryBtn" @click="downloadTailoredPdf">
+                Download PDF
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modalFooter">
+          <button class="modalSaveBtn" @click="closeTailorModal">Done</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script lang="ts">
 import { computed, ref, watch } from 'vue';
+import { jsPDF } from 'jspdf';
 import CustomDropdown from '@/components/CustomDropdown.vue';
 import { usePrivacy } from '@/composables/Privacy';
 import { useExplanation } from '@/composables/Explanation.ts';
@@ -364,6 +457,310 @@ export default {
         });
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Resume tailoring (Popup) — GPT-5.2 via OpenRouter
+    // ─────────────────────────────────────────────────────────────────────
+
+    const showTailorModal = ref(false);
+    const tailorJobTitle = ref('');
+    const tailorJobDescription = ref('');
+    const tailoredResumeText = ref('');
+    const tailoredResumeDetails = ref<any>(null);
+    const tailoring = ref(false);
+    const tailorStatus = ref('');
+    const tailorError = ref('');
+
+    const storageSyncGet = (keys: any) =>
+      new Promise<any>((resolve) => {
+        try {
+          chrome.storage.sync.get(keys, (res) => resolve(res || {}));
+        } catch (e) {
+          resolve({});
+        }
+      });
+
+    const storageLocalGet = (keys: any) =>
+      new Promise<any>((resolve) => {
+        try {
+          chrome.storage.local.get(keys, (res) => resolve(res || {}));
+        } catch (e) {
+          resolve({});
+        }
+      });
+
+    const storageLocalSet = (obj: any) =>
+      new Promise<boolean>((resolve) => {
+        try {
+          chrome.storage.local.set(obj, () => resolve(true));
+        } catch (e) {
+          resolve(false);
+        }
+      });
+
+    const estimateCostUsd = (tokensIn: number, tokensOut: number) => {
+      const inTok = Number.isFinite(tokensIn) && tokensIn > 0 ? tokensIn : 0;
+      const outTok = Number.isFinite(tokensOut) && tokensOut > 0 ? tokensOut : 0;
+      // Best-effort estimate (USD per 1M tokens)
+      const USD_PER_1M_IN = 5.0;
+      const USD_PER_1M_OUT = 15.0;
+      const usd = (inTok * USD_PER_1M_IN + outTok * USD_PER_1M_OUT) / 1_000_000;
+      return Math.round(usd * 1_000_000) / 1_000_000;
+    };
+
+    const appendAuditLog = async (entry: any) => {
+      try {
+        const got = await storageLocalGet(['audit_log']);
+        const cur = Array.isArray(got.audit_log) ? got.audit_log : [];
+        const next = cur.concat([entry]).slice(-1000);
+        await storageLocalSet({ audit_log: next });
+      } catch (e) {
+        console.warn('Failed to append audit_log', e);
+      }
+    };
+
+    const closeTailorModal = () => {
+      showTailorModal.value = false;
+    };
+
+    const extractJobContext = async () => {
+      tailorError.value = '';
+      try {
+        const resp: any = await new Promise((resolve) => {
+          try {
+            chrome.runtime.sendMessage({ action: 'EXTRACT_JOB_CONTEXT' }, (r) => resolve(r));
+          } catch (e) {
+            resolve({ ok: false, error: String((e as any)?.message || e) });
+          }
+        });
+
+        if (resp?.ok === false) {
+          tailorStatus.value = '';
+          tailorError.value = resp?.error || resp?.reason || 'Failed to extract job context.';
+          return;
+        }
+
+        const jt = String(resp?.jobTitle || '').trim();
+        const jd = String(resp?.jobDescription || '').trim();
+
+        // Only fill if user hasn't started typing.
+        if (jt && !tailorJobTitle.value.trim()) tailorJobTitle.value = jt;
+        if (jd && !tailorJobDescription.value.trim()) tailorJobDescription.value = jd;
+
+        tailorStatus.value = jt || jd ? 'Extracted job context from page.' : 'Could not detect job description; paste it manually.';
+      } catch (e) {
+        tailorStatus.value = '';
+        tailorError.value = String((e as any)?.message || e);
+      }
+    };
+
+    const openTailorModal = async () => {
+      if (props.label !== 'Resume') return;
+      showTailorModal.value = true;
+      tailorStatus.value = '';
+      tailorError.value = '';
+      tailoredResumeText.value = '';
+      tailoredResumeDetails.value = null;
+
+      await extractJobContext();
+    };
+
+    const runTailor = async () => {
+      if (tailoring.value) return;
+
+      tailorError.value = '';
+      tailorStatus.value = '';
+      tailoring.value = true;
+
+      try {
+        const sync = await storageSyncGet(['OpenRouter API Key', 'Tailor Resume Model']);
+        const apiKey = String(sync?.['OpenRouter API Key'] || '').trim();
+        const model = String(sync?.['Tailor Resume Model'] || 'openai/gpt-5.2').trim();
+
+        if (!apiKey) {
+          throw new Error('Missing OpenRouter API Key (Settings → Resume Tailoring).');
+        }
+
+        const local = await storageLocalGet(['Resume_details']);
+        let resumeDetails: any = local?.Resume_details;
+        if (!resumeDetails) {
+          throw new Error('Missing Resume_details. Upload your resume first so Exempliphai can parse it.');
+        }
+        if (typeof resumeDetails === 'string') {
+          try {
+            resumeDetails = JSON.parse(resumeDetails);
+          } catch (_) {
+            // keep as string
+          }
+        }
+
+        const jobTitle = String(tailorJobTitle.value || '').trim();
+        const jobDescription = String(tailorJobDescription.value || '').trim();
+
+        if (!jobDescription) {
+          const ok = confirm('No job description detected/pasted. Tailor anyway (generic)?');
+          if (!ok) return;
+        }
+
+        // Prompt (kept in sync with contentScripts/providers/gpt52.js)
+        const systemPrompt = `You are an expert resume writer.\n\nTask: surgically revise a resume to align with a specific job posting.\n\nHard rules:\n- Do NOT fabricate employers, titles, dates, degrees, certifications, skills, or metrics.\n- Preserve all factual info exactly (job titles, employers, durations). You may re-order and rephrase bullets.\n- Incorporate job-description keywords ONLY when truthful for the candidate.\n- Quantify achievements ONLY if existing resume data implies a metric; otherwise use qualitative impact language.\n- Trim to 1-page density: aim for 400–600 words.\n- Return ONLY valid JSON matching the schema in the user message. No markdown, no commentary.`;
+
+        const userPrompt = `Revise the candidate resume data to better match the target role.\n\nTarget job title: ${jobTitle || '(unknown)'}\n\nJob description (may be partial):\n${jobDescription || '(none provided)'}\n\nCandidate resume data (source of truth):\n${typeof resumeDetails === 'string' ? resumeDetails : JSON.stringify(resumeDetails ?? {}, null, 2)}\n\nReturn ONLY a JSON object with this exact structure:\n{\n  \"tailored_resume_text\": \"...\",\n  \"tailored_resume_details\": {\n    \"skills\": [\"...\"],\n    \"experiences\": [\n      {\n        \"jobTitle\": \"...\",\n        \"jobEmployer\": \"...\",\n        \"jobDuration\": \"...\",\n        \"isCurrentEmployer\": true,\n        \"roleBulletsString\": \"• bullet1\\n• bullet2\\n...\"\n      }\n    ],\n    \"certifications\": [\n      {\n        \"name\": \"...\",\n        \"issuer\": \"...\",\n        \"issueDate\": \"...\",\n        \"expirationDate\": \"...\",\n        \"credentialId\": \"...\",\n        \"url\": \"...\"\n      }\n    ]\n  },\n  \"keywordsAdded\": [\"...\"],\n  \"changesDescription\": \"...\"\n}\n\nImportant:\n- Keep every experience entry. Do not delete roles.\n- Do not change jobTitle/jobEmployer/jobDuration/isCurrentEmployer values.\n- You MAY edit roleBulletsString to be more relevant, concise, and impact-focused.\n- Skills: reorder + adjust wording (no inventions).`;
+
+        // Cost guardrail (rough estimate)
+        try {
+          const approxIn = Math.ceil((systemPrompt.length + userPrompt.length) / 4);
+          const approxOut = 1200;
+          const approxCost = estimateCostUsd(approxIn, approxOut);
+          const THRESHOLD_USD = 0.5;
+          if (approxCost > THRESHOLD_USD) {
+            const ok = confirm(`This request may be expensive (est. $${approxCost.toFixed(2)}). Continue?`);
+            if (!ok) return;
+          }
+        } catch (_) {}
+
+        tailorStatus.value = 'Calling model…';
+
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+            'HTTP-Referer': 'https://exempliphai.app',
+            'X-Title': 'Exempliphai Resume Tailor',
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: userPrompt },
+            ],
+            temperature: 0.2,
+            max_tokens: 2400,
+          }),
+        });
+
+        const json = await res.json().catch(() => ({} as any));
+        if (!res.ok || (json as any)?.error) {
+          throw new Error((json as any)?.error?.message || `OpenRouter HTTP ${res.status}`);
+        }
+
+        const content = String((json as any)?.choices?.[0]?.message?.content || '').trim();
+        if (!content) throw new Error('Model response missing content');
+
+        const first = content.indexOf('{');
+        const last = content.lastIndexOf('}');
+        const jsonText = first >= 0 && last > first ? content.slice(first, last + 1) : content;
+
+        let parsed: any;
+        try {
+          parsed = JSON.parse(jsonText);
+        } catch (e) {
+          throw new Error('Failed to parse JSON from model response.');
+        }
+
+        const details = parsed?.tailored_resume_details && typeof parsed.tailored_resume_details === 'object'
+          ? parsed.tailored_resume_details
+          : parsed;
+
+        const tailoredText = String(parsed?.tailored_resume_text || '').trim();
+
+        if (!details || typeof details !== 'object') {
+          throw new Error('Tailored output missing tailored_resume_details.');
+        }
+
+        tailoredResumeDetails.value = details;
+        tailoredResumeText.value = tailoredText;
+
+        const tokensIn = Number((json as any)?.usage?.prompt_tokens || 0);
+        const tokensOut = Number((json as any)?.usage?.completion_tokens || 0);
+        const cost = estimateCostUsd(tokensIn, tokensOut);
+
+        await storageLocalSet({
+          tailored_resume_details: details,
+          tailored_resume_text: tailoredText,
+          tailored_resume_meta: {
+            jobTitle,
+            pageUrl: (json as any)?.pageUrl || '',
+            model,
+            generatedAt: new Date().toISOString(),
+          },
+          tailored_resume_changes: String(parsed?.changesDescription || '').slice(0, 2000),
+          tailored_resume_keywordsAdded: Array.isArray(parsed?.keywordsAdded) ? parsed.keywordsAdded.slice(0, 80) : [],
+        });
+
+        await appendAuditLog({
+          ts: new Date().toISOString(),
+          event: 'tailor_resume_manual',
+          model,
+          input_tokens: tokensIn,
+          output_tokens: tokensOut,
+          cost_estimate: cost,
+        });
+
+        tailorStatus.value = `Saved tailored resume. Tokens: ${tokensIn} in / ${tokensOut} out. Est. cost: $${cost.toFixed(4)}.`;
+
+        // Ensure other UI (resume details chips) can refresh if needed.
+        try {
+          loadDetails();
+        } catch (_) {}
+      } catch (e) {
+        tailorError.value = String((e as any)?.message || e);
+        tailorStatus.value = '';
+      } finally {
+        tailoring.value = false;
+      }
+    };
+
+    const downloadTailoredTxt = () => {
+      try {
+        const text = String(tailoredResumeText.value || '').trim();
+        if (!text) return;
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'tailored_resume.txt';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        console.warn('Download txt failed', e);
+      }
+    };
+
+    const downloadTailoredPdf = () => {
+      try {
+        const text = String(tailoredResumeText.value || '').trim();
+        if (!text) return;
+
+        const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+        const pageW = doc.internal.pageSize.getWidth();
+        const pageH = doc.internal.pageSize.getHeight();
+        const margin = 44;
+        const maxW = pageW - margin * 2;
+
+        doc.setFont('times', 'normal');
+        doc.setFontSize(11);
+
+        const lines = doc.splitTextToSize(text, maxW);
+        let y = margin;
+
+        for (const line of lines) {
+          if (y > pageH - margin) {
+            doc.addPage();
+            y = margin;
+          }
+          doc.text(line, margin, y);
+          y += 14;
+        }
+
+        doc.save('tailored_resume.pdf');
+      } catch (e) {
+        console.warn('Download pdf failed', e);
+      }
+    };
+
     return {
       inputValue,
       isDropdown,
@@ -374,8 +771,94 @@ export default {
       onFocus,
       onBlur,
       dropdownPrivacy,
-      showExplanation
+      showExplanation,
+
+      // Tailor resume UI
+      showTailorModal,
+      tailorJobTitle,
+      tailorJobDescription,
+      tailoredResumeText,
+      tailoring,
+      tailorStatus,
+      tailorError,
+      openTailorModal,
+      closeTailorModal,
+      extractJobContext,
+      runTailor,
+      downloadTailoredTxt,
+      downloadTailoredPdf,
     };
   },
 };
 </script>
+
+<style scoped>
+.tailorResumeBtn {
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 55%, var(--card-border));
+  background: color-mix(in srgb, var(--accent-color) 12%, var(--input-bg));
+  color: var(--text-primary);
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.tailorResumeBtn:hover {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+
+.tailorModalCard {
+  max-width: 980px;
+}
+
+.tailorRow {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 0.35rem 0;
+}
+
+.tailorPrimaryBtn,
+.tailorSecondaryBtn {
+  flex: 1 1 240px;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.tailorPrimaryBtn {
+  background: var(--gradient-primary);
+  color: #fff;
+  box-shadow: 0 18px 35px rgba(102, 126, 234, 0.25);
+}
+
+.tailorSecondaryBtn {
+  background: color-mix(in srgb, var(--bg-primary) 85%, #fff);
+  border: 1px solid var(--card-border);
+  color: var(--text-primary);
+}
+
+.tailorPrimaryBtn:disabled,
+.tailorSecondaryBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.tailorStatus {
+  margin-top: 0.5rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.tailorError {
+  margin-top: 0.5rem;
+  color: #ef4444;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+</style>

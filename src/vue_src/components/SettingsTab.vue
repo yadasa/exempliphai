@@ -48,6 +48,33 @@
             Wait this long after the page loads before starting autofill. Helpful for slower sites.
         </p>
 
+        <h2 class="subheading">Resume Tailoring</h2>
+        <InputField
+            label="OpenRouter API Key"
+            explanation="Used for GPT-5.2 resume tailoring via OpenRouter."
+            placeHolder="sk-or-v1..."
+        />
+        <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
+            <a href="https://openrouter.ai/keys" target="_blank" style="color: var(--accent-color); text-decoration: none;">Get an OpenRouter key</a>
+        </p>
+
+        <InputField
+            label="Tailor Resume Model"
+            explanation="Model used when tailoring your resume."
+            :placeHolder="['openai/gpt-5.2', 'openai/gpt-5.2-mini', 'openai/gpt-4.1', 'anthropic/claude-sonnet-4']"
+        />
+
+        <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0;">
+            <label class="switch">
+                <input type="checkbox" v-model="autoTailorResumes" @change="toggleAutoTailor" />
+                <span class="slider round"></span>
+            </label>
+            <span>Auto-Tailor Resumes</span>
+        </div>
+        <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+            When enabled, Exempliphai will tailor your saved resume details to the job description on the current page before autofilling.
+        </p>
+
 
         <h2 class="subheading">List Mode (Batch Apply)</h2>
         <div class="action-card" style="margin-bottom: 1rem;">
@@ -341,6 +368,7 @@ export default {
         const cloudSyncEnabled = ref(false);
         const aiMappingEnabled = ref(false);
         const autoSubmitEnabled = ref(false);
+        const autoTailorResumes = ref(false);
         const listModeEnabled = ref(false);
         const closePreviousTabs = ref(false);
 
@@ -437,11 +465,12 @@ export default {
         const loadSettings = async () => {
             if (!chrome?.storage) return;
             chrome.storage.sync.get(
-                ['cloudSyncEnabled', 'aiMappingEnabled', 'autoSubmitEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
+                ['cloudSyncEnabled', 'aiMappingEnabled', 'autoSubmitEnabled', 'autoTailorResumes', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
                 (result) => {
                     cloudSyncEnabled.value = !!(result as any).cloudSyncEnabled;
                     aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
                     autoSubmitEnabled.value = !!(result as any).autoSubmitEnabled;
+                    autoTailorResumes.value = !!(result as any).autoTailorResumes;
                     listModeEnabled.value = !!(result as any).listModeEnabled;
                     closePreviousTabs.value = !!(result as any).closePreviousTabs;
                     autofillDelayMs.value = normalizeAutofillDelayMs((result as any).autofillDelayMs);
@@ -487,6 +516,12 @@ export default {
             });
         };
 
+        const toggleAutoTailor = () => {
+            chrome.storage.sync.set({ autoTailorResumes: autoTailorResumes.value }, () => {
+                console.log("Auto-tailor toggled:", autoTailorResumes.value);
+            });
+        };
+
         const toggleClosePreviousTabs = () => {
             chrome.storage.sync.set({ closePreviousTabs: closePreviousTabs.value }, () => {
                 console.log("Close previous tabs toggled:", closePreviousTabs.value);
@@ -525,9 +560,10 @@ export default {
             const syncData = (await new Promise((resolve) => chrome.storage.sync.get(null, (res) => resolve(res || {})))) as any;
             const localData = await new Promise((resolve) => chrome.storage.local.get(null, (res) => resolve(res || {})));
 
-            // Security: Don't export the API Key
+            // Security: Don't export API keys
             if (syncData && typeof syncData === 'object') {
                 delete syncData['API Key'];
+                delete syncData['OpenRouter API Key'];
             }
 
             const exportObj = {
@@ -647,6 +683,9 @@ export default {
                 if (changes?.autoSubmitEnabled) {
                     autoSubmitEnabled.value = !!changes.autoSubmitEnabled.newValue;
                 }
+                if (changes?.autoTailorResumes) {
+                    autoTailorResumes.value = !!changes.autoTailorResumes.newValue;
+                }
                 if (changes?.listModeEnabled) {
                     listModeEnabled.value = !!changes.listModeEnabled.newValue;
                 }
@@ -695,6 +734,9 @@ export default {
             toggleAiMapping,
             autoSubmitEnabled,
             toggleAutoSubmit,
+
+            autoTailorResumes,
+            toggleAutoTailor,
 
             autofillDelayMs,
             saveAutofillDelay,

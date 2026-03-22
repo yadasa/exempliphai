@@ -134,7 +134,18 @@
     const obj = syncObj && typeof syncObj === 'object' ? syncObj : {};
     const keys = Object.keys(obj);
 
-    const blocked = new Set(['API Key']);
+    const blocked = new Set([
+      'API Key',
+      'OpenRouter API Key',
+      'Tailor Resume Model',
+      'autoTailorResumes',
+      'aiMappingEnabled',
+      'autoSubmitEnabled',
+      'cloudSyncEnabled',
+      'listModeEnabled',
+      'closePreviousTabs',
+      'autofillDelayMs',
+    ]);
     return keys
       .filter((k) => !blocked.has(k))
       .filter((k) => typeof k === 'string' && k.trim().length > 0)

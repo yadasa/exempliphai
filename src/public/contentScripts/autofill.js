@@ -111,6 +111,55 @@ function _saAppendAiUsageLog(entry) {
   return _saAiUsageLogQueue;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GPT audit log (resume tailoring)
+//
+// Stored locally at chrome.storage.local.audit_log (rolling, last 1000 entries)
+// Shape requirement:
+//   { model, input_tokens, output_tokens, cost_estimate }
+// We include a timestamp and event type for debugging.
+// ─────────────────────────────────────────────────────────────────────────────
+
+let _saAuditLogQueue = Promise.resolve();
+
+// Pricing estimates (USD per 1M tokens) — best-effort placeholders.
+// If OpenRouter pricing differs, this is only a rough estimate.
+const _SA_GPT52_USD_PER_1M_INPUT = 5.0;
+const _SA_GPT52_USD_PER_1M_OUTPUT = 15.0;
+
+function _saEstimateGptCostUsd(tokensIn, tokensOut) {
+  try {
+    const tin = Number(tokensIn);
+    const tout = Number(tokensOut);
+    const inTok = Number.isFinite(tin) && tin > 0 ? tin : 0;
+    const outTok = Number.isFinite(tout) && tout > 0 ? tout : 0;
+    const usd = (inTok * _SA_GPT52_USD_PER_1M_INPUT + outTok * _SA_GPT52_USD_PER_1M_OUTPUT) / 1_000_000;
+    return Math.round(usd * 1_000_000) / 1_000_000; // 6 decimals
+  } catch (_) {
+    return 0;
+  }
+}
+
+function _saAppendAuditLog(entry) {
+  _saAuditLogQueue = _saAuditLogQueue
+    .then(async () => {
+      try {
+        if (!entry || !chrome?.storage?.local) return;
+        const res = await new Promise((resolve) => chrome.storage.local.get(['audit_log'], (r) => resolve(r || {})));
+        const cur = Array.isArray(res.audit_log) ? res.audit_log : [];
+        const next = cur.concat([entry]).slice(-1000);
+        await new Promise((resolve) => chrome.storage.local.set({ audit_log: next }, () => resolve(true)));
+      } catch (e) {
+        console.warn('SmartApply: failed to write audit_log', e);
+      }
+    })
+    .catch((e) => {
+      console.warn('SmartApply: audit_log queue failed', e);
+    });
+
+  return _saAuditLogQueue;
+}
+
 function _saIsAiFillableElement(el) {
   try {
     if (!el || !el.tagName) return false;
@@ -252,6 +301,94 @@ function _saGetJobTitleForAi(opts = {}) {
     if (guessed) return guessed;
   } catch (_) {}
   return '';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Job context extraction (for resume tailoring)
+//
+// Returned text is best-effort and intentionally bounded.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _saCleanJobDescription(raw) {
+  try {
+    let t = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+
+    // Drop extremely long tails (privacy + cost control)
+    if (t.length > 12000) t = t.slice(0, 12000);
+
+    // Remove common boilerplate headings without nuking content.
+    t = t.replace(/Equal Opportunity Employer[\s\S]*$/i, (m) => (m.length > 600 ? '' : m));
+
+    return t.trim();
+  } catch (_) {
+    return '';
+  }
+}
+
+function _saTextFromEl(el) {
+  try {
+    if (!el) return '';
+    const txt = el.innerText || el.textContent || '';
+    return _saCleanJobDescription(txt);
+  } catch (_) {
+    return '';
+  }
+}
+
+function _saExtractJobDescriptionFromPage() {
+  try {
+    const selectors = [
+      '#job_description',
+      '#job-description',
+      '.job__description',
+      '.job-description',
+      '.posting',
+      '.description',
+      '[data-qa="job-description"]',
+      '[class*="jobDescription" i]',
+      'main',
+    ];
+
+    const candidates = [];
+
+    for (const sel of selectors) {
+      const els = Array.from(document.querySelectorAll(sel) || []);
+      for (const el of els) {
+        // Avoid pulling the application form itself.
+        if (el.closest && el.closest('form')) continue;
+        const t = _saTextFromEl(el);
+        if (t && t.length >= 180) candidates.push({ sel, el, text: t });
+      }
+    }
+
+    // Meta description fallback
+    try {
+      const meta = document.querySelector('meta[name="description"], meta[property="og:description"], meta[name="twitter:description"]');
+      const mt = _saCleanJobDescription(meta?.getAttribute?.('content'));
+      if (mt && mt.length >= 180) candidates.push({ sel: 'meta', el: null, text: mt });
+    } catch (_) {}
+
+    if (!candidates.length) return '';
+
+    // Choose the longest reasonable candidate.
+    candidates.sort((a, b) => (b.text.length || 0) - (a.text.length || 0));
+    const best = candidates[0];
+    return best?.text || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function _saExtractJobContextFromPage() {
+  try {
+    const jobTitle = _saGuessJobTitleFromPage() || '';
+    const jobDescription = _saExtractJobDescriptionFromPage() || '';
+    const pageUrl = String(window.location?.href || '');
+    return { jobTitle, jobDescription, pageUrl };
+  } catch (_) {
+    return { jobTitle: '', jobDescription: '', pageUrl: '' };
+  }
 }
 
 function _saDropdownTargetElement(rawEl) {
@@ -547,8 +684,12 @@ async function _saGenerateAiAnswer(element, opts = {}) {
       return;
     }
 
-    const localData = await getStorageDataLocal(["Resume", "LinkedIn PDF", "Resume_details"]);
-    const resumeDetails = localData.Resume_details || {};
+    const localData = await getStorageDataLocal(["Resume", "LinkedIn PDF", "Resume_details", "tailored_resume_details", "tailored_resume_meta"]);
+    const resumeDetails =
+      globalThis.__SmartApplyResumeDetailsForFill ||
+      _saParseMaybeJson(localData?.tailored_resume_details) ||
+      _saParseMaybeJson(localData?.Resume_details) ||
+      {};
     const resumeBase64 = localData.Resume;
     const linkedinBase64 = localData["LinkedIn PDF"];
 
@@ -595,12 +736,23 @@ async function _saGenerateAiAnswer(element, opts = {}) {
         if (Array.isArray(d.experiences) && d.experiences.length) {
           out.experiences = d.experiences.slice(0, 6).map((x) => {
             const e = x && typeof x === 'object' ? x : {};
+            const bulletLines = String(e.roleBulletsString || '')
+              .split('\n')
+              .map((s) => String(s || '').trim())
+              .filter(Boolean)
+              .slice(0, 3);
+
             return {
-              title: e.title || e.role || e.position || undefined,
-              company: e.company || e.employer || undefined,
+              title: e.jobTitle || e.title || e.role || e.position || undefined,
+              company: e.jobEmployer || e.company || e.employer || undefined,
+              duration: e.jobDuration || undefined,
               start: e.start || e.start_date || e.startDate || undefined,
               end: e.end || e.end_date || e.endDate || undefined,
-              highlights: Array.isArray(e.highlights) ? e.highlights.slice(0, 3) : undefined,
+              highlights: bulletLines.length
+                ? bulletLines
+                : Array.isArray(e.highlights)
+                  ? e.highlights.slice(0, 3)
+                  : undefined,
             };
           });
         }
@@ -1087,6 +1239,38 @@ function _saInstallAiAnswerHandlers() {
 // Install immediately as well as on window load (idempotent).
 try {
   _saInstallAiAnswerHandlers();
+} catch (_) {}
+
+// Job context extraction IPC (background/popup → content script)
+let _saJobContextListenerInstalled = false;
+try {
+  if (!_saJobContextListenerInstalled && chrome?.runtime?.onMessage?.addListener) {
+    _saJobContextListenerInstalled = true;
+    chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+      try {
+        if (request?.action !== 'SMARTAPPLY_EXTRACT_JOB_CONTEXT') return;
+        // Only respond from top frame.
+        try {
+          if (window.top !== window) return;
+        } catch (_) {
+          // If cross-origin, still avoid responding from iframes.
+          return;
+        }
+
+        const ctx = _saExtractJobContextFromPage();
+        sendResponse({
+          jobTitle: ctx.jobTitle || '',
+          jobDescription: ctx.jobDescription || '',
+          pageUrl: ctx.pageUrl || '',
+        });
+      } catch (e) {
+        sendResponse({ jobTitle: '', jobDescription: '', pageUrl: '', error: String(e?.message || e) });
+      }
+
+      // Async not needed.
+      return;
+    });
+  }
 } catch (_) {}
 
 window.addEventListener("load", async (_) => {
@@ -3681,11 +3865,212 @@ async function awaitForm() {
   });
 }
 
+let _saTailorDepsLoaded = false;
+
+async function _saEnsureTailorDepsLoaded() {
+  if (_saTailorDepsLoaded) return true;
+  try {
+    if (globalThis.__exempliphaiProviders?.gpt52?.tailorResume) {
+      _saTailorDepsLoaded = true;
+      return true;
+    }
+  } catch (_) {}
+
+  if (!chrome?.runtime?.getURL) return false;
+
+  try {
+    await import(chrome.runtime.getURL('contentScripts/providers/gpt52.js'));
+    _saTailorDepsLoaded = !!globalThis.__exempliphaiProviders?.gpt52?.tailorResume;
+    return _saTailorDepsLoaded;
+  } catch (e) {
+    console.warn('SmartApply: failed to load GPT-5.2 provider', e);
+    return false;
+  }
+}
+
+function _saParseMaybeJson(val) {
+  try {
+    if (val == null) return null;
+    if (typeof val === 'string') {
+      const s = val.trim();
+      if (!s) return null;
+      return JSON.parse(s);
+    }
+    if (typeof val === 'object') return val;
+  } catch (_) {}
+  return null;
+}
+
+function _saTailorSignature({ jobTitle = '', jobDescription = '', resumeDetails = null } = {}) {
+  try {
+    const t = String(jobTitle || '').trim().toLowerCase().slice(0, 120);
+    const jd = String(jobDescription || '').trim();
+    const jdHead = jd.slice(0, 900).toLowerCase();
+    const jdLen = jd.length;
+    const rLen = resumeDetails ? JSON.stringify(resumeDetails).length : 0;
+    return `${t}::${jdLen}::${jdHead}::${rLen}`;
+  } catch (_) {
+    return '';
+  }
+}
+
+async function _saMaybeAutoTailorResume(syncObj) {
+  try {
+    const enabled = syncObj?.autoTailorResumes === true;
+    if (!enabled) return { ok: true, skipped: true, reason: 'disabled' };
+
+    const apiKey =
+      syncObj?.['OpenRouter API Key'] ||
+      syncObj?.openRouterApiKey ||
+      syncObj?.openrouterApiKey ||
+      '';
+
+    const model = String(syncObj?.['Tailor Resume Model'] || syncObj?.tailorResumeModel || 'openai/gpt-5.2').trim();
+
+    if (!apiKey) {
+      _saShowToast('Auto-tailor: set OpenRouter API Key in settings.', { timeoutMs: 2500 });
+      return { ok: false, skipped: true, reason: 'missing_api_key' };
+    }
+
+    const local = await getStorageDataLocal(['Resume_details', 'tailored_resume_details', 'tailored_resume_meta']);
+    const baseDetails = _saParseMaybeJson(local?.Resume_details);
+    if (!baseDetails) return { ok: true, skipped: true, reason: 'no_resume_details' };
+
+    const ctx = _saExtractJobContextFromPage();
+    const jobTitle = String(ctx?.jobTitle || '').trim();
+    const jobDescription = String(ctx?.jobDescription || '').trim();
+
+    if (!jobDescription || jobDescription.length < 180) {
+      _saShowToast('Auto-tailor: job description not detected; skipping.', { timeoutMs: 2400 });
+      // Still use base details.
+      globalThis.__SmartApplyResumeDetailsForFill = baseDetails;
+      return { ok: true, skipped: true, reason: 'no_job_description' };
+    }
+
+    const sig = _saTailorSignature({ jobTitle, jobDescription, resumeDetails: baseDetails });
+
+    const existingMeta = _saParseMaybeJson(local?.tailored_resume_meta) || local?.tailored_resume_meta || null;
+    const existingTailored = _saParseMaybeJson(local?.tailored_resume_details);
+
+    if (existingTailored && existingMeta && existingMeta.signature === sig) {
+      globalThis.__SmartApplyResumeDetailsForFill = existingTailored;
+      return { ok: true, cached: true };
+    }
+
+    const ok = await _saEnsureTailorDepsLoaded();
+    if (!ok) {
+      _saShowToast('Auto-tailor: provider not available.', { timeoutMs: 2200 });
+      globalThis.__SmartApplyResumeDetailsForFill = baseDetails;
+      return { ok: false, skipped: true, reason: 'provider_missing' };
+    }
+
+    // Cost guardrail (auto mode: skip rather than prompt)
+    try {
+      const approxIn = Math.ceil((jobTitle.length + jobDescription.length + JSON.stringify(baseDetails).length + 2500) / 4);
+      const approxOut = 1200;
+      const approxCost = _saEstimateGptCostUsd(approxIn, approxOut);
+      const THRESHOLD_USD = 0.75;
+      if (approxCost > THRESHOLD_USD) {
+        _saShowToast('Auto-tailor: estimated cost too high; skipping.', { timeoutMs: 2600 });
+        globalThis.__SmartApplyResumeDetailsForFill = baseDetails;
+        return { ok: true, skipped: true, reason: 'cost_guard' };
+      }
+    } catch (_) {}
+
+    _saShowToast('Auto-tailor: tailoring resume…', { timeoutMs: 2000 });
+
+    const result = await globalThis.__exempliphaiProviders.gpt52.tailorResume({
+      apiKey,
+      model,
+      resumeData: baseDetails,
+      jobTitle,
+      jobDescription,
+      pageUrl: ctx?.pageUrl || '',
+      timeoutMs: 70000,
+      maxRetries: 1,
+    });
+
+    const tailoredRoot = result?.tailored || {};
+
+    // Back-compat: if the model returned the details at the top-level, accept it.
+    const toSaveDetails = tailoredRoot?.tailored_resume_details && typeof tailoredRoot.tailored_resume_details === 'object'
+      ? tailoredRoot.tailored_resume_details
+      : (tailoredRoot?.tailored_resume_details == null && tailoredRoot?.skills ? tailoredRoot : null);
+
+    if (!toSaveDetails) {
+      globalThis.__SmartApplyResumeDetailsForFill = baseDetails;
+      return { ok: false, reason: 'tailor_missing_details' };
+    }
+
+    const meta = {
+      signature: sig,
+      jobTitle,
+      pageUrl: ctx?.pageUrl || '',
+      model,
+      generatedAt: new Date().toISOString(),
+      tokensIn: result?.tokensIn || 0,
+      tokensOut: result?.tokensOut || 0,
+    };
+
+    await new Promise((resolve) =>
+      chrome.storage.local.set(
+        {
+          tailored_resume_details: toSaveDetails,
+          tailored_resume_text: String(tailoredRoot?.tailored_resume_text || '').slice(0, 20000),
+          tailored_resume_meta: meta,
+          tailored_resume_changes: String(result?.changesDescription || tailoredRoot?.changesDescription || '').slice(0, 2000),
+          tailored_resume_keywordsAdded: Array.isArray(tailoredRoot?.keywordsAdded) ? tailoredRoot.keywordsAdded.slice(0, 80) : [],
+        },
+        () => resolve(true)
+      )
+    );
+
+    globalThis.__SmartApplyResumeDetailsForFill = toSaveDetails;
+
+    // Audit log
+    try {
+      const tokensIn = Number(result?.tokensIn || 0);
+      const tokensOut = Number(result?.tokensOut || 0);
+      await _saAppendAuditLog({
+        ts: new Date().toISOString(),
+        event: 'tailor_resume_auto',
+        model,
+        input_tokens: tokensIn,
+        output_tokens: tokensOut,
+        cost_estimate: _saEstimateGptCostUsd(tokensIn, tokensOut),
+      });
+    } catch (_) {}
+
+    _saShowToast('Auto-tailor: saved tailored resume.', { timeoutMs: 2400 });
+    return { ok: true, tailored: true };
+  } catch (e) {
+    console.warn('SmartApply: auto-tailor failed', e);
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
 async function autofill(form) {
   console.log("SmartApply: Starting autofill.");
   let res = await getStorageDataSync();
   res["Current Date"] = curDateStr();
   await sleep(delays.initial);
+
+  // Preferred resume details for this run (auto-tailor + manual tailored resume)
+  try {
+    globalThis.__SmartApplyResumeDetailsForFill = null;
+
+    // If auto-tailor enabled, try to generate tailored details for the current job.
+    await _saMaybeAutoTailorResume(res);
+
+    // Fallback: if user already tailored from the popup, prefer it when auto-tailor is enabled.
+    if (!globalThis.__SmartApplyResumeDetailsForFill) {
+      const local = await getStorageDataLocal(['Resume_details', 'tailored_resume_details']);
+      const tailored = _saParseMaybeJson(local?.tailored_resume_details);
+      const base = _saParseMaybeJson(local?.Resume_details);
+      const preferTailored = res?.autoTailorResumes === true;
+      globalThis.__SmartApplyResumeDetailsForFill = (preferTailored && tailored) ? tailored : (base || tailored || null);
+    }
+  } catch (_) {}
 
   const genericExtras = fields?.generic
     ? Object.fromEntries(
@@ -4165,33 +4550,32 @@ async function processFields(jobForm, fieldMap, form, res) {
     }
 
     if (param === "Skills") {
-      let localData = await getStorageDataLocal("Resume_details");
-      if (localData && localData.Resume_details) {
-        try {
-          let details = localData.Resume_details;
-          if (typeof details === 'string') {
-            details = JSON.parse(details);
-          }
-          if (details.skills && Array.isArray(details.skills)) {
-            let fillValue = details.skills.join(", ");
-            let inputElement = inputQuery(jobParam, form);
-            if (inputElement) {
-              setNativeValue(inputElement, fillValue);
-            }
-          }
-        } catch (e) {
-          console.error("Error parsing skills from resume details:", e);
+      try {
+        let details = globalThis.__SmartApplyResumeDetailsForFill || null;
+        if (!details) {
+          const localData = await getStorageDataLocal(['Resume_details', 'tailored_resume_details']);
+          details = _saParseMaybeJson(localData?.tailored_resume_details) || _saParseMaybeJson(localData?.Resume_details) || null;
         }
+
+        if (details?.skills && Array.isArray(details.skills)) {
+          const fillValue = details.skills.join(", ");
+          const inputElement = inputQuery(jobParam, form);
+          if (inputElement) setNativeValue(inputElement, fillValue);
+        }
+      } catch (e) {
+        console.error("Error parsing skills from resume details:", e);
       }
       continue;
     }
 
     if (["Certification Name", "Issuing Organization", "Credential ID", "Credential URL", "Issue Date Month", "Expiration Date Month"].includes(param)) {
-      let localData = await getStorageDataLocal("Resume_details");
-      let certs = [];
-      if (localData && localData.Resume_details && localData.Resume_details.certifications) {
-        certs = localData.Resume_details.certifications;
+      let details = globalThis.__SmartApplyResumeDetailsForFill || null;
+      if (!details) {
+        const localData = await getStorageDataLocal(['Resume_details', 'tailored_resume_details']);
+        details = _saParseMaybeJson(localData?.tailored_resume_details) || _saParseMaybeJson(localData?.Resume_details) || null;
       }
+
+      const certs = Array.isArray(details?.certifications) ? details.certifications : [];
 
       if (certs.length > 0) {
         let cert = certs[0]; // Accessing the first certification

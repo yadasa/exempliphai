@@ -36,6 +36,22 @@ const tabsGet = (tabId) =>
 const tabsRemove = (tabId) =>
   _p((cb) => chrome.tabs.remove(tabId, cb));
 
+const tabsQuery = (queryInfo) =>
+  _p((cb) => chrome.tabs.query(queryInfo, cb));
+
+const tabsSendMessage = (tabId, message, options = {}) =>
+  new Promise((resolve, reject) => {
+    try {
+      chrome.tabs.sendMessage(tabId, message, options, (resp) => {
+        const err = chrome?.runtime?.lastError;
+        if (err) reject(new Error(err.message || String(err)));
+        else resolve(resp);
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+
 function normalizeUrl(raw) {
   const s = String(raw || '').trim();
   if (!s) return null;
@@ -406,12 +422,27 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 
   // Default settings (sync). No-op if already set.
-  chrome.storage.sync.get(['listModeEnabled', 'closePreviousTabs'], (res) => {
-    const next = {};
-    if (!res || typeof res.listModeEnabled !== 'boolean') next.listModeEnabled = false;
-    if (!res || typeof res.closePreviousTabs !== 'boolean') next.closePreviousTabs = false;
-    if (Object.keys(next).length) chrome.storage.sync.set(next);
-  });
+  chrome.storage.sync.get(
+    [
+      'listModeEnabled',
+      'closePreviousTabs',
+      'autoTailorResumes',
+      'Tailor Resume Model',
+    ],
+    (res) => {
+      const next = {};
+      if (!res || typeof res.listModeEnabled !== 'boolean') next.listModeEnabled = false;
+      if (!res || typeof res.closePreviousTabs !== 'boolean') next.closePreviousTabs = false;
+
+      // Resume tailoring defaults
+      if (!res || typeof res.autoTailorResumes !== 'boolean') next.autoTailorResumes = false;
+      if (!res || typeof res['Tailor Resume Model'] !== 'string' || !String(res['Tailor Resume Model']).trim()) {
+        next['Tailor Resume Model'] = 'openai/gpt-5.2';
+      }
+
+      if (Object.keys(next).length) chrome.storage.sync.set(next);
+    }
+  );
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
@@ -570,6 +601,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const resp = await listModeHandleAutofillResult(request, sender);
       sendResponse(resp);
       return;
+    }
+
+    // Popup → background → content script: extract job context for resume tailoring.
+    if (request?.action === 'EXTRACT_JOB_CONTEXT') {
+      try {
+        const tabs = await tabsQuery({ active: true, currentWindow: true });
+        const tabId = tabs?.[0]?.id;
+        if (!Number.isFinite(tabId)) {
+          sendResponse({ ok: false, reason: 'no_active_tab' });
+          return;
+        }
+
+        const ctx = await tabsSendMessage(
+          tabId,
+          { action: 'SMARTAPPLY_EXTRACT_JOB_CONTEXT' },
+          { frameId: 0 }
+        );
+
+        sendResponse({ ok: true, ...(ctx || {}) });
+        return;
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+        return;
+      }
     }
 
     sendResponse({ ok: false, reason: 'unknown_action' });
