@@ -830,48 +830,39 @@ ${question}`
     });
 
     const callGemini = async (parts, { temperature = 0.2 } = {}) => {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelUsed)}:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts }],
-            generationConfig: { temperature: Number.isFinite(temperature) ? temperature : 0.2 },
-          }),
-        }
-      );
-
-      const json = await response.json();
-      if (json?.error) {
-        throw new Error(json.error.message || 'Unknown API Error');
+      const provider = globalThis.__exempliphaiProviders?.gemini;
+      if (!provider?.generateContentFromParts) {
+        console.trace('SmartApply: Gemini provider missing for AI answer', {
+          hasProvider: !!provider,
+          hasGenerateContentFromParts: !!provider?.generateContentFromParts,
+        });
+        throw new Error('Gemini provider not available.');
       }
 
-      const candidate = json?.candidates?.[0];
-      const answerText = candidate?.content?.parts?.[0]?.text;
+      const r = await provider.generateContentFromParts({
+        apiKey,
+        model: modelUsed,
+        taskType,
+        parts,
+        temperature: Number.isFinite(temperature) ? temperature : 0.2,
+        timeoutMs: 25000,
+        maxRetries: 1,
+      });
+
+      const answerText = r?.text;
       if (!answerText) throw new Error('AI response missing text');
 
-      // Best-effort token/cost logging (Gemini returns usageMetadata for many models/tiers)
+      // Best-effort token/cost logging
       try {
-        const usage = json?.usageMetadata || json?.usage || {};
-        const tokensIn = Number(
-          usage.promptTokenCount ?? usage.prompt_tokens ?? usage.inputTokenCount ?? usage.input_tokens ?? 0
-        );
-        const tokensOut = Number(
-          usage.candidatesTokenCount ??
-            usage.candidates_tokens ??
-            usage.outputTokenCount ??
-            usage.output_tokens ??
-            usage.completionTokenCount ??
-            0
-        );
+        const tokensIn = Number(r?.tokensIn || 0);
+        const tokensOut = Number(r?.tokensOut || 0);
 
         const entry = {
           date: new Date().toISOString(),
           question: String(question || '').trim().slice(0, 800),
           tokensIn: Number.isFinite(tokensIn) ? tokensIn : 0,
           tokensOut: Number.isFinite(tokensOut) ? tokensOut : 0,
-          model: modelUsed,
+          model: String(r?.modelUsed || modelUsed || ''),
           taskType,
           costCents: _saEstimateGemini15FlashCostCents(tokensIn, tokensOut),
         };
@@ -3902,6 +3893,10 @@ async function _saEnsureTailorDepsLoaded() {
   } catch (_) {}
 
   // Provider is expected to be statically available (bundled / preloaded) to avoid CSP issues.
+  console.trace('SmartApply: tailor provider missing', {
+    hasProvider: !!globalThis.__exempliphaiProviders?.gemini,
+    hasTailor: !!globalThis.__exempliphaiProviders?.gemini?.tailorResume,
+  });
   return false;
 }
 

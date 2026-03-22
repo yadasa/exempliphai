@@ -272,6 +272,55 @@ function extractUsage(raw) {
   return { tokensIn, tokensOut, tokensTotal };
 }
 
+async function geminiFetchJson({ url, method = 'POST', headers, body, timeoutMs = 20000 } = {}) {
+  // Prefer background proxy when available to avoid page CSP/CORS restrictions.
+  try {
+    if (typeof chrome !== 'undefined' && chrome?.runtime?.sendMessage) {
+      const resp = await new Promise((resolve) => {
+        try {
+          chrome.runtime.sendMessage(
+            { action: 'SMARTAPPLY_GEMINI_FETCH', url, method, headers, body, timeoutMs },
+            (r) => resolve(r)
+          );
+        } catch (e) {
+          resolve({ ok: false, error: String(e?.message || e) });
+        }
+      });
+
+      const lastErr = chrome?.runtime?.lastError;
+      if (lastErr) {
+        return { ok: false, status: 0, json: null, error: lastErr.message || String(lastErr) };
+      }
+
+      if (resp?.ok) {
+        return { ok: true, status: Number(resp.status || 200), json: resp.json };
+      }
+
+      return {
+        ok: false,
+        status: Number(resp?.status || 0),
+        json: resp?.json || null,
+        error: resp?.error || 'Gemini proxy failed',
+      };
+    }
+  } catch (_) {}
+
+  const { controller, cancel } = withTimeout(timeoutMs);
+  try {
+    const res = await fetch(String(url), {
+      method,
+      headers,
+      signal: controller.signal,
+      body,
+    });
+
+    const json = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, json };
+  } finally {
+    cancel();
+  }
+}
+
 async function geminiGenerateContent({
   apiKey,
   model,
@@ -288,49 +337,102 @@ async function geminiGenerateContent({
   // to keep behavior predictable.
   const combined = `${systemPrompt}\n\n---\n\n${userPrompt}`;
 
-  const { controller, cancel } = withTimeout(timeoutMs);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: combined }],
-          },
-        ],
-        generationConfig: {
-          temperature,
-          ...(responseMimeType ? { responseMimeType } : {}),
-        },
-      }),
-    });
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: combined }],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      ...(responseMimeType ? { responseMimeType } : {}),
+    },
+  });
 
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || json?.error) {
-      const msg = json?.error?.message || `Gemini HTTP ${res.status}`;
-      const err = new Error(msg);
-      // @ts-ignore
-      err.status = res.status;
-      // @ts-ignore
-      err.details = json;
-      throw err;
-    }
+  const r = await geminiFetchJson({
+    url,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    timeoutMs,
+  });
 
-    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      const err = new Error('Gemini response missing candidate text');
-      // @ts-ignore
-      err.details = json;
-      throw err;
-    }
-    const usage = extractUsage(json);
-    return { raw: json, text, ...usage };
-  } finally {
-    cancel();
+  const json = r?.json || {};
+  if (!r.ok || json?.error) {
+    const msg = json?.error?.message || r?.error || `Gemini HTTP ${r?.status || 0}`;
+    const err = new Error(msg);
+    // @ts-ignore
+    err.status = r?.status || 0;
+    // @ts-ignore
+    err.details = json;
+    throw err;
   }
+
+  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    const err = new Error('Gemini response missing candidate text');
+    // @ts-ignore
+    err.details = json;
+    throw err;
+  }
+
+  const usage = extractUsage(json);
+  return { raw: json, text, ...usage };
+}
+
+async function geminiGenerateContentFromParts({
+  apiKey,
+  model,
+  parts,
+  timeoutMs,
+  responseMimeType,
+  temperature = 0.2,
+}) {
+  const url = `${GEMINI_API_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: 'user',
+        parts: Array.isArray(parts) ? parts : [{ text: String(parts || '') }],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      ...(responseMimeType ? { responseMimeType } : {}),
+    },
+  });
+
+  const r = await geminiFetchJson({
+    url,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    timeoutMs,
+  });
+
+  const json = r?.json || {};
+  if (!r.ok || json?.error) {
+    const msg = json?.error?.message || r?.error || `Gemini HTTP ${r?.status || 0}`;
+    const err = new Error(msg);
+    // @ts-ignore
+    err.status = r?.status || 0;
+    // @ts-ignore
+    err.details = json;
+    throw err;
+  }
+
+  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) {
+    const err = new Error('Gemini response missing candidate text');
+    // @ts-ignore
+    err.details = json;
+    throw err;
+  }
+
+  const usage = extractUsage(json);
+  return { raw: json, text, ...usage };
 }
 
 async function withRetry(fn, { maxRetries = 2 } = {}) {
@@ -529,6 +631,33 @@ async function generateNarrativeAnswer(args) {
   return p.generateNarrativeAnswer(args);
 }
 
+async function generateContentFromParts(args = {}) {
+  const apiKey = args?.apiKey;
+  if (!apiKey) throw new Error('generateContentFromParts requires apiKey');
+
+  const taskType = args?.taskType === 'deep' ? 'deep' : 'quick';
+  const modelUsed = String(args?.model || getModelForTask(taskType));
+
+  const timeoutMs = Number.isFinite(args?.timeoutMs) ? args.timeoutMs : 20000;
+  const maxRetries = Number.isFinite(args?.maxRetries) ? args.maxRetries : 1;
+  const temperature = Number.isFinite(args?.temperature) ? args.temperature : 0.2;
+
+  const result = await withRetry(
+    () =>
+      geminiGenerateContentFromParts({
+        apiKey,
+        model: modelUsed,
+        parts: Array.isArray(args?.parts) ? args.parts : [{ text: String(args?.text || '') }],
+        timeoutMs,
+        responseMimeType: args?.responseMimeType,
+        temperature,
+      }),
+    { maxRetries }
+  );
+
+  return { modelUsed, ...result };
+}
+
 async function tailorResume(args = {}) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
@@ -555,6 +684,7 @@ try {
     getModelForTask,
     mapFieldsToFillPlan,
     generateNarrativeAnswer,
+    generateContentFromParts,
     tailorResume,
     recommendJobs,
 

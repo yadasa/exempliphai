@@ -679,6 +679,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     }
 
+    // Content/Popup → background: Gemini network proxy (avoid page CSP/CORS issues).
+    if (request?.action === 'SMARTAPPLY_GEMINI_FETCH') {
+      try {
+        const url = String(request?.url || '');
+        if (!url.startsWith('https://generativelanguage.googleapis.com/v1beta/')) {
+          sendResponse({ ok: false, error: 'Blocked URL (not v1beta generativelanguage).' });
+          return;
+        }
+
+        const method = String(request?.method || 'POST').toUpperCase();
+        const headers = request?.headers && typeof request.headers === 'object' ? request.headers : {};
+        const body = typeof request?.body === 'string' ? request.body : '';
+        const timeoutMs = Number.isFinite(request?.timeoutMs) ? request.timeoutMs : 30000;
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
+
+        try {
+          const res = await fetch(url, { method, headers, body, signal: controller.signal });
+          const text = await res.text();
+
+          /** @type {any} */
+          let json = null;
+          try {
+            json = text ? JSON.parse(text) : null;
+          } catch (_) {
+            json = null;
+          }
+
+          if (!res.ok || (json && json.error)) {
+            const msg = json?.error?.message || `Gemini HTTP ${res.status}`;
+            sendResponse({ ok: false, status: res.status, error: msg, json });
+            return;
+          }
+
+          sendResponse({ ok: true, status: res.status, json });
+          return;
+        } finally {
+          clearTimeout(timer);
+        }
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+        return;
+      }
+    }
+
     sendResponse({ ok: false, reason: 'unknown_action' });
   })().catch((e) => {
     sendResponse({ ok: false, error: String(e?.message || e) });

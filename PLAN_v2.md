@@ -23,6 +23,13 @@ This repo runs in **Gemini-only mode**: all AI features call the Gemini REST API
 - **CSP-safe provider loading (MV3):** content scripts do **not** use dynamic `import()` for Gemini/validator modules.
   - `contentScripts/fillPlanValidator.classic.js` and `contentScripts/providers/gemini.classic.js` are loaded statically via `manifest.json`.
   - `web_accessible_resources` includes `contentScripts/providers/*.js` as a fallback for any legacy loads.
+- **CSP/CORS-safe Gemini calls:** content scripts do **not** `fetch()` Gemini directly from job-board pages (many ATS sites set strict `connect-src` CSP).
+  - Calls are proxied through the background service worker: `SMARTAPPLY_GEMINI_FETCH`.
+  - Enabled by `host_permissions`: `https://generativelanguage.googleapis.com/*`.
+- **Smoke tests (fixtures):**
+  - `src/test/ai.smoketest.greenhouse.autofill-tailor.test.js` verifies:
+    - AI custom answers route through the classic Gemini provider + background proxy
+    - auto-tailor uses deep model + persists `tailored_resume_details`
 - `Auto-Tailor Resumes` toggle (default OFF)
 
 ### Resume Tailoring (Gemini)
