@@ -1,6 +1,7 @@
 {
   "name": "Exempliphai",
-  "version": "1.0.0",
+  "version": "1.0.1",
+
   "manifest_version": 3,
   "description": "Autofill annoying job applications using your saved profile + resume data.",
   "action": {

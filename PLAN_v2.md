@@ -27,6 +27,7 @@ This repo runs in **Gemini-only mode**: all AI features call the Gemini REST API
 **What’s implemented (high level):**
 - **Popup UI:** A **“Tailor Resume”** button appears under the **Resume** file field.
 - **Job context extraction:** Popup calls background IPC → content script heuristics to extract:
+  - IPC path: popup `postMessage('EXTRACT_JOB_CONTEXT')` → background → tab `sendMessage('SMARTAPPLY_EXTRACT_JOB_CONTEXT')`
   - job title (H1 / meta / <title>)
   - job description (#job_description / .job__description / .job-description / main, etc)
 - **Core tailoring:** Sends *structured* `Resume_details` + job title + JD to Gemini and stores:
