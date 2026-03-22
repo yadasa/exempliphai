@@ -47,20 +47,20 @@
 const AI_PROVIDER_INTERFACE_VERSION = '0.1';
 
 // NOTE: v1beta model names are strict. These two are broadly available/stable.
-const GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash-latest';
+const GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
  * Task-based model routing (no user-configurable dropdown).
  *
  * v1beta supported/stable targets:
- * - quick → gemini-1.5-flash-latest
- * - deep  → gemini-pro
+ * - quick → gemini-1.5-flash
+ * - deep  → gemini-1.5-pro
  *
  * @param {'quick'|'deep'} taskType
  */
 function getModelForTask(taskType) {
-  return taskType === 'deep' ? 'gemini-pro' : 'gemini-1.5-flash-latest';
+  return taskType === 'deep' ? 'gemini-1.5-pro' : 'gemini-1.5-flash';
 }
 
 function sleep(ms) {

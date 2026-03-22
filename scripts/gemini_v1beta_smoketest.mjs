@@ -6,8 +6,8 @@
 // What it does:
 // 1) Lists available v1beta models (best-effort)
 // 2) Calls :generateContent on the two "stable" targets used by ExempliphAI
-//    - gemini-1.5-flash-latest (quick)
-//    - gemini-pro             (deep)
+//    - gemini-1.5-flash (quick)
+//    - gemini-1.5-pro   (deep)
 //
 // NOTE: Do not commit real API keys. This script reads from env.
 
@@ -83,7 +83,7 @@ async function generateContent(model, promptText) {
 
 await listModels();
 
-for (const model of ['gemini-1.5-flash-latest', 'gemini-pro']) {
+for (const model of ['gemini-1.5-flash', 'gemini-1.5-pro']) {
   try {
     const r = await generateContent(model, 'Reply with exactly: OK');
     console.log(`\nModel smoke test OK: ${model}`);

@@ -784,7 +784,7 @@ async function _saGenerateAiAnswer(element, opts = {}) {
 
     // Model routing: autofill answers are quick tasks → Flash.
     const taskType = 'quick';
-    let modelUsed = 'gemini-1.5-flash-latest';
+    let modelUsed = 'gemini-1.5-flash';
     try {
       const p = globalThis.__exempliphaiProviders?.gemini;
       if (typeof p?.getModelForTask === 'function') modelUsed = p.getModelForTask(taskType);
@@ -3986,7 +3986,7 @@ async function _saMaybeAutoTailorResume(syncObj) {
     _saShowToast('Auto-tailor: tailoring resume…', { timeoutMs: 2000 });
 
     const provider = globalThis.__exempliphaiProviders?.gemini;
-    const modelUsed = typeof provider?.getModelForTask === 'function' ? provider.getModelForTask('deep') : 'gemini-pro';
+    const modelUsed = typeof provider?.getModelForTask === 'function' ? provider.getModelForTask('deep') : 'gemini-1.5-pro';
 
     const result = await globalThis.__exempliphaiProviders.gemini.tailorResume({
       apiKey,

@@ -66,8 +66,8 @@ function buildVmForGreenhouseFixture(html, { hostname } = {}) {
             totalTokenCount: 30,
           };
 
-          // Deep tasks use gemini-pro; return JSON.
-          if (url.includes('/gemini-pro:generateContent')) {
+          // Deep tasks use gemini-1.5-pro; return JSON.
+          if (url.includes('/gemini-1.5-pro:generateContent')) {
             const tailored = {
               tailored_resume_text: 'TAILORED_RESUME_TEXT',
               tailored_resume_details: {

@@ -93,7 +93,7 @@
     const taskType = args?.taskType === 'deep' ? 'deep' : 'quick';
     const modelUsed = typeof provider?.getModelForTask === 'function'
       ? provider.getModelForTask(taskType)
-      : (taskType === 'deep' ? 'gemini-pro' : 'gemini-1.5-flash-latest');
+      : (taskType === 'deep' ? 'gemini-1.5-pro' : 'gemini-1.5-flash');
 
     const planRaw = await provider.mapFieldsToFillPlan({
       apiKey: args?.apiKey,
@@ -280,7 +280,7 @@
     const taskType = consents?.taskType === 'deep' ? 'deep' : 'quick';
     const modelUsed = typeof provider?.getModelForTask === 'function'
       ? provider.getModelForTask(taskType)
-      : (taskType === 'deep' ? 'gemini-pro' : 'gemini-1.5-flash-latest');
+      : (taskType === 'deep' ? 'gemini-1.5-pro' : 'gemini-1.5-flash');
 
     // If nothing to map after filtering, return an empty-but-valid plan.
     if (!unresolvedFields.length) {
@@ -346,7 +346,7 @@
 
   // Assign constants
   global.AI_PROVIDER_INTERFACE_VERSION = '0.1';
-  global.GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash-latest';
+  global.GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash';
   global.GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
   // Attach to SmartApply namespace (used by other content scripts + unit tests)
