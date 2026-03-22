@@ -784,11 +784,8 @@ async function _saGenerateAiAnswer(element, opts = {}) {
 
     // Model routing: autofill answers are quick tasks → Flash.
     const taskType = 'quick';
-    let modelUsed = 'gemini-1.5-flash';
+    let modelUsed = 'gemini-1.5-flash-latest';
     try {
-      if (!globalThis.__exempliphaiProviders?.gemini?.getModelForTask && chrome?.runtime?.getURL) {
-        await import(chrome.runtime.getURL('contentScripts/providers/gemini.js'));
-      }
       const p = globalThis.__exempliphaiProviders?.gemini;
       if (typeof p?.getModelForTask === 'function') modelUsed = p.getModelForTask(taskType);
     } catch (_) {}
@@ -3904,16 +3901,8 @@ async function _saEnsureTailorDepsLoaded() {
     }
   } catch (_) {}
 
-  if (!chrome?.runtime?.getURL) return false;
-
-  try {
-    await import(chrome.runtime.getURL('contentScripts/providers/gemini.js'));
-    _saTailorDepsLoaded = !!globalThis.__exempliphaiProviders?.gemini?.tailorResume;
-    return _saTailorDepsLoaded;
-  } catch (e) {
-    console.warn('SmartApply: failed to load Gemini provider (tailor)', e);
-    return false;
-  }
+  // Provider is expected to be statically available (bundled / preloaded) to avoid CSP issues.
+  return false;
 }
 
 function _saParseMaybeJson(val) {
@@ -4002,7 +3991,7 @@ async function _saMaybeAutoTailorResume(syncObj) {
     _saShowToast('Auto-tailor: tailoring resume…', { timeoutMs: 2000 });
 
     const provider = globalThis.__exempliphaiProviders?.gemini;
-    const modelUsed = typeof provider?.getModelForTask === 'function' ? provider.getModelForTask('deep') : 'gemini-1.5-pro';
+    const modelUsed = typeof provider?.getModelForTask === 'function' ? provider.getModelForTask('deep') : 'gemini-pro';
 
     const result = await globalThis.__exempliphaiProviders.gemini.tailorResume({
       apiKey,
@@ -4155,34 +4144,21 @@ let _smartApplyAiDepsLoaded = false;
 async function ensureAiDepsLoaded() {
   if (_smartApplyAiDepsLoaded) return true;
 
-  // If a provider is already attached (e.g., preloaded in-page or in tests),
-  // don't attempt dynamic imports.
-  if (globalThis.__exempliphaiProviders?.gemini) {
+  const hasProvider = !!globalThis.__exempliphaiProviders?.gemini;
+  const hasValidator = !!(globalThis.__exempliphaiFillPlan?.validateFillPlan || globalThis.__exempliphaiFillPlan?.validate);
+
+  // For dropdown AI fallback we only require a provider.
+  // (FillPlan validation is only needed for Tier-1 mapping; we warn but don't block.)
+  if (hasProvider) {
+    if (!hasValidator) {
+      console.warn('SmartApply: AI provider loaded but FillPlan validator missing (AI mapping may fail).');
+    }
     _smartApplyAiDepsLoaded = true;
     return true;
   }
 
-  if (!chrome?.runtime?.getURL) return false;
-
-  // Load the ESM validator + provider so they attach to globals:
-  // - __exempliphaiFillPlan
-  // - __exempliphaiProviders.gemini
-  try {
-    await import(chrome.runtime.getURL('contentScripts/fillPlanValidator.js'));
-  } catch (e) {
-    console.warn('SmartApply: Failed to load fillPlanValidator', e);
-    return false;
-  }
-
-  try {
-    await import(chrome.runtime.getURL('contentScripts/providers/gemini.js'));
-  } catch (e) {
-    console.warn('SmartApply: Failed to load gemini provider', e);
-    return false;
-  }
-
-  _smartApplyAiDepsLoaded = true;
-  return true;
+  console.warn('SmartApply: AI provider missing.', { hasProvider, hasValidator });
+  return false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -37,6 +37,8 @@
         "contentScripts/utils.js",
         "contentScripts/formSnapshot.js",
         "contentScripts/policy.js",
+        "contentScripts/fillPlanValidator.classic.js",
+        "contentScripts/providers/gemini.classic.js",
         "contentScripts/fillExecutor.js",
         "contentScripts/aiFillPlan.js",
         "contentScripts/workday.js",
@@ -61,6 +63,10 @@
   "web_accessible_resources": [
     {
       "resources": ["config/simplify_ats.json"],
+      "matches": ["<all_urls>"]
+    },
+    {
+      "resources": ["contentScripts/providers/*.js"],
       "matches": ["<all_urls>"]
     }
   ]

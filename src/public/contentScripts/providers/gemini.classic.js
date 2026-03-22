@@ -44,11 +44,11 @@
  * @property {number} [maxRetries]
  */
 
-export const AI_PROVIDER_INTERFACE_VERSION = '0.1';
+const AI_PROVIDER_INTERFACE_VERSION = '0.1';
 
 // NOTE: v1beta model names are strict. These two are broadly available/stable.
-export const GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash-latest';
-export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash-latest';
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 /**
  * Task-based model routing (no user-configurable dropdown).
@@ -59,7 +59,7 @@ export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta
  *
  * @param {'quick'|'deep'} taskType
  */
-export function getModelForTask(taskType) {
+function getModelForTask(taskType) {
   return taskType === 'deep' ? 'gemini-pro' : 'gemini-1.5-flash-latest';
 }
 
@@ -107,7 +107,7 @@ function asCleanText(x) {
   return String(x);
 }
 
-export function buildTier1MappingSystemPrompt() {
+function buildTier1MappingSystemPrompt() {
   return `You are a form-field mapping engine for a browser extension.
 
 You will receive:
@@ -153,7 +153,7 @@ Rules:
  * Build the Tier-1 user payload (as an object).
  * This should not include user PII values — only allowed profile KEYS.
  */
-export function buildTier1MappingUserPayload({
+function buildTier1MappingUserPayload({
   domain,
   allowedProfileKeys,
   unresolvedFields,
@@ -181,19 +181,19 @@ export function buildTier1MappingUserPayload({
   };
 }
 
-export function buildTier1MappingUserPrompt(args) {
+function buildTier1MappingUserPrompt(args) {
   const payload = buildTier1MappingUserPayload(args);
   return JSON.stringify(payload, null, 2);
 }
 
-export function buildTier2NarrativeSystemPrompt() {
+function buildTier2NarrativeSystemPrompt() {
   return `You write concise, professional job-application answers in first person.
 Return only the answer text.
 Do not include placeholders like [Company] or [Your Name].
 If the prompt asks for sensitive personal information, keep it minimal and consistent with provided profile data.`;
 }
 
-export function buildTier2NarrativeUserPrompt({
+function buildTier2NarrativeUserPrompt({
   questionText,
   maxWords = 180,
   tone = 'professional, direct',
@@ -231,11 +231,11 @@ function safeString(x, max = 12000) {
 // Resume tailoring (JSON)
 // ─────────────────────────────────────────────────────────────────────
 
-export function buildTailorSystemPrompt() {
+function buildTailorSystemPrompt() {
   return `You are an expert resume writer.\n\nTask: surgically revise a resume to align with a specific job posting.\n\nHard rules:\n- Do NOT fabricate employers, titles, dates, degrees, certifications, skills, or metrics.\n- Preserve all factual info exactly (job titles, employers, durations). You may re-order and rephrase bullets.\n- Incorporate job-description keywords ONLY when truthful for the candidate.\n- Quantify achievements ONLY if existing resume data implies a metric; otherwise use qualitative impact language.\n- Trim to 1-page density: aim for 400–600 words.\n- Return ONLY valid JSON matching the schema in the user message. No markdown, no commentary.`;
 }
 
-export function buildTailorUserPrompt({ resumeData, jobTitle, jobDescription, pageUrl } = {}) {
+function buildTailorUserPrompt({ resumeData, jobTitle, jobDescription, pageUrl } = {}) {
   const resume = typeof resumeData === 'string' ? resumeData : JSON.stringify(resumeData ?? {}, null, 2);
   const title = safeString(jobTitle, 200);
   const jd = safeString(jobDescription, 12000);
@@ -248,11 +248,11 @@ export function buildTailorUserPrompt({ resumeData, jobTitle, jobDescription, pa
 // Job search recommendations (JSON array)
 // ─────────────────────────────────────────────────────────────────────
 
-export function buildJobSearchSystemPrompt() {
+function buildJobSearchSystemPrompt() {
   return `You are an expert career coach and recruiter.\n\nTask: analyze an anonymized resume and recommend 10–15 target jobs.\n\nGuidelines:\n- Recommend a mix of “at-par” roles and slightly aspirational roles (a reasonable career upgrade).\n- Prefer roles the candidate can plausibly land in the next 3–12 months.\n\nPrivacy rules (critical):\n- Do NOT include any personal identifying info (name, email, phone, address, personal links).\n- Assume you only have anonymized resume content.\n\nOutput rules (critical):\n- Return ONLY valid JSON. No markdown, no commentary.\n- Output MUST be a JSON array of 10–15 objects.\n- Each object MUST match this schema exactly:\n  {\n    \"title\": string,\n    \"company_types\": string[] | string,\n    \"salary_range\": string,\n    \"locations\": string[] | string,\n    \"why_match\": string,\n    \"search_link\": string\n  }\n\nSearch link rules:\n- search_link MUST be a single https URL to a job search page on LinkedIn, Google, or Indeed.\n- Prefer LinkedIn (e.g., https://www.linkedin.com/jobs/search/?keywords=Senior%20Software%20Engineer%20React%20Remote).\n- The link should be immediately usable (URL-encoded keywords, include remote/hybrid when relevant).`;
 }
 
-export function buildJobSearchUserPrompt({ resumeData, resumeText, countMin = 10, countMax = 15 } = {}) {
+function buildJobSearchUserPrompt({ resumeData, resumeText, countMin = 10, countMax = 15 } = {}) {
   const nMin = Number.isFinite(countMin) ? countMin : 10;
   const nMax = Number.isFinite(countMax) ? countMax : 15;
 
@@ -355,7 +355,7 @@ async function withRetry(fn, { maxRetries = 2 } = {}) {
  * @param {{ apiKey: string, model?: string, timeoutMs?: number, maxRetries?: number }} cfg
  * @returns {AiProvider}
  */
-export function createGeminiProvider(cfg) {
+function createGeminiProvider(cfg) {
   const apiKey = cfg?.apiKey;
   if (!apiKey) throw new Error('Gemini provider requires apiKey');
 
@@ -511,7 +511,7 @@ export function createGeminiProvider(cfg) {
 /**
  * Convenience functions (stateless).
  */
-export async function mapFieldsToFillPlan(args) {
+async function mapFieldsToFillPlan(args) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
     timeoutMs: args?.timeoutMs,
@@ -520,7 +520,7 @@ export async function mapFieldsToFillPlan(args) {
   return p.mapFieldsToFillPlan(args);
 }
 
-export async function generateNarrativeAnswer(args) {
+async function generateNarrativeAnswer(args) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
     timeoutMs: args?.timeoutMs,
@@ -529,7 +529,7 @@ export async function generateNarrativeAnswer(args) {
   return p.generateNarrativeAnswer(args);
 }
 
-export async function tailorResume(args = {}) {
+async function tailorResume(args = {}) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
     timeoutMs: args?.timeoutMs,
@@ -538,7 +538,7 @@ export async function tailorResume(args = {}) {
   return p.tailorResume(args);
 }
 
-export async function recommendJobs(args = {}) {
+async function recommendJobs(args = {}) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
     timeoutMs: args?.timeoutMs,

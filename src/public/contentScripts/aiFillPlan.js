@@ -93,7 +93,7 @@
     const taskType = args?.taskType === 'deep' ? 'deep' : 'quick';
     const modelUsed = typeof provider?.getModelForTask === 'function'
       ? provider.getModelForTask(taskType)
-      : (taskType === 'deep' ? 'gemini-1.5-pro' : 'gemini-1.5-flash');
+      : (taskType === 'deep' ? 'gemini-pro' : 'gemini-1.5-flash-latest');
 
     const planRaw = await provider.mapFieldsToFillPlan({
       apiKey: args?.apiKey,
@@ -117,8 +117,8 @@
     }));
 
     // get validateFillPlan from global context
-    const validate = global.__exempliphaiFillPlan?.validate;
-    const v = validate ? validate(plan) : { ok: false, errors: [{path: '', message: 'validateFillPlan not found in global context'}] };
+    const validate = global.__exempliphaiFillPlan?.validateFillPlan || global.__exempliphaiFillPlan?.validate;
+    const v = validate ? validate(plan) : { ok: false, errors: [{ path: '', message: 'validateFillPlan not found in global context' }] };
 
     if (!v.ok) {
       const msg = v.errors.map((e) => `${e.path || '<root>'}: ${e.message}`).join('\n');
@@ -280,7 +280,7 @@
     const taskType = consents?.taskType === 'deep' ? 'deep' : 'quick';
     const modelUsed = typeof provider?.getModelForTask === 'function'
       ? provider.getModelForTask(taskType)
-      : (taskType === 'deep' ? 'gemini-1.5-pro' : 'gemini-1.5-flash');
+      : (taskType === 'deep' ? 'gemini-pro' : 'gemini-1.5-flash-latest');
 
     // If nothing to map after filtering, return an empty-but-valid plan.
     if (!unresolvedFields.length) {
@@ -325,7 +325,7 @@
       plan.actions = _sanitizeActions(plan.actions || [], { allowedFpsSet, allowedProfileKeysSet });
 
       // Validate after sanitization
-      const validate = global.__exempliphaiFillPlan?.validate;
+      const validate = global.__exempliphaiFillPlan?.validateFillPlan || global.__exempliphaiFillPlan?.validate;
       const v = validate ? validate(plan) : { ok: false, errors: [{ path: '', message: 'validateFillPlan not found in global context' }] };
       if (!v.ok) {
         const msg = (v.errors || []).map((e) => `${e.path || '<root>'}: ${e.message}`).join('\n');
@@ -346,7 +346,7 @@
 
   // Assign constants
   global.AI_PROVIDER_INTERFACE_VERSION = '0.1';
-  global.GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash';
+  global.GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash-latest';
   global.GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
   // Attach to SmartApply namespace (used by other content scripts + unit tests)
