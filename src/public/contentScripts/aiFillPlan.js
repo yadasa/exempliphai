@@ -136,8 +136,7 @@
 
     const blocked = new Set([
       'API Key',
-      'OpenRouter API Key',
-      'Tailor Resume Model',
+      'AI Model',
       'autoTailorResumes',
       'aiMappingEnabled',
       'autoSubmitEnabled',
@@ -238,9 +237,9 @@
       return { ok: false, actions: [], plan: null, error: _err('ai_mapping_disabled', 'AI mapping disabled') };
     }
 
-    const apiKey = consents?.apiKey;
+    const apiKey = consents?.geminiApiKey || consents?.apiKey;
     if (!apiKey) {
-      return { ok: false, actions: [], plan: null, error: _err('missing_api_key', 'Missing API key') };
+      return { ok: false, actions: [], plan: null, error: _err('missing_api_key', 'Missing Gemini API key') };
     }
 
     const domain = snapshot?.domain || global.location?.hostname || '';

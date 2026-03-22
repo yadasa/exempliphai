@@ -427,22 +427,17 @@ chrome.runtime.onInstalled.addListener(() => {
       'listModeEnabled',
       'closePreviousTabs',
       'autoTailorResumes',
-      'Tailor Resume Model',
-      'Job Search Model',
+      'AI Model',
     ],
     (res) => {
       const next = {};
       if (!res || typeof res.listModeEnabled !== 'boolean') next.listModeEnabled = false;
       if (!res || typeof res.closePreviousTabs !== 'boolean') next.closePreviousTabs = false;
 
-      // Resume tailoring defaults
+      // Defaults
       if (!res || typeof res.autoTailorResumes !== 'boolean') next.autoTailorResumes = false;
-      if (!res || typeof res['Tailor Resume Model'] !== 'string' || !String(res['Tailor Resume Model']).trim()) {
-        next['Tailor Resume Model'] = 'openai/gpt-5.2';
-      }
-
-      if (!res || typeof res['Job Search Model'] !== 'string' || !String(res['Job Search Model']).trim()) {
-        next['Job Search Model'] = 'openai/gpt-5.2';
+      if (!res || typeof res['AI Model'] !== 'string' || !String(res['AI Model']).trim()) {
+        next['AI Model'] = 'gemini-1.5-flash';
       }
 
       if (Object.keys(next).length) chrome.storage.sync.set(next);
@@ -534,6 +529,39 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     .catch(() => {});
 });
 
+// Popup Port IPC (MV3): popup → background.postMessage('EXTRACT_JOB_CONTEXT')
+chrome.runtime.onConnect.addListener((port) => {
+  try {
+    port.onMessage.addListener((msg) => {
+      (async () => {
+        try {
+          const action = typeof msg === 'string' ? msg : msg?.action;
+          if (action !== 'EXTRACT_JOB_CONTEXT') return;
+
+          const tabs = await tabsQuery({ active: true, currentWindow: true });
+          const tabId = tabs?.[0]?.id;
+          if (!Number.isFinite(tabId)) {
+            port.postMessage({ ok: false, reason: 'no_active_tab' });
+            return;
+          }
+
+          const ctx = await tabsSendMessage(
+            tabId,
+            'SMARTAPPLY_EXTRACT_JOB_CONTEXT',
+            { frameId: 0 }
+          );
+
+          port.postMessage({ ok: true, ...(ctx || {}) });
+        } catch (e) {
+          port.postMessage({ ok: false, error: String(e?.message || e) });
+        }
+      })();
+    });
+  } catch (_) {
+    // ignore
+  }
+});
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
     // Existing: store last question for AI.
@@ -620,7 +648,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         const ctx = await tabsSendMessage(
           tabId,
-          { action: 'SMARTAPPLY_EXTRACT_JOB_CONTEXT' },
+          'SMARTAPPLY_EXTRACT_JOB_CONTEXT',
           { frameId: 0 }
         );
 

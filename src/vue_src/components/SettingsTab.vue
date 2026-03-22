@@ -1,7 +1,7 @@
 <template>
     <div class="settingsTab">
         <h2 class="subheading">General</h2>
-        <InputField label="API Key" explanation="The API Key field requires a Gemini-1.5-flash api key." placeHolder="AIyKwaSyBTOk..." />
+        <InputField label="API Key" explanation="Gemini API key used for AI features." placeHolder="AIzaSy..." />
         <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
             <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--accent-color); text-decoration: none;">Get a free API Key here</a>
         </p>
@@ -48,28 +48,17 @@
             Wait this long after the page loads before starting autofill. Helpful for slower sites.
         </p>
 
-        <h2 class="subheading">Resume Tailoring</h2>
+        <h2 class="subheading">AI Settings</h2>
         <InputField
-            label="OpenRouter API Key"
-            explanation="Used for GPT-5.2 resume tailoring via OpenRouter."
-            placeHolder="sk-or-v1..."
+            label="AI Model"
+            explanation="Gemini model used for AI features (autofill mapping, right-click answers, resume tailoring, and job search)."
+            :placeHolder="['gemini-1.5-pro', 'gemini-1.5-flash']"
         />
-        <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
-            <a href="https://openrouter.ai/keys" target="_blank" style="color: var(--accent-color); text-decoration: none;">Get an OpenRouter key</a>
+        <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+            Tip: <b>Flash</b> is faster/cheaper; <b>Pro</b> is more capable for complex prompts.
         </p>
 
-        <InputField
-            label="Tailor Resume Model"
-            explanation="Model used when tailoring your resume."
-            :placeHolder="['openai/gpt-5.2', 'openai/gpt-5.2-mini', 'openai/gpt-4.1', 'anthropic/claude-sonnet-4']"
-        />
-
-        <InputField
-            label="Job Search Model"
-            explanation="Model used when generating job recommendations from your resume."
-            :placeHolder="['openai/gpt-5.2', 'openai/gpt-5.2-mini', 'openai/gpt-4.1', 'anthropic/claude-sonnet-4']"
-        />
-
+        <h2 class="subheading">Resume Tailoring</h2>
         <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0;">
             <label class="switch">
                 <input type="checkbox" v-model="autoTailorResumes" @change="toggleAutoTailor" />
@@ -569,7 +558,6 @@ export default {
             // Security: Don't export API keys
             if (syncData && typeof syncData === 'object') {
                 delete syncData['API Key'];
-                delete syncData['OpenRouter API Key'];
             }
 
             const exportObj = {

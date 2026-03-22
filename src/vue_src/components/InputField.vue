@@ -123,6 +123,7 @@
 <script lang="ts">
 import { computed, ref, watch } from 'vue';
 import { jsPDF } from 'jspdf';
+import { createGeminiProvider } from '../../public/contentScripts/providers/gemini.js';
 import CustomDropdown from '@/components/CustomDropdown.vue';
 import { usePrivacy } from '@/composables/Privacy';
 import { useExplanation } from '@/composables/Explanation.ts';
@@ -247,12 +248,12 @@ export default {
             console.log(`${props.label} saved:`, b64);
           });
 
-          chrome.storage.sync.get('API Key', (key) => {
-            key = key['API Key']
-            if (key) {
+          chrome.storage.sync.get(['API Key', 'consents'], (key) => {
+            const apiKey = String(key?.consents?.geminiApiKey || key?.['API Key'] || '').trim();
+            if (apiKey) {
               //parse resume, return skills
               fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${key}`,
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
                 {
                   method: "POST",
                   headers: {
@@ -458,7 +459,7 @@ export default {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Resume tailoring (Popup) — GPT-5.2 via OpenRouter
+    // Resume tailoring (Popup) — Gemini
     // ─────────────────────────────────────────────────────────────────────
 
     const showTailorModal = ref(false);
@@ -524,33 +525,71 @@ export default {
 
     const extractJobContext = async () => {
       tailorError.value = '';
-      try {
-        const resp: any = await new Promise((resolve) => {
+      tailorStatus.value = '';
+
+      const postToBackground = (msg: any) =>
+        new Promise<any>((resolve) => {
           try {
-            chrome.runtime.sendMessage({ action: 'EXTRACT_JOB_CONTEXT' }, (r) => resolve(r));
-          } catch (e) {
-            resolve({ ok: false, error: String((e as any)?.message || e) });
+            const port = chrome.runtime.connect({ name: 'exempliphai-popup' });
+            let done = false;
+
+            const finish = (resp: any) => {
+              if (done) return;
+              done = true;
+              try {
+                port.onMessage.removeListener(onMsg);
+              } catch (_) {}
+              try {
+                port.disconnect();
+              } catch (_) {}
+              resolve(resp);
+            };
+
+            const onMsg = (resp: any) => finish(resp);
+            port.onMessage.addListener(onMsg);
+
+            port.onDisconnect.addListener(() => {
+              const err = chrome?.runtime?.lastError;
+              finish({ ok: false, error: err?.message || 'Disconnected from background.' });
+            });
+
+            port.postMessage(msg);
+          } catch (e: any) {
+            resolve({ ok: false, error: String(e?.message || e) });
           }
         });
 
-        if (resp?.ok === false) {
-          tailorStatus.value = '';
-          tailorError.value = resp?.error || resp?.reason || 'Failed to extract job context.';
-          return;
-        }
+      // Preferred: Port-based postMessage (keeps MV3 service worker alive during the request)
+      let resp: any = await postToBackground('EXTRACT_JOB_CONTEXT');
 
-        const jt = String(resp?.jobTitle || '').trim();
-        const jd = String(resp?.jobDescription || '').trim();
-
-        // Only fill if user hasn't started typing.
-        if (jt && !tailorJobTitle.value.trim()) tailorJobTitle.value = jt;
-        if (jd && !tailorJobDescription.value.trim()) tailorJobDescription.value = jd;
-
-        tailorStatus.value = jt || jd ? 'Extracted job context from page.' : 'Could not detect job description; paste it manually.';
-      } catch (e) {
-        tailorStatus.value = '';
-        tailorError.value = String((e as any)?.message || e);
+      // Fallback: classic sendMessage
+      if (!resp || resp?.ok === false) {
+        resp = await new Promise((resolve) => {
+          try {
+            chrome.runtime.sendMessage({ action: 'EXTRACT_JOB_CONTEXT' }, (r) => {
+              const err = chrome?.runtime?.lastError;
+              if (err) resolve({ ok: false, error: err.message || String(err) });
+              else resolve(r);
+            });
+          } catch (e: any) {
+            resolve({ ok: false, error: String(e?.message || e) });
+          }
+        });
       }
+
+      if (resp?.ok === false) {
+        tailorError.value = resp?.error || resp?.reason || 'Failed to extract job context.';
+        return;
+      }
+
+      const jt = String(resp?.jobTitle || '').trim();
+      const jd = String(resp?.jobDescription || '').trim();
+
+      // Only fill if user hasn't started typing.
+      if (jt && !tailorJobTitle.value.trim()) tailorJobTitle.value = jt;
+      if (jd && !tailorJobDescription.value.trim()) tailorJobDescription.value = jd;
+
+      tailorStatus.value = jt || jd ? 'Extracted job context from page.' : 'Could not detect job description; paste it manually.';
     };
 
     const openTailorModal = async () => {
@@ -572,12 +611,12 @@ export default {
       tailoring.value = true;
 
       try {
-        const sync = await storageSyncGet(['OpenRouter API Key', 'Tailor Resume Model']);
-        const apiKey = String(sync?.['OpenRouter API Key'] || '').trim();
-        const model = String(sync?.['Tailor Resume Model'] || 'openai/gpt-5.2').trim();
+        const sync = await storageSyncGet(['API Key', 'AI Model', 'consents']);
+        const apiKey = String(sync?.consents?.geminiApiKey || sync?.['API Key'] || '').trim();
+        const model = String(sync?.['AI Model'] || 'gemini-1.5-flash').trim();
 
         if (!apiKey) {
-          throw new Error('Missing OpenRouter API Key (Settings → Resume Tailoring).');
+          throw new Error('Missing Gemini API Key (Settings → General).');
         }
 
         const local = await storageLocalGet(['Resume_details']);
@@ -601,63 +640,19 @@ export default {
           if (!ok) return;
         }
 
-        // Prompt (kept in sync with contentScripts/providers/gpt52.js)
-        const systemPrompt = `You are an expert resume writer.\n\nTask: surgically revise a resume to align with a specific job posting.\n\nHard rules:\n- Do NOT fabricate employers, titles, dates, degrees, certifications, skills, or metrics.\n- Preserve all factual info exactly (job titles, employers, durations). You may re-order and rephrase bullets.\n- Incorporate job-description keywords ONLY when truthful for the candidate.\n- Quantify achievements ONLY if existing resume data implies a metric; otherwise use qualitative impact language.\n- Trim to 1-page density: aim for 400–600 words.\n- Return ONLY valid JSON matching the schema in the user message. No markdown, no commentary.`;
+        tailorStatus.value = 'Tailoring resume…';
 
-        const userPrompt = `Revise the candidate resume data to better match the target role.\n\nTarget job title: ${jobTitle || '(unknown)'}\n\nJob description (may be partial):\n${jobDescription || '(none provided)'}\n\nCandidate resume data (source of truth):\n${typeof resumeDetails === 'string' ? resumeDetails : JSON.stringify(resumeDetails ?? {}, null, 2)}\n\nReturn ONLY a JSON object with this exact structure:\n{\n  \"tailored_resume_text\": \"...\",\n  \"tailored_resume_details\": {\n    \"skills\": [\"...\"],\n    \"experiences\": [\n      {\n        \"jobTitle\": \"...\",\n        \"jobEmployer\": \"...\",\n        \"jobDuration\": \"...\",\n        \"isCurrentEmployer\": true,\n        \"roleBulletsString\": \"• bullet1\\n• bullet2\\n...\"\n      }\n    ],\n    \"certifications\": [\n      {\n        \"name\": \"...\",\n        \"issuer\": \"...\",\n        \"issueDate\": \"...\",\n        \"expirationDate\": \"...\",\n        \"credentialId\": \"...\",\n        \"url\": \"...\"\n      }\n    ]\n  },\n  \"keywordsAdded\": [\"...\"],\n  \"changesDescription\": \"...\"\n}\n\nImportant:\n- Keep every experience entry. Do not delete roles.\n- Do not change jobTitle/jobEmployer/jobDuration/isCurrentEmployer values.\n- You MAY edit roleBulletsString to be more relevant, concise, and impact-focused.\n- Skills: reorder + adjust wording (no inventions).`;
-
-        // Cost guardrail (rough estimate)
-        try {
-          const approxIn = Math.ceil((systemPrompt.length + userPrompt.length) / 4);
-          const approxOut = 1200;
-          const approxCost = estimateCostUsd(approxIn, approxOut);
-          const THRESHOLD_USD = 0.5;
-          if (approxCost > THRESHOLD_USD) {
-            const ok = confirm(`This request may be expensive (est. $${approxCost.toFixed(2)}). Continue?`);
-            if (!ok) return;
-          }
-        } catch (_) {}
-
-        tailorStatus.value = 'Calling model…';
-
-        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-            'HTTP-Referer': 'https://exempliphai.app',
-            'X-Title': 'Exempliphai Resume Tailor',
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            temperature: 0.2,
-            max_tokens: 2400,
-          }),
+        const provider = createGeminiProvider({ apiKey, model });
+        const r: any = await provider.tailorResume({
+          model,
+          resumeData: resumeDetails,
+          jobTitle,
+          jobDescription,
+          timeoutMs: 70000,
+          maxRetries: 1,
         });
 
-        const json = await res.json().catch(() => ({} as any));
-        if (!res.ok || (json as any)?.error) {
-          throw new Error((json as any)?.error?.message || `OpenRouter HTTP ${res.status}`);
-        }
-
-        const content = String((json as any)?.choices?.[0]?.message?.content || '').trim();
-        if (!content) throw new Error('Model response missing content');
-
-        const first = content.indexOf('{');
-        const last = content.lastIndexOf('}');
-        const jsonText = first >= 0 && last > first ? content.slice(first, last + 1) : content;
-
-        let parsed: any;
-        try {
-          parsed = JSON.parse(jsonText);
-        } catch (e) {
-          throw new Error('Failed to parse JSON from model response.');
-        }
-
+        const parsed: any = r?.tailored || {};
         const details = parsed?.tailored_resume_details && typeof parsed.tailored_resume_details === 'object'
           ? parsed.tailored_resume_details
           : parsed;
@@ -671,8 +666,8 @@ export default {
         tailoredResumeDetails.value = details;
         tailoredResumeText.value = tailoredText;
 
-        const tokensIn = Number((json as any)?.usage?.prompt_tokens || 0);
-        const tokensOut = Number((json as any)?.usage?.completion_tokens || 0);
+        const tokensIn = Number(r?.tokensIn || 0);
+        const tokensOut = Number(r?.tokensOut || 0);
         const cost = estimateCostUsd(tokensIn, tokensOut);
 
         await storageLocalSet({
@@ -680,11 +675,12 @@ export default {
           tailored_resume_text: tailoredText,
           tailored_resume_meta: {
             jobTitle,
-            pageUrl: (json as any)?.pageUrl || '',
             model,
             generatedAt: new Date().toISOString(),
+            tokensIn,
+            tokensOut,
           },
-          tailored_resume_changes: String(parsed?.changesDescription || '').slice(0, 2000),
+          tailored_resume_changes: String(r?.changesDescription || parsed?.changesDescription || '').slice(0, 2000),
           tailored_resume_keywordsAdded: Array.isArray(parsed?.keywordsAdded) ? parsed.keywordsAdded.slice(0, 80) : [],
         });
 

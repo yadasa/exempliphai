@@ -104,7 +104,7 @@ import { onMounted, ref } from 'vue';
 
 // Import shared provider implementation.
 // NOTE: This is also used by content scripts via dynamic import().
-import { createGpt52Provider } from '../../public/contentScripts/providers/gpt52.js';
+import { createGeminiProvider } from '../../public/contentScripts/providers/gemini.js';
 
 type JobRec = {
   title?: string;
@@ -275,11 +275,11 @@ async function searchJobs() {
   loading.value = true;
 
   try {
-    const sync = await storageSyncGet(['OpenRouter API Key', 'Job Search Model']);
-    const apiKey = String(sync?.['OpenRouter API Key'] || '').trim();
-    const model = String(sync?.['Job Search Model'] || 'openai/gpt-5.2').trim();
+    const sync = await storageSyncGet(['API Key', 'AI Model', 'consents']);
+    const apiKey = String(sync?.consents?.geminiApiKey || sync?.['API Key'] || '').trim();
+    const model = String(sync?.['AI Model'] || 'gemini-1.5-flash').trim();
 
-    if (!apiKey) throw new Error('Missing OpenRouter API Key (Settings → Resume Tailoring).');
+    if (!apiKey) throw new Error('Missing Gemini API Key (Settings → General).');
 
     const resume = await getResumeForJobSearch();
     if (!resume) {
@@ -288,8 +288,7 @@ async function searchJobs() {
 
     status.value = 'Calling model…';
 
-    const provider = createGpt52Provider({ apiKey, model });
-    // @ts-ignore (provider extended in contentScripts/providers/gpt52.js)
+    const provider = createGeminiProvider({ apiKey, model });
     const resp = await provider.recommendJobs({
       model,
       resumeData: resume.kind === 'details' ? resume.payload : undefined,
@@ -413,9 +412,9 @@ async function runTailorAndAutofill() {
       if (!ok) return;
     }
 
-    const sync = await storageSyncGet(['OpenRouter API Key', 'Tailor Resume Model', 'autoTailorResumes']);
-    const apiKey = String(sync?.['OpenRouter API Key'] || '').trim();
-    const model = String(sync?.['Tailor Resume Model'] || 'openai/gpt-5.2').trim();
+    const sync = await storageSyncGet(['API Key', 'AI Model', 'autoTailorResumes', 'consents']);
+    const apiKey = String(sync?.consents?.geminiApiKey || sync?.['API Key'] || '').trim();
+    const model = String(sync?.['AI Model'] || 'gemini-1.5-flash').trim();
     const autoTailorEnabled = sync?.autoTailorResumes === true;
 
     // If Auto-Tailor is enabled, let the content script tailor during autofill.
@@ -439,7 +438,7 @@ async function runTailorAndAutofill() {
       return;
     }
 
-    if (!apiKey) throw new Error('Missing OpenRouter API Key (Settings → Resume Tailoring).');
+    if (!apiKey) throw new Error('Missing Gemini API Key (Settings → General).');
 
     const local = await storageLocalGet(['Resume_details']);
     let resumeDetails: any = local?.Resume_details;
@@ -454,7 +453,7 @@ async function runTailorAndAutofill() {
 
     tailorStatus.value = 'Tailoring resume…';
 
-    const provider = createGpt52Provider({ apiKey, model });
+    const provider = createGeminiProvider({ apiKey, model });
     const r: any = await provider.tailorResume({
       apiKey,
       model,

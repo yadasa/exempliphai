@@ -112,7 +112,7 @@ function _saAppendAiUsageLog(entry) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GPT audit log (resume tailoring)
+// AI audit log (resume tailoring, job search)
 //
 // Stored locally at chrome.storage.local.audit_log (rolling, last 1000 entries)
 // Shape requirement:
@@ -123,17 +123,17 @@ function _saAppendAiUsageLog(entry) {
 let _saAuditLogQueue = Promise.resolve();
 
 // Pricing estimates (USD per 1M tokens) — best-effort placeholders.
-// If OpenRouter pricing differs, this is only a rough estimate.
-const _SA_GPT52_USD_PER_1M_INPUT = 5.0;
-const _SA_GPT52_USD_PER_1M_OUTPUT = 15.0;
+// These values may drift from real billing; treat as informational only.
+const _SA_AI_USD_PER_1M_INPUT = 0.35;
+const _SA_AI_USD_PER_1M_OUTPUT = 0.53;
 
-function _saEstimateGptCostUsd(tokensIn, tokensOut) {
+function _saEstimateAiCostUsd(tokensIn, tokensOut) {
   try {
     const tin = Number(tokensIn);
     const tout = Number(tokensOut);
     const inTok = Number.isFinite(tin) && tin > 0 ? tin : 0;
     const outTok = Number.isFinite(tout) && tout > 0 ? tout : 0;
-    const usd = (inTok * _SA_GPT52_USD_PER_1M_INPUT + outTok * _SA_GPT52_USD_PER_1M_OUTPUT) / 1_000_000;
+    const usd = (inTok * _SA_AI_USD_PER_1M_INPUT + outTok * _SA_AI_USD_PER_1M_OUTPUT) / 1_000_000;
     return Math.round(usd * 1_000_000) / 1_000_000; // 6 decimals
   } catch (_) {
     return 0;
@@ -1255,8 +1255,9 @@ try {
           // If cross-origin, still avoid responding from iframes.
           return;
         }
+        const action = typeof request === 'string' ? request : request?.action;
 
-        if (request?.action === 'SMARTAPPLY_EXTRACT_JOB_CONTEXT') {
+        if (action === 'SMARTAPPLY_EXTRACT_JOB_CONTEXT') {
           const ctx = _saExtractJobContextFromPage();
           sendResponse({
             jobTitle: ctx.jobTitle || '',
@@ -1266,7 +1267,7 @@ try {
           return;
         }
 
-        if (request?.action === 'SMARTAPPLY_AUTOFILL_NOW') {
+        if (action === 'SMARTAPPLY_AUTOFILL_NOW') {
           (async () => {
             try {
               const ok = await tryAutofillNow({
@@ -2659,6 +2660,7 @@ async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = 
                   label,
                   allowedProfileKeys: _saAllowedProfileKeys(profile),
                   options: opts.map((o) => (o.textContent || o.value || '').toString().trim()).filter(Boolean),
+                  model: String(profile?.['AI Model'] || '').trim() || undefined,
                   timeoutMs: 8000,
                 });
 
@@ -3886,7 +3888,7 @@ let _saTailorDepsLoaded = false;
 async function _saEnsureTailorDepsLoaded() {
   if (_saTailorDepsLoaded) return true;
   try {
-    if (globalThis.__exempliphaiProviders?.gpt52?.tailorResume) {
+    if (globalThis.__exempliphaiProviders?.gemini?.tailorResume) {
       _saTailorDepsLoaded = true;
       return true;
     }
@@ -3895,11 +3897,11 @@ async function _saEnsureTailorDepsLoaded() {
   if (!chrome?.runtime?.getURL) return false;
 
   try {
-    await import(chrome.runtime.getURL('contentScripts/providers/gpt52.js'));
-    _saTailorDepsLoaded = !!globalThis.__exempliphaiProviders?.gpt52?.tailorResume;
+    await import(chrome.runtime.getURL('contentScripts/providers/gemini.js'));
+    _saTailorDepsLoaded = !!globalThis.__exempliphaiProviders?.gemini?.tailorResume;
     return _saTailorDepsLoaded;
   } catch (e) {
-    console.warn('SmartApply: failed to load GPT-5.2 provider', e);
+    console.warn('SmartApply: failed to load Gemini provider (tailor)', e);
     return false;
   }
 }
@@ -3935,16 +3937,11 @@ async function _saMaybeAutoTailorResume(syncObj) {
     const enabled = syncObj?.autoTailorResumes === true;
     if (!enabled) return { ok: true, skipped: true, reason: 'disabled' };
 
-    const apiKey =
-      syncObj?.['OpenRouter API Key'] ||
-      syncObj?.openRouterApiKey ||
-      syncObj?.openrouterApiKey ||
-      '';
-
-    const model = String(syncObj?.['Tailor Resume Model'] || syncObj?.tailorResumeModel || 'openai/gpt-5.2').trim();
+    const apiKey = String(syncObj?.['API Key'] || '').trim();
+    const model = String(syncObj?.['AI Model'] || 'gemini-1.5-flash').trim();
 
     if (!apiKey) {
-      _saShowToast('Auto-tailor: set OpenRouter API Key in settings.', { timeoutMs: 2500 });
+      _saShowToast('Auto-tailor: set Gemini API Key in settings.', { timeoutMs: 2500 });
       return { ok: false, skipped: true, reason: 'missing_api_key' };
     }
 
@@ -3984,7 +3981,7 @@ async function _saMaybeAutoTailorResume(syncObj) {
     try {
       const approxIn = Math.ceil((jobTitle.length + jobDescription.length + JSON.stringify(baseDetails).length + 2500) / 4);
       const approxOut = 1200;
-      const approxCost = _saEstimateGptCostUsd(approxIn, approxOut);
+      const approxCost = _saEstimateAiCostUsd(approxIn, approxOut);
       const THRESHOLD_USD = 0.75;
       if (approxCost > THRESHOLD_USD) {
         _saShowToast('Auto-tailor: estimated cost too high; skipping.', { timeoutMs: 2600 });
@@ -3995,7 +3992,7 @@ async function _saMaybeAutoTailorResume(syncObj) {
 
     _saShowToast('Auto-tailor: tailoring resume…', { timeoutMs: 2000 });
 
-    const result = await globalThis.__exempliphaiProviders.gpt52.tailorResume({
+    const result = await globalThis.__exempliphaiProviders.gemini.tailorResume({
       apiKey,
       model,
       resumeData: baseDetails,
@@ -4053,7 +4050,7 @@ async function _saMaybeAutoTailorResume(syncObj) {
         model,
         input_tokens: tokensIn,
         output_tokens: tokensOut,
-        cost_estimate: _saEstimateGptCostUsd(tokensIn, tokensOut),
+        cost_estimate: _saEstimateAiCostUsd(tokensIn, tokensOut),
       });
     } catch (_) {}
 
@@ -4204,7 +4201,17 @@ function _saEnqueueAiDropdownTask(fn) {
 
 function _saAllowedProfileKeys(profile) {
   try {
-    const blockedKeys = new Set(['API Key', 'aiMappingEnabled', 'cloudSyncEnabled']);
+    const blockedKeys = new Set([
+      'API Key',
+      'AI Model',
+      'aiMappingEnabled',
+      'cloudSyncEnabled',
+      'autoSubmitEnabled',
+      'autoTailorResumes',
+      'listModeEnabled',
+      'closePreviousTabs',
+      'autofillDelayMs',
+    ]);
     return Object.keys(profile || {}).filter((k) => k && !blockedKeys.has(k));
   } catch (_) {
     return [];
@@ -4400,7 +4407,17 @@ async function tryHybridAiMapping(form, res) {
   const pageUrl = window.location.href || '';
 
   // Allowed profile KEYS only (never values)
-  const blockedKeys = new Set(['API Key', 'aiMappingEnabled', 'cloudSyncEnabled']);
+  const blockedKeys = new Set([
+    'API Key',
+    'AI Model',
+    'aiMappingEnabled',
+    'cloudSyncEnabled',
+    'autoSubmitEnabled',
+    'autoTailorResumes',
+    'listModeEnabled',
+    'closePreviousTabs',
+    'autofillDelayMs',
+  ]);
   const allowedProfileKeys = Object.keys(res || {}).filter((k) => k && !blockedKeys.has(k));
 
   // Collect unresolved candidates.
@@ -4480,7 +4497,13 @@ async function tryHybridAiMapping(form, res) {
       unresolved_fields,
     },
     allowedProfileKeys,
-    { apiKey, allowAiMapping: true, timeoutMs: 20000, outerRetries: 1 }
+    {
+      apiKey,
+      model: String(res?.['AI Model'] || 'gemini-1.5-flash').trim(),
+      allowAiMapping: true,
+      timeoutMs: 20000,
+      outerRetries: 1,
+    }
   );
 
   if (!tier1?.ok) {
@@ -4714,6 +4737,7 @@ async function processFields(jobForm, fieldMap, form, res) {
         ai: {
           enabled: res?.aiMappingEnabled === true,
           apiKey: res?.['API Key'],
+          model: String(res?.['AI Model'] || '').trim() || undefined,
           allowedProfileKeys: _saAllowedProfileKeys(res),
         },
       })) _filledElements.add(inputElement);
@@ -4755,6 +4779,7 @@ async function processFields(jobForm, fieldMap, form, res) {
           ai: {
             enabled: res?.aiMappingEnabled === true,
             apiKey: res?.['API Key'],
+            model: String(res?.['AI Model'] || '').trim() || undefined,
             allowedProfileKeys: _saAllowedProfileKeys(res),
           },
         });

@@ -1,11 +1,9 @@
 /**
  * Gemini provider for exempliphai (MV3 extension).
  *
- * This module is intentionally provider-agnostic at the interface level so we can
- * add an OpenAI provider later with the same method signatures.
- *
  * Tier 1: map unresolved form fields -> FillPlan JSON
  * Tier 2: generate narrative answer text for long-form questions
+ * Tier 3: resume tailoring + job search recommendations (JSON)
  */
 
 /**
@@ -45,7 +43,7 @@
 
 export const AI_PROVIDER_INTERFACE_VERSION = '0.1';
 
-export const GEMINI_DEFAULT_MODEL = 'gemini-3-flash-preview';
+export const GEMINI_DEFAULT_MODEL = 'gemini-1.5-pro';
 export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 function sleep(ms) {
@@ -58,12 +56,33 @@ function withTimeout(timeoutMs) {
   return { controller, cancel: () => clearTimeout(id) };
 }
 
-function extractFirstJsonObject(text) {
+function extractFirstJsonValue(text) {
   const s = (text ?? '').toString();
-  const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
+
+  // Find first JSON container (object or array), whichever occurs first.
+  const iObj = s.indexOf('{');
+  const iArr = s.indexOf('[');
+
+  let open = '{';
+  let close = '}';
+  let first = iObj;
+
+  if (iObj === -1 && iArr === -1) return null;
+  if (iObj === -1 || (iArr !== -1 && iArr < iObj)) {
+    open = '[';
+    close = ']';
+    first = iArr;
+  }
+
+  const last = s.lastIndexOf(close);
   if (first === -1 || last === -1 || last <= first) return null;
   return s.slice(first, last + 1);
+}
+
+function extractFirstJsonObject(text) {
+  const v = extractFirstJsonValue(text);
+  if (!v) return null;
+  return v.trim().startsWith('{') ? v : null;
 }
 
 function asCleanText(x) {
@@ -185,6 +204,57 @@ Optional profile facts:
 ${ps || '(none)'}`;
 }
 
+function safeString(x, max = 12000) {
+  const s = String(x ?? '').trim();
+  if (!s) return '';
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Resume tailoring (JSON)
+// ─────────────────────────────────────────────────────────────────────
+
+export function buildTailorSystemPrompt() {
+  return `You are an expert resume writer.\n\nTask: surgically revise a resume to align with a specific job posting.\n\nHard rules:\n- Do NOT fabricate employers, titles, dates, degrees, certifications, skills, or metrics.\n- Preserve all factual info exactly (job titles, employers, durations). You may re-order and rephrase bullets.\n- Incorporate job-description keywords ONLY when truthful for the candidate.\n- Quantify achievements ONLY if existing resume data implies a metric; otherwise use qualitative impact language.\n- Trim to 1-page density: aim for 400–600 words.\n- Return ONLY valid JSON matching the schema in the user message. No markdown, no commentary.`;
+}
+
+export function buildTailorUserPrompt({ resumeData, jobTitle, jobDescription, pageUrl } = {}) {
+  const resume = typeof resumeData === 'string' ? resumeData : JSON.stringify(resumeData ?? {}, null, 2);
+  const title = safeString(jobTitle, 200);
+  const jd = safeString(jobDescription, 12000);
+  const url = safeString(pageUrl, 800);
+
+  return `Revise the candidate resume data to better match the target role.\n\nTarget job title: ${title || '(unknown)'}\nJob page URL: ${url || '(unknown)'}\n\nJob description (may be partial):\n${jd || '(none provided)'}\n\nCandidate resume data (source of truth):\n${resume}\n\nReturn ONLY a JSON object with this exact structure:\n{\n  \"tailored_resume_text\": \"...\", // plain text resume, 400–600 words, professional, 1 page\n  \"tailored_resume_details\": {\n    \"skills\": [\"...\"],\n    \"experiences\": [\n      {\n        \"jobTitle\": \"...\",\n        \"jobEmployer\": \"...\",\n        \"jobDuration\": \"...\",\n        \"isCurrentEmployer\": true,\n        \"roleBulletsString\": \"• bullet1\\n• bullet2\\n...\"\n      }\n    ],\n    \"certifications\": [\n      {\n        \"name\": \"...\",\n        \"issuer\": \"...\",\n        \"issueDate\": \"...\",\n        \"expirationDate\": \"...\",\n        \"credentialId\": \"...\",\n        \"url\": \"...\"\n      }\n    ]\n  },\n  \"keywordsAdded\": [\"...\"],\n  \"changesDescription\": \"...\"\n}\n\nImportant:\n- Keep every experience entry. Do not delete roles.\n- Do not change jobTitle/jobEmployer/jobDuration/isCurrentEmployer values.\n- You MAY edit roleBulletsString to be more relevant, concise, and impact-focused.\n- Skills: reorder + adjust wording (no inventions).`;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Job search recommendations (JSON array)
+// ─────────────────────────────────────────────────────────────────────
+
+export function buildJobSearchSystemPrompt() {
+  return `You are an expert career coach and recruiter.\n\nTask: analyze an anonymized resume and recommend 10–15 target jobs.\n\nGuidelines:\n- Recommend a mix of “at-par” roles and slightly aspirational roles (a reasonable career upgrade).\n- Prefer roles the candidate can plausibly land in the next 3–12 months.\n\nPrivacy rules (critical):\n- Do NOT include any personal identifying info (name, email, phone, address, personal links).\n- Assume you only have anonymized resume content.\n\nOutput rules (critical):\n- Return ONLY valid JSON. No markdown, no commentary.\n- Output MUST be a JSON array of 10–15 objects.\n- Each object MUST match this schema exactly:\n  {\n    \"title\": string,\n    \"company_types\": string[] | string,\n    \"salary_range\": string,\n    \"locations\": string[] | string,\n    \"why_match\": string,\n    \"search_link\": string\n  }\n\nSearch link rules:\n- search_link MUST be a single https URL to a job search page on LinkedIn, Google, or Indeed.\n- Prefer LinkedIn (e.g., https://www.linkedin.com/jobs/search/?keywords=Senior%20Software%20Engineer%20React%20Remote).\n- The link should be immediately usable (URL-encoded keywords, include remote/hybrid when relevant).`;
+}
+
+export function buildJobSearchUserPrompt({ resumeData, resumeText, countMin = 10, countMax = 15 } = {}) {
+  const nMin = Number.isFinite(countMin) ? countMin : 10;
+  const nMax = Number.isFinite(countMax) ? countMax : 15;
+
+  const structured = resumeData != null && resumeData !== '';
+  const resume = structured
+    ? (typeof resumeData === 'string' ? safeString(resumeData, 16000) : JSON.stringify(resumeData ?? {}, null, 2))
+    : safeString(resumeText, 16000);
+
+  return `Analyze the resume and recommend ${nMin}–${nMax} target jobs.\n\nResume (anonymized):\n${resume || '(none provided)'}\n\nReturn ONLY a JSON array with objects shaped exactly as:\n[{\"title\":\"\",\"company_types\":[],\"salary_range\":\"\",\"locations\":[],\"why_match\":\"\",\"search_link\":\"https://...\"}]\n\nConstraints:\n- No PII.\n- Keep why_match to 1–3 concise sentences.\n- Make search_link a smart query link (LinkedIn/Google/Indeed) tailored to the role + key skills + preferred location/remote.`;
+}
+
+function extractUsage(raw) {
+  const md = raw?.usageMetadata || {};
+  const tokensIn = Number(md.promptTokenCount || 0);
+  const tokensOut = Number(md.candidatesTokenCount || 0);
+  const tokensTotal = Number(md.totalTokenCount || tokensIn + tokensOut);
+  return { tokensIn, tokensOut, tokensTotal };
+}
+
 async function geminiGenerateContent({
   apiKey,
   model,
@@ -239,7 +309,8 @@ async function geminiGenerateContent({
       err.details = json;
       throw err;
     }
-    return { raw: json, text };
+    const usage = extractUsage(json);
+    return { raw: json, text, ...usage };
   } finally {
     cancel();
   }
@@ -325,12 +396,93 @@ export function createGeminiProvider(cfg) {
       // Tier 2 is plain text; trim and return.
       return String(text).trim();
     },
+
+    /**
+     * Tailor a resume for a specific job.
+     *
+     * @param {{ resumeData: object|string, jobTitle?: string, jobDescription?: string, pageUrl?: string, model?: string, timeoutMs?: number, maxRetries?: number }} args
+     * @returns {Promise<{ tailored: any, tokensIn: number, tokensOut: number, changesDescription: string }>}
+     */
+    async tailorResume(args = {}) {
+      const systemPrompt = buildTailorSystemPrompt();
+      const userPrompt = buildTailorUserPrompt(args);
+
+      const result = await withRetry(
+        () =>
+          geminiGenerateContent({
+            apiKey,
+            model: args?.model || model,
+            systemPrompt,
+            userPrompt,
+            timeoutMs: args?.timeoutMs ?? Math.max(timeoutMs, 70000),
+            responseMimeType: 'application/json',
+            temperature: 0.2,
+          }),
+        { maxRetries: args?.maxRetries ?? maxRetries }
+      );
+
+      const jsonText = extractFirstJsonObject(result.text) ?? result.text;
+      try {
+        const parsed = JSON.parse(jsonText);
+        return {
+          tailored: parsed,
+          tokensIn: result.tokensIn,
+          tokensOut: result.tokensOut,
+          changesDescription: parsed?.changesDescription || 'Resume tailored successfully.',
+        };
+      } catch (e) {
+        const err = new Error('Failed to parse tailored resume JSON from Gemini');
+        // @ts-ignore
+        err.cause = e;
+        // @ts-ignore
+        err.rawText = result.text;
+        throw err;
+      }
+    },
+
+    /**
+     * Recommend job targets based on an anonymized resume.
+     *
+     * @param {{ resumeData?: object|string, resumeText?: string, countMin?: number, countMax?: number, model?: string, timeoutMs?: number, maxRetries?: number }} args
+     * @returns {Promise<{ jobs: any[], tokensIn: number, tokensOut: number }>}
+     */
+    async recommendJobs(args = {}) {
+      const systemPrompt = buildJobSearchSystemPrompt();
+      const userPrompt = buildJobSearchUserPrompt(args);
+
+      const result = await withRetry(
+        () =>
+          geminiGenerateContent({
+            apiKey,
+            model: args?.model || model,
+            systemPrompt,
+            userPrompt,
+            timeoutMs: args?.timeoutMs ?? Math.max(timeoutMs, 45000),
+            responseMimeType: 'application/json',
+            temperature: 0.3,
+          }),
+        { maxRetries: args?.maxRetries ?? maxRetries }
+      );
+
+      const jsonText = extractFirstJsonValue(result.text) ?? result.text;
+      try {
+        const parsed = JSON.parse(jsonText);
+        const jobs = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.jobs) ? parsed.jobs : [];
+        return { jobs, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+      } catch (e) {
+        const err = new Error('Failed to parse job recommendations JSON from Gemini');
+        // @ts-ignore
+        err.cause = e;
+        // @ts-ignore
+        err.rawText = result.text;
+        throw err;
+      }
+    },
   };
 }
 
 /**
- * Convenience functions (stateless) matching the provider interface.
- * These mirror the signatures we will use for an OpenAI provider later.
+ * Convenience functions (stateless).
  */
 export async function mapFieldsToFillPlan(args) {
   const p = createGeminiProvider({
@@ -352,6 +504,26 @@ export async function generateNarrativeAnswer(args) {
   return p.generateNarrativeAnswer(args);
 }
 
+export async function tailorResume(args = {}) {
+  const p = createGeminiProvider({
+    apiKey: args?.apiKey,
+    model: args?.model,
+    timeoutMs: args?.timeoutMs,
+    maxRetries: args?.maxRetries,
+  });
+  return p.tailorResume(args);
+}
+
+export async function recommendJobs(args = {}) {
+  const p = createGeminiProvider({
+    apiKey: args?.apiKey,
+    model: args?.model,
+    timeoutMs: args?.timeoutMs,
+    maxRetries: args?.maxRetries,
+  });
+  return p.recommendJobs(args);
+}
+
 // Optional: expose for classic-script usage if needed.
 try {
   globalThis.__exempliphaiProviders = globalThis.__exempliphaiProviders || {};
@@ -359,9 +531,20 @@ try {
     createGeminiProvider,
     mapFieldsToFillPlan,
     generateNarrativeAnswer,
+    tailorResume,
+    recommendJobs,
+
     buildTier1MappingSystemPrompt,
     buildTier1MappingUserPrompt,
     buildTier2NarrativeSystemPrompt,
     buildTier2NarrativeUserPrompt,
+
+    buildTailorSystemPrompt,
+    buildTailorUserPrompt,
+    buildJobSearchSystemPrompt,
+    buildJobSearchUserPrompt,
+
+    GEMINI_DEFAULT_MODEL,
+    GEMINI_API_BASE,
   };
 } catch (_) {}

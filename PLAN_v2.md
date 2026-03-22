@@ -11,45 +11,45 @@
 
 ---
 
-## 0) Resume Tailoring (GPT-5.2) — 2026-03-22 add-on
+## 0) Gemini-Only Mode — 2026-03-22
 
-This repo now includes an opt-in resume tailoring flow using **GPT‑5.2 via OpenRouter**.
+This repo runs in **Gemini-only mode**: all AI features call the Gemini REST API. There is no non-Gemini provider dependency.
+
+**Settings (Popup → Settings):**
+- `API Key` (Gemini)
+- `AI Model`:
+  - `gemini-1.5-flash` (faster/cheaper)
+  - `gemini-1.5-pro` (more capable)
+- `Auto-Tailor Resumes` toggle (default OFF)
+
+### Resume Tailoring (Gemini)
 
 **What’s implemented (high level):**
 - **Popup UI:** A **“Tailor Resume”** button appears under the **Resume** file field.
 - **Job context extraction:** Popup calls background IPC → content script heuristics to extract:
   - job title (H1 / meta / <title>)
   - job description (#job_description / .job__description / .job-description / main, etc)
-- **Core tailoring:** Sends *structured* `Resume_details` + job title + JD to GPT‑5.2 and stores:
+- **Core tailoring:** Sends *structured* `Resume_details` + job title + JD to Gemini and stores:
   - `chrome.storage.local.tailored_resume_details`
   - `chrome.storage.local.tailored_resume_text`
 - **Preview + download:** Preview in modal, download as **.txt** or **PDF**.
-- **Settings:**
-  - `OpenRouter API Key`
-  - `Tailor Resume Model` (selector)
-  - `Auto-Tailor Resumes` toggle (default OFF)
-- **Autofill integration:** If auto-tailor is enabled, content script will tailor once per job (best-effort cache) and prefer `tailored_resume_details` for:
-  - Skills/certifications filling
-  - AI “Answer last field” resume context
-- **Cost logging:** GPT calls append to `chrome.storage.local.audit_log`:
+- **Autofill integration:** If auto-tailor is enabled, content script will tailor once per job (best-effort cache) and prefer `tailored_resume_details`.
+- **Audit/cost logging:** AI calls append to `chrome.storage.local.audit_log`:
   - `{ model, input_tokens, output_tokens, cost_estimate }` (plus timestamp/event)
 
----
+### Job Search (Gemini)
 
-## 0.1) Job Search (GPT-5.2) — 2026-03-22 add-on
-
-This repo now includes a **Job Search** tab in the popup that generates job recommendations from your saved resume (prefers `tailored_resume_details` when available).
+This repo includes a **Job Search** tab in the popup that generates job recommendations from your saved resume (prefers `tailored_resume_details` when available).
 
 **What’s implemented (high level):**
 - **Popup UI:** New **Job Search** tab with a **“Search Jobs Matching My Resume”** button.
-- **Core logic:** Calls GPT‑5.2 via OpenRouter and requests a strict JSON array:
+- **Core logic:** Calls Gemini and requests a strict JSON array:
   - `[{ title, company_types, salary_range, locations, why_match, search_link }]`
   - `search_link` is a smart LinkedIn/Google/Indeed query URL.
 - **Display:** Recommendation cards with:
   - **Open Search** → `chrome.tabs.create(search_link)`
   - **Tailor & Apply** → tailors resume to the current page’s job description (when available), saves `tailored_resume_details`, then triggers **autofill now** on the active tab.
-- **Settings:** Adds `Job Search Model` selector (defaults to `openai/gpt-5.2`).
-- **Cost logging:** Job-search calls append to `chrome.storage.local.audit_log` with `{ model, input_tokens, output_tokens, cost_estimate }` plus timestamp/event.
+- **Audit/cost logging:** Job-search calls append to `chrome.storage.local.audit_log` with `{ model, input_tokens, output_tokens, cost_estimate }` plus timestamp/event.
 
 ## 1) Inventory Alignment (Report → Current Repo)
 
