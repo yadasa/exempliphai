@@ -782,6 +782,17 @@ async function _saGenerateAiAnswer(element, opts = {}) {
     const jobTitle = _saGetJobTitleForAi(opts);
     const jobTitleForPrompt = jobTitle ? jobTitle : '(unknown)';
 
+    // Model routing: autofill answers are quick tasks → Flash.
+    const taskType = 'quick';
+    let modelUsed = 'gemini-1.5-flash';
+    try {
+      if (!globalThis.__exempliphaiProviders?.gemini?.getModelForTask && chrome?.runtime?.getURL) {
+        await import(chrome.runtime.getURL('contentScripts/providers/gemini.js'));
+      }
+      const p = globalThis.__exempliphaiProviders?.gemini;
+      if (typeof p?.getModelForTask === 'function') modelUsed = p.getModelForTask(taskType);
+    } catch (_) {}
+
     // Optional: attach PDFs only if they look valid; otherwise skip.
     // This prevents Gemini errors like "The document has no pages" when stored data is empty/invalid.
     const sanitizePdfBase64 = (b64) => {
@@ -823,7 +834,7 @@ ${question}`
 
     const callGemini = async (parts, { temperature = 0.2 } = {}) => {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelUsed)}:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -863,6 +874,8 @@ ${question}`
           question: String(question || '').trim().slice(0, 800),
           tokensIn: Number.isFinite(tokensIn) ? tokensIn : 0,
           tokensOut: Number.isFinite(tokensOut) ? tokensOut : 0,
+          model: modelUsed,
+          taskType,
           costCents: _saEstimateGemini15FlashCostCents(tokensIn, tokensOut),
         };
 
@@ -2660,7 +2673,6 @@ async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = 
                   label,
                   allowedProfileKeys: _saAllowedProfileKeys(profile),
                   options: opts.map((o) => (o.textContent || o.value || '').toString().trim()).filter(Boolean),
-                  model: String(profile?.['AI Model'] || '').trim() || undefined,
                   timeoutMs: 8000,
                 });
 
@@ -3314,7 +3326,6 @@ async function fillReactSelectKeyboard(inputElement, fillValue, jobParam, ctx = 
           label: jobParam,
           allowedProfileKeys: Array.isArray(ai.allowedProfileKeys) ? ai.allowedProfileKeys : [],
           options: optionTexts,
-          model: ai.model,
           timeoutMs: ai.timeoutMs ?? 8000,
         });
 
@@ -3506,7 +3517,6 @@ async function setBestSelectOption(selectEl, fillValue, ctx = {}) {
           label,
           allowedProfileKeys: Array.isArray(ai.allowedProfileKeys) ? ai.allowedProfileKeys : [],
           options: optionTexts,
-          model: ai.model,
           timeoutMs: ai.timeoutMs ?? 8000,
         });
 
@@ -3938,7 +3948,6 @@ async function _saMaybeAutoTailorResume(syncObj) {
     if (!enabled) return { ok: true, skipped: true, reason: 'disabled' };
 
     const apiKey = String(syncObj?.['API Key'] || '').trim();
-    const model = String(syncObj?.['AI Model'] || 'gemini-1.5-flash').trim();
 
     if (!apiKey) {
       _saShowToast('Auto-tailor: set Gemini API Key in settings.', { timeoutMs: 2500 });
@@ -3992,9 +4001,12 @@ async function _saMaybeAutoTailorResume(syncObj) {
 
     _saShowToast('Auto-tailor: tailoring resume…', { timeoutMs: 2000 });
 
+    const provider = globalThis.__exempliphaiProviders?.gemini;
+    const modelUsed = typeof provider?.getModelForTask === 'function' ? provider.getModelForTask('deep') : 'gemini-1.5-pro';
+
     const result = await globalThis.__exempliphaiProviders.gemini.tailorResume({
       apiKey,
-      model,
+      taskType: 'deep',
       resumeData: baseDetails,
       jobTitle,
       jobDescription,
@@ -4019,7 +4031,7 @@ async function _saMaybeAutoTailorResume(syncObj) {
       signature: sig,
       jobTitle,
       pageUrl: ctx?.pageUrl || '',
-      model,
+      model: modelUsed,
       generatedAt: new Date().toISOString(),
       tokensIn: result?.tokensIn || 0,
       tokensOut: result?.tokensOut || 0,
@@ -4047,7 +4059,7 @@ async function _saMaybeAutoTailorResume(syncObj) {
       await _saAppendAuditLog({
         ts: new Date().toISOString(),
         event: 'tailor_resume_auto',
-        model,
+        model: modelUsed,
         input_tokens: tokensIn,
         output_tokens: tokensOut,
         cost_estimate: _saEstimateAiCostUsd(tokensIn, tokensOut),
@@ -4223,7 +4235,6 @@ async function _saAiPickBestDropdownOptionText({
   label,
   allowedProfileKeys,
   options,
-  model,
   timeoutMs = 8000,
 } = {}) {
   try {
@@ -4255,7 +4266,7 @@ async function _saAiPickBestDropdownOptionText({
         questionText: prompt,
         maxWords: 20,
         tone: 'direct',
-        model,
+        taskType: 'quick',
         timeoutMs,
         maxRetries: 1,
       })
@@ -4499,7 +4510,7 @@ async function tryHybridAiMapping(form, res) {
     allowedProfileKeys,
     {
       apiKey,
-      model: String(res?.['AI Model'] || 'gemini-1.5-flash').trim(),
+      taskType: 'quick',
       allowAiMapping: true,
       timeoutMs: 20000,
       outerRetries: 1,
@@ -4737,7 +4748,6 @@ async function processFields(jobForm, fieldMap, form, res) {
         ai: {
           enabled: res?.aiMappingEnabled === true,
           apiKey: res?.['API Key'],
-          model: String(res?.['AI Model'] || '').trim() || undefined,
           allowedProfileKeys: _saAllowedProfileKeys(res),
         },
       })) _filledElements.add(inputElement);
@@ -4779,8 +4789,7 @@ async function processFields(jobForm, fieldMap, form, res) {
           ai: {
             enabled: res?.aiMappingEnabled === true,
             apiKey: res?.['API Key'],
-            model: String(res?.['AI Model'] || '').trim() || undefined,
-            allowedProfileKeys: _saAllowedProfileKeys(res),
+              allowedProfileKeys: _saAllowedProfileKeys(res),
           },
         });
 

@@ -8,6 +8,7 @@
 
 /**
  * @typedef {Object} AiProvider
+ * @property {(taskType: 'quick' | 'deep') => string} getModelForTask
  * @property {(args: MapFieldsArgs) => Promise<any>} mapFieldsToFillPlan
  * @property {(args: NarrativeArgs) => Promise<string>} generateNarrativeAnswer
  */
@@ -22,6 +23,7 @@
  * @property {string} [pageUrl]
  * @property {string} [snapshotHash]
  * @property {string} [model]
+ * @property {'quick'|'deep'} [taskType]
  * @property {number} [timeoutMs]
  * @property {number} [maxRetries]
  */
@@ -37,14 +39,24 @@
  * @property {string} [siteGuidance]
  * @property {string} [synonymHint]
  * @property {string} [model]
+ * @property {'quick'|'deep'} [taskType]
  * @property {number} [timeoutMs]
  * @property {number} [maxRetries]
  */
 
 export const AI_PROVIDER_INTERFACE_VERSION = '0.1';
 
-export const GEMINI_DEFAULT_MODEL = 'gemini-1.5-pro';
+export const GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash';
 export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+/**
+ * Task-based model routing (no user-configurable dropdown).
+ *
+ * @param {'quick'|'deep'} taskType
+ */
+export function getModelForTask(taskType) {
+  return taskType === 'deep' ? 'gemini-1.5-pro' : 'gemini-1.5-flash';
+}
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -342,20 +354,23 @@ export function createGeminiProvider(cfg) {
   const apiKey = cfg?.apiKey;
   if (!apiKey) throw new Error('Gemini provider requires apiKey');
 
-  const model = cfg?.model || GEMINI_DEFAULT_MODEL;
   const timeoutMs = Number.isFinite(cfg?.timeoutMs) ? cfg.timeoutMs : 20000;
   const maxRetries = Number.isFinite(cfg?.maxRetries) ? cfg.maxRetries : 2;
 
   return {
+    getModelForTask,
+
     async mapFieldsToFillPlan(args) {
       const systemPrompt = buildTier1MappingSystemPrompt();
       const userPrompt = buildTier1MappingUserPrompt(args);
+
+      const modelUsed = getModelForTask(args?.taskType || 'quick');
 
       const { text } = await withRetry(
         () =>
           geminiGenerateContent({
             apiKey,
-            model: args?.model || model,
+            model: modelUsed,
             systemPrompt,
             userPrompt,
             timeoutMs: args?.timeoutMs ?? timeoutMs,
@@ -381,11 +396,13 @@ export function createGeminiProvider(cfg) {
       const systemPrompt = buildTier2NarrativeSystemPrompt();
       const userPrompt = buildTier2NarrativeUserPrompt(args);
 
+      const modelUsed = getModelForTask(args?.taskType || 'quick');
+
       const { text } = await withRetry(
         () =>
           geminiGenerateContent({
             apiKey,
-            model: args?.model || model,
+            model: modelUsed,
             systemPrompt,
             userPrompt,
             timeoutMs: args?.timeoutMs ?? timeoutMs,
@@ -407,11 +424,13 @@ export function createGeminiProvider(cfg) {
       const systemPrompt = buildTailorSystemPrompt();
       const userPrompt = buildTailorUserPrompt(args);
 
+      const modelUsed = getModelForTask(args?.taskType || 'deep');
+
       const result = await withRetry(
         () =>
           geminiGenerateContent({
             apiKey,
-            model: args?.model || model,
+            model: modelUsed,
             systemPrompt,
             userPrompt,
             timeoutMs: args?.timeoutMs ?? Math.max(timeoutMs, 70000),
@@ -426,6 +445,7 @@ export function createGeminiProvider(cfg) {
         const parsed = JSON.parse(jsonText);
         return {
           tailored: parsed,
+          modelUsed,
           tokensIn: result.tokensIn,
           tokensOut: result.tokensOut,
           changesDescription: parsed?.changesDescription || 'Resume tailored successfully.',
@@ -450,11 +470,13 @@ export function createGeminiProvider(cfg) {
       const systemPrompt = buildJobSearchSystemPrompt();
       const userPrompt = buildJobSearchUserPrompt(args);
 
+      const modelUsed = getModelForTask(args?.taskType || 'deep');
+
       const result = await withRetry(
         () =>
           geminiGenerateContent({
             apiKey,
-            model: args?.model || model,
+            model: modelUsed,
             systemPrompt,
             userPrompt,
             timeoutMs: args?.timeoutMs ?? Math.max(timeoutMs, 45000),
@@ -468,7 +490,7 @@ export function createGeminiProvider(cfg) {
       try {
         const parsed = JSON.parse(jsonText);
         const jobs = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.jobs) ? parsed.jobs : [];
-        return { jobs, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
+        return { jobs, modelUsed, tokensIn: result.tokensIn, tokensOut: result.tokensOut };
       } catch (e) {
         const err = new Error('Failed to parse job recommendations JSON from Gemini');
         // @ts-ignore
@@ -487,7 +509,6 @@ export function createGeminiProvider(cfg) {
 export async function mapFieldsToFillPlan(args) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
-    model: args?.model,
     timeoutMs: args?.timeoutMs,
     maxRetries: args?.maxRetries,
   });
@@ -497,7 +518,6 @@ export async function mapFieldsToFillPlan(args) {
 export async function generateNarrativeAnswer(args) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
-    model: args?.model,
     timeoutMs: args?.timeoutMs,
     maxRetries: args?.maxRetries,
   });
@@ -507,7 +527,6 @@ export async function generateNarrativeAnswer(args) {
 export async function tailorResume(args = {}) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
-    model: args?.model,
     timeoutMs: args?.timeoutMs,
     maxRetries: args?.maxRetries,
   });
@@ -517,7 +536,6 @@ export async function tailorResume(args = {}) {
 export async function recommendJobs(args = {}) {
   const p = createGeminiProvider({
     apiKey: args?.apiKey,
-    model: args?.model,
     timeoutMs: args?.timeoutMs,
     maxRetries: args?.maxRetries,
   });
@@ -529,6 +547,7 @@ try {
   globalThis.__exempliphaiProviders = globalThis.__exempliphaiProviders || {};
   globalThis.__exempliphaiProviders.gemini = {
     createGeminiProvider,
+    getModelForTask,
     mapFieldsToFillPlan,
     generateNarrativeAnswer,
     tailorResume,

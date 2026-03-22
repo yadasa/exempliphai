@@ -17,9 +17,9 @@ This repo runs in **Gemini-only mode**: all AI features call the Gemini REST API
 
 **Settings (Popup → Settings):**
 - `API Key` (Gemini)
-- `AI Model`:
-  - `gemini-1.5-flash` (faster/cheaper)
-  - `gemini-1.5-pro` (more capable)
+- **Model routing is automatic (no dropdown):**
+  - **Quick tasks** (autofill mapping + autofill answers) → `gemini-1.5-flash`
+  - **Deep tasks** (resume tailoring + job search) → `gemini-1.5-pro`
 - `Auto-Tailor Resumes` toggle (default OFF)
 
 ### Resume Tailoring (Gemini)
@@ -112,7 +112,7 @@ A FillPlan is a **structured, validated** set of actions:
   "created_at": "2026-03-09T14:19:00.000Z",
   "domain": "boards.greenhouse.io",
   "page_url": "https://...",
-  "provider": { "name": "gemini" , "model": "gemini-3-flash-preview" },
+  "provider": { "name": "gemini" , "model": "gemini-1.5-flash" },
 
   // Snapshot summary so the plan can be validated without re-sending DOM
   "snapshot_hash": "sha256(base64)",

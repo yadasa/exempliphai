@@ -427,7 +427,6 @@ chrome.runtime.onInstalled.addListener(() => {
       'listModeEnabled',
       'closePreviousTabs',
       'autoTailorResumes',
-      'AI Model',
     ],
     (res) => {
       const next = {};
@@ -436,10 +435,6 @@ chrome.runtime.onInstalled.addListener(() => {
 
       // Defaults
       if (!res || typeof res.autoTailorResumes !== 'boolean') next.autoTailorResumes = false;
-      if (!res || typeof res['AI Model'] !== 'string' || !String(res['AI Model']).trim()) {
-        next['AI Model'] = 'gemini-1.5-flash';
-      }
-
       if (Object.keys(next).length) chrome.storage.sync.set(next);
     }
   );

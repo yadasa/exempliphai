@@ -275,9 +275,8 @@ async function searchJobs() {
   loading.value = true;
 
   try {
-    const sync = await storageSyncGet(['API Key', 'AI Model', 'consents']);
+    const sync = await storageSyncGet(['API Key', 'consents']);
     const apiKey = String(sync?.consents?.geminiApiKey || sync?.['API Key'] || '').trim();
-    const model = String(sync?.['AI Model'] || 'gemini-1.5-flash').trim();
 
     if (!apiKey) throw new Error('Missing Gemini API Key (Settings → General).');
 
@@ -288,9 +287,10 @@ async function searchJobs() {
 
     status.value = 'Calling model…';
 
-    const provider = createGeminiProvider({ apiKey, model });
+    const provider = createGeminiProvider({ apiKey });
+    const modelUsed = provider.getModelForTask('deep');
     const resp = await provider.recommendJobs({
-      model,
+      taskType: 'deep',
       resumeData: resume.kind === 'details' ? resume.payload : undefined,
       resumeText: resume.kind === 'text' ? resume.payload : undefined,
       countMin: 10,
@@ -304,7 +304,7 @@ async function searchJobs() {
     const tokensOut = Number(resp?.tokensOut || 0);
 
     meta.value = {
-      model,
+      model: modelUsed,
       generatedAt: new Date().toISOString(),
       tokensIn,
       tokensOut,
@@ -321,7 +321,7 @@ async function searchJobs() {
       await appendAuditLog({
         ts: new Date().toISOString(),
         event: 'job_search_recs',
-        model,
+        model: modelUsed,
         input_tokens: tokensIn,
         output_tokens: tokensOut,
         cost_estimate: cost,
@@ -412,9 +412,8 @@ async function runTailorAndAutofill() {
       if (!ok) return;
     }
 
-    const sync = await storageSyncGet(['API Key', 'AI Model', 'autoTailorResumes', 'consents']);
+    const sync = await storageSyncGet(['API Key', 'autoTailorResumes', 'consents']);
     const apiKey = String(sync?.consents?.geminiApiKey || sync?.['API Key'] || '').trim();
-    const model = String(sync?.['AI Model'] || 'gemini-1.5-flash').trim();
     const autoTailorEnabled = sync?.autoTailorResumes === true;
 
     // If Auto-Tailor is enabled, let the content script tailor during autofill.
@@ -453,10 +452,11 @@ async function runTailorAndAutofill() {
 
     tailorStatus.value = 'Tailoring resume…';
 
-    const provider = createGeminiProvider({ apiKey, model });
+    const provider = createGeminiProvider({ apiKey });
+    const modelUsed = provider.getModelForTask('deep');
     const r: any = await provider.tailorResume({
       apiKey,
-      model,
+      taskType: 'deep',
       resumeData: resumeDetails,
       jobTitle,
       jobDescription,
@@ -476,7 +476,7 @@ async function runTailorAndAutofill() {
       tailored_resume_text: String(tailoredRoot?.tailored_resume_text || '').slice(0, 20000),
       tailored_resume_meta: {
         jobTitle,
-        model,
+        model: modelUsed,
         generatedAt: new Date().toISOString(),
         tokensIn: Number(r?.tokensIn || 0),
         tokensOut: Number(r?.tokensOut || 0),
@@ -492,7 +492,7 @@ async function runTailorAndAutofill() {
       await appendAuditLog({
         ts: new Date().toISOString(),
         event: 'tailor_resume_from_job_search',
-        model,
+        model: modelUsed,
         input_tokens: tokensIn,
         output_tokens: tokensOut,
         cost_estimate: estimateCostUsd(tokensIn, tokensOut),

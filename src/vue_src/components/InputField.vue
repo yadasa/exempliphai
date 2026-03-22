@@ -611,9 +611,8 @@ export default {
       tailoring.value = true;
 
       try {
-        const sync = await storageSyncGet(['API Key', 'AI Model', 'consents']);
+        const sync = await storageSyncGet(['API Key', 'consents']);
         const apiKey = String(sync?.consents?.geminiApiKey || sync?.['API Key'] || '').trim();
-        const model = String(sync?.['AI Model'] || 'gemini-1.5-flash').trim();
 
         if (!apiKey) {
           throw new Error('Missing Gemini API Key (Settings → General).');
@@ -642,9 +641,10 @@ export default {
 
         tailorStatus.value = 'Tailoring resume…';
 
-        const provider = createGeminiProvider({ apiKey, model });
+        const provider = createGeminiProvider({ apiKey });
+        const modelUsed = provider.getModelForTask('deep');
         const r: any = await provider.tailorResume({
-          model,
+          taskType: 'deep',
           resumeData: resumeDetails,
           jobTitle,
           jobDescription,
@@ -675,7 +675,7 @@ export default {
           tailored_resume_text: tailoredText,
           tailored_resume_meta: {
             jobTitle,
-            model,
+            model: modelUsed,
             generatedAt: new Date().toISOString(),
             tokensIn,
             tokensOut,
@@ -687,7 +687,7 @@ export default {
         await appendAuditLog({
           ts: new Date().toISOString(),
           event: 'tailor_resume_manual',
-          model,
+          model: modelUsed,
           input_tokens: tokensIn,
           output_tokens: tokensOut,
           cost_estimate: cost,

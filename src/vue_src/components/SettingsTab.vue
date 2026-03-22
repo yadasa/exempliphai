@@ -48,15 +48,6 @@
             Wait this long after the page loads before starting autofill. Helpful for slower sites.
         </p>
 
-        <h2 class="subheading">AI Settings</h2>
-        <InputField
-            label="AI Model"
-            explanation="Gemini model used for AI features (autofill mapping, right-click answers, resume tailoring, and job search)."
-            :placeHolder="['gemini-1.5-pro', 'gemini-1.5-flash']"
-        />
-        <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
-            Tip: <b>Flash</b> is faster/cheaper; <b>Pro</b> is more capable for complex prompts.
-        </p>
 
         <h2 class="subheading">Resume Tailoring</h2>
         <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0;">

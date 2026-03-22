@@ -81,7 +81,7 @@
         // Support either a provider factory or a provider object in the global context.
         const gemini = global.__exempliphaiProviders?.gemini;
         if (typeof gemini === 'function') {
-          provider = gemini({ apiKey: args.apiKey, model: args.model, timeoutMs: args.timeoutMs, maxRetries: args.maxRetries });
+          provider = gemini({ apiKey: args.apiKey, timeoutMs: args.timeoutMs, maxRetries: args.maxRetries });
         } else {
           provider = gemini || { mapFieldsToFillPlan: async () => ({ actions: [] }) };
         }
@@ -90,9 +90,14 @@
       }
     }
 
+    const taskType = args?.taskType === 'deep' ? 'deep' : 'quick';
+    const modelUsed = typeof provider?.getModelForTask === 'function'
+      ? provider.getModelForTask(taskType)
+      : (taskType === 'deep' ? 'gemini-1.5-pro' : 'gemini-1.5-flash');
+
     const planRaw = await provider.mapFieldsToFillPlan({
       apiKey: args?.apiKey,
-      model: args?.model,
+      taskType,
       domain,
       pageUrl,
       snapshotHash: args?.snapshotHash,
@@ -103,7 +108,7 @@
       maxRetries: args?.maxRetries,
     });
 
-    const plan = ensureTopLevel(planRaw, { domain, pageUrl, providerName, model: args?.model });
+    const plan = ensureTopLevel(planRaw, { domain, pageUrl, providerName, model: modelUsed });
 
     // Ensure actions are at least minimally shaped.
     plan.actions = (plan.actions || []).map((a) => ({
@@ -262,7 +267,7 @@
     if (!provider) {
       const gemini = global.__exempliphaiProviders?.gemini;
       if (typeof gemini === 'function') {
-        provider = gemini({ apiKey, model: consents?.model, timeoutMs: consents?.timeoutMs, maxRetries: consents?.maxRetries });
+        provider = gemini({ apiKey, timeoutMs: consents?.timeoutMs, maxRetries: consents?.maxRetries });
       } else {
         provider = gemini;
       }
@@ -272,9 +277,14 @@
       return { ok: false, actions: [], plan: null, error: _err('provider_missing', 'AI provider not available') };
     }
 
+    const taskType = consents?.taskType === 'deep' ? 'deep' : 'quick';
+    const modelUsed = typeof provider?.getModelForTask === 'function'
+      ? provider.getModelForTask(taskType)
+      : (taskType === 'deep' ? 'gemini-1.5-pro' : 'gemini-1.5-flash');
+
     // If nothing to map after filtering, return an empty-but-valid plan.
     if (!unresolvedFields.length) {
-      const plan0 = ensureTopLevel({ actions: [] }, { domain, pageUrl, providerName: 'gemini', model: consents?.model });
+      const plan0 = ensureTopLevel({ actions: [] }, { domain, pageUrl, providerName: 'gemini', model: modelUsed });
       if (snapshotHash) plan0.snapshot_hash = snapshotHash;
       return { ok: true, actions: [], plan: plan0, error: null };
     }
@@ -289,7 +299,7 @@
         try {
           planRaw = await provider.mapFieldsToFillPlan({
             apiKey,
-            model: consents?.model,
+            taskType,
             domain,
             pageUrl,
             snapshotHash,
@@ -309,7 +319,7 @@
         }
       }
 
-      const plan = ensureTopLevel(planRaw || {}, { domain, pageUrl, providerName: 'gemini', model: consents?.model });
+      const plan = ensureTopLevel(planRaw || {}, { domain, pageUrl, providerName: 'gemini', model: modelUsed });
       if (snapshotHash && !plan.snapshot_hash) plan.snapshot_hash = snapshotHash;
 
       plan.actions = _sanitizeActions(plan.actions || [], { allowedFpsSet, allowedProfileKeysSet });
@@ -336,7 +346,7 @@
 
   // Assign constants
   global.AI_PROVIDER_INTERFACE_VERSION = '0.1';
-  global.GEMINI_DEFAULT_MODEL = 'gemini-3-flash-preview';
+  global.GEMINI_DEFAULT_MODEL = 'gemini-1.5-flash';
   global.GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
   // Attach to SmartApply namespace (used by other content scripts + unit tests)
