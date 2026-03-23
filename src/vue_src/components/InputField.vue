@@ -13,6 +13,49 @@
       <input v-if="files.includes(label)" type="file" title="" value="" :placeholder="placeHolder"
         @change="saveResume" />
       <h2 v-if="files.includes(label)">{{ inputValue }}</h2>
+
+      <!-- Resume Tailor (only for Resume upload) -->
+      <div v-if="isResumeLabel" class="tailorControls">
+        <div style="display:flex; gap:0.5rem; flex-wrap: wrap;">
+          <button class="tailorBtn" @click="tailorResume" :disabled="tailorBusy">
+            {{ tailorBusy ? 'Tailoring…' : 'Tailor Resume' }}
+          </button>
+          <button class="tailorBtn secondary" @click="openTailorModal" :disabled="!tailoredText">
+            Preview
+          </button>
+          <button class="tailorBtn secondary" @click="downloadTailoredTxt" :disabled="!tailoredText">
+            Download .txt
+          </button>
+          <button class="tailorBtn secondary" @click="downloadTailoredPdf" :disabled="!tailoredText">
+            Download PDF
+          </button>
+        </div>
+
+        <p v-if="tailorError" class="tailorError">{{ tailorError }}</p>
+
+        <p v-if="tailoredMetaText" class="tailorMeta">{{ tailoredMetaText }}</p>
+      </div>
+    </div>
+
+    <div v-if="showTailorModal" class="tailorModalOverlay" @click.self="closeTailorModal">
+      <div class="tailorModal">
+        <div style="display:flex; justify-content: space-between; align-items:center; gap:0.75rem;">
+          <h2 style="margin:0; font-size: 1.05rem;">Tailored Resume</h2>
+          <button class="tailorBtn secondary" @click="closeTailorModal">Close</button>
+        </div>
+
+        <textarea v-model="tailoredText" class="tailorTextarea" spellcheck="false"></textarea>
+
+        <div style="display:flex; gap:0.5rem; flex-wrap: wrap;">
+          <button class="tailorBtn" @click="saveTailored" :disabled="!tailoredText">Save</button>
+          <button class="tailorBtn secondary" @click="downloadTailoredTxt" :disabled="!tailoredText">Download .txt</button>
+          <button class="tailorBtn secondary" @click="downloadTailoredPdf" :disabled="!tailoredText">Download PDF</button>
+        </div>
+
+        <p style="margin: 0.6rem 0 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+          Tip: Enable <b>Auto-tailor</b> in Settings to tailor automatically before autofill.
+        </p>
+      </div>
     </div>
 
     <CustomDropdown
@@ -34,6 +77,7 @@ import CustomDropdown from '@/components/CustomDropdown.vue';
 import { usePrivacy } from '@/composables/Privacy';
 import { useExplanation } from '@/composables/Explanation.ts';
 import { useResumeDetails } from '@/composables/ResumeDetails';
+import { simplePdfFromText, uint8ToBase64, downloadBlob } from '@/utils/simplePdf';
 export default {
   components: { CustomDropdown },
   props: ['label', 'placeHolder', 'explanation'],
@@ -54,6 +98,36 @@ export default {
     watch(privacy, (newVal) => {
       hidden.value = newVal ? 'password' : 'text';
     });
+
+    // Resume tailoring (Resume upload only)
+    const isResumeLabel = computed(() => props.label === 'Resume');
+    const tailorBusy = ref(false);
+    const tailorError = ref('');
+    const showTailorModal = ref(false);
+    const tailoredText = ref('');
+    const tailoredMeta = ref<any | null>(null);
+
+    const tailoredMetaText = computed(() => {
+      if (!tailoredMeta.value) return '';
+      const m = tailoredMeta.value || {};
+      const jt = (m.jobTitle || '').toString().trim();
+      const co = (m.company || '').toString().trim();
+      const at = (m.createdAt || '').toString().trim();
+      const url = (m.pageUrl || '').toString().trim();
+      const title = [jt, co].filter(Boolean).join(' @ ');
+      const bits = [title || url || 'Unknown job', at ? `Saved ${at}` : 'Saved'];
+      return bits.filter(Boolean).join(' · ');
+    });
+
+    const loadTailored = () => {
+      if (!chrome?.storage?.local) return;
+      chrome.storage.local.get(['Resume_tailored_text', 'Resume_tailored_meta'], (res) => {
+        const t = (res as any)?.Resume_tailored_text;
+        const m = (res as any)?.Resume_tailored_meta;
+        if (typeof t === 'string') tailoredText.value = t;
+        if (m && typeof m === 'object') tailoredMeta.value = m;
+      });
+    };
 
     const months = [
       'January',
@@ -138,6 +212,196 @@ export default {
       setExplanation(props.explanation);
       toggleExplanation();
     }
+
+    const openTailorModal = () => {
+      showTailorModal.value = true;
+    };
+
+    const closeTailorModal = () => {
+      showTailorModal.value = false;
+    };
+
+    const saveTailored = () => {
+      if (!chrome?.storage?.local) return;
+      if (!tailoredText.value) return;
+
+      const nowIso = new Date().toISOString();
+      const meta = {
+        ...(tailoredMeta.value || {}),
+        createdAt: (tailoredMeta.value && tailoredMeta.value.createdAt) ? tailoredMeta.value.createdAt : nowIso,
+        updatedAt: nowIso,
+      };
+
+      const pdfBytes = simplePdfFromText(tailoredText.value);
+      const pdfB64 = uint8ToBase64(pdfBytes);
+
+      chrome.storage.local.set(
+        {
+          Resume_tailored_text: tailoredText.value,
+          Resume_tailored_pdf: pdfB64,
+          Resume_tailored_name: 'resume-tailored.pdf',
+          Resume_tailored_meta: meta,
+        },
+        () => {
+          tailoredMeta.value = meta;
+          alert('Saved tailored resume locally.');
+        }
+      );
+    };
+
+    const downloadTailoredTxt = () => {
+      if (!tailoredText.value) return;
+      const blob = new Blob([tailoredText.value], { type: 'text/plain;charset=utf-8' });
+      downloadBlob(blob, 'resume-tailored.txt');
+    };
+
+    const downloadTailoredPdf = () => {
+      if (!tailoredText.value) return;
+      const bytes = simplePdfFromText(tailoredText.value);
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      downloadBlob(blob, 'resume-tailored.pdf');
+    };
+
+    const getActiveTabJobContext = async (): Promise<any> => {
+      if (!chrome?.runtime?.sendMessage) return { ok: false, reason: 'no_runtime' };
+      return await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'GET_ACTIVE_TAB_JOB_CONTEXT' }, (resp) => {
+          const err = chrome?.runtime?.lastError;
+          if (err) resolve({ ok: false, error: err.message || String(err) });
+          else resolve(resp || { ok: false });
+        });
+      });
+    };
+
+    const tailorResume = async () => {
+      if (!isResumeLabel.value) return;
+      tailorError.value = '';
+      if (tailorBusy.value) return;
+      tailorBusy.value = true;
+
+      try {
+        // API key
+        const apiKey = await new Promise<string>((resolve) => {
+          chrome.storage.sync.get(['API Key'], (res) => resolve(String((res as any)?.['API Key'] || '')));
+        });
+        if (!apiKey) throw new Error('Missing Gemini API key. Add it in Settings.');
+
+        // Resume PDF (base64)
+        const resumeLocal = await new Promise<any>((resolve) => {
+          chrome.storage.local.get(['Resume', 'Resume_name'], (res) => resolve(res || {}));
+        });
+        const resumeB64 = String((resumeLocal as any)?.Resume || '').trim();
+        if (!resumeB64) throw new Error('Upload a Resume PDF first (Experience tab).');
+
+        const jobCtx = await getActiveTabJobContext();
+        const pageUrl = String(jobCtx?.pageUrl || '');
+        const jobTitle = String(jobCtx?.title || jobCtx?.jobTitle || '').trim();
+        const company = String(jobCtx?.company || '').trim();
+        const jd = String(jobCtx?.description || jobCtx?.jobDescription || '').trim();
+
+        const jdClip = jd.length > 12000 ? jd.slice(0, 12000) : jd;
+
+        const prompt = `You are an expert resume writer.
+
+You will receive:
+- A candidate's resume as an attached PDF
+- A job context (title/company) and a job description extracted from the active tab (may be partial)
+
+Task:
+Rewrite the resume to be strongly aligned to the job description while staying 100% truthful.
+Do NOT invent employers, degrees, certifications, job titles, dates, or technologies not present in the resume.
+
+Output:
+Return ONLY valid JSON with this exact structure:
+{
+  "version": "0.1",
+  "job_title": "",
+  "company": "",
+  "tailored_resume_text": ""
+}
+
+Formatting constraints for tailored_resume_text:
+- Plain text, ATS-friendly
+- 1 page maximum (roughly <= 58 lines)
+- Use clear sections and concise bullet points
+- Emphasize relevant skills/keywords from the JD
+
+Job title: ${jobTitle || '(unknown)'}
+Company: ${company || '(unknown)'}
+Page URL: ${pageUrl || '(unknown)'}
+
+Job description:
+${jdClip || '(not found)'}
+`;
+
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    { text: prompt },
+                    {
+                      inline_data: {
+                        data: resumeB64,
+                        mime_type: 'application/pdf',
+                      },
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.25,
+                responseMimeType: 'application/json',
+              },
+            }),
+          }
+        );
+
+        const json = await resp.json().catch(() => ({}));
+        if (!resp.ok || (json as any)?.error) {
+          const msg = (json as any)?.error?.message || `Gemini HTTP ${resp.status}`;
+          throw new Error(msg);
+        }
+
+        const outText = (json as any)?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!outText) throw new Error('Gemini response missing text');
+
+        const s = String(outText);
+        const first = s.indexOf('{');
+        const last = s.lastIndexOf('}');
+        const jsonText = first !== -1 && last !== -1 && last > first ? s.slice(first, last + 1) : s;
+
+        const out = JSON.parse(jsonText);
+        const t = String(out?.tailored_resume_text || '').trim();
+        if (!t) throw new Error('No tailored_resume_text returned.');
+
+        tailoredText.value = t;
+        let pageKey = pageUrl;
+        try {
+          const u = new URL(pageUrl);
+          pageKey = `${u.origin}${u.pathname}`;
+        } catch (_) {}
+
+        tailoredMeta.value = {
+          createdAt: new Date().toISOString(),
+          pageUrl,
+          pageKey,
+          jobTitle: String(out?.job_title || jobTitle || ''),
+          company: String(out?.company || company || ''),
+        };
+
+        showTailorModal.value = true;
+      } catch (e: any) {
+        tailorError.value = String(e?.message || e);
+      } finally {
+        tailorBusy.value = false;
+      }
+    };
 
     const saveResume = (event: Event) => {
       const file = (event.target as HTMLInputElement).files?.[0];
@@ -347,6 +611,7 @@ export default {
     }
     // Load data when the component is mounted
     loadData();
+    if (isResumeLabel.value) loadTailored();
 
     // Listen for storage changes
     if (chrome.storage) {
@@ -361,6 +626,14 @@ export default {
                 console.log(`InputField [${props.label}]: Local Storage (filename) updated to:`, newValue);
                 inputValue.value = newValue || 'No file found';
             }
+            if (areaName === 'local' && isResumeLabel.value && (changes.Resume_tailored_text || changes.Resume_tailored_meta)) {
+                if (changes.Resume_tailored_text) {
+                    tailoredText.value = String(changes.Resume_tailored_text.newValue || '');
+                }
+                if (changes.Resume_tailored_meta) {
+                    tailoredMeta.value = changes.Resume_tailored_meta.newValue || null;
+                }
+            }
         });
     }
 
@@ -374,8 +647,104 @@ export default {
       onFocus,
       onBlur,
       dropdownPrivacy,
-      showExplanation
+      showExplanation,
+
+      // Tailor UI
+      isResumeLabel,
+      tailorBusy,
+      tailorError,
+      showTailorModal,
+      tailoredText,
+      tailoredMetaText,
+      openTailorModal,
+      closeTailorModal,
+      tailorResume,
+      saveTailored,
+      downloadTailoredTxt,
+      downloadTailoredPdf,
     };
   },
 };
 </script>
+
+<style scoped>
+.tailorControls {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.tailorBtn {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: white;
+  box-shadow: 0 12px 28px rgba(79, 70, 229, 0.18);
+}
+
+.tailorBtn.secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  box-shadow: none;
+}
+
+.tailorBtn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.tailorError {
+  margin: 0.5rem 0 0;
+  color: #ef4444;
+  font-size: 0.9rem;
+}
+
+.tailorMeta {
+  margin: 0.5rem 0 0;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.tailorModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 14px;
+}
+
+.tailorModal {
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+}
+
+.tailorTextarea {
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  width: 100%;
+  height: 320px;
+  resize: vertical;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+}
+</style>

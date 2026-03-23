@@ -1063,21 +1063,33 @@ function _saInstallAiAnswerHandlers() {
 
     const chromeApi = globalThis.chrome;
     if (chromeApi?.runtime?.onMessage?.addListener) {
-      chromeApi.runtime.onMessage.addListener((request) => {
+      chromeApi.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+        if (request?.action === 'EXTRACT_JOB_CONTEXT') {
+          try {
+            sendResponse(extractJobContextFromDocument(document));
+          } catch (e) {
+            sendResponse({ ok: false, error: String(e?.message || e) });
+          }
+          return true;
+        }
+
         if (request?.action === 'TRIGGER_AI_REPLY') {
           const fallback = _saFindAiAnswerTargetElement(document.activeElement || _smartApplyLastFocusedEl);
           const target = _saAiAnswerState?.el || fallback;
           if (!target) {
             _saShowToast('AI: right-click a field (or focus it) first.');
-            return;
+            return false;
           }
           _saGenerateAiAnswer(target);
-          return;
+          return false;
         }
 
         if (request?.action === 'TRIGGER_AI_REPLY_ALL') {
           _saGenerateAllPendingAiAnswers({ limit: 8, source: 'manual' });
+          return false;
         }
+
+        return false;
       });
     }
   } catch (_) {
@@ -1467,6 +1479,237 @@ async function _saIsAutoSubmitEnabled() {
     return !!(got && (got.autoSubmitEnabled === true));
   } catch (_) {
     return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Auto-tailor resume (opt-in)
+// Controlled by chrome.storage.sync → { autoTailorEnabled: boolean }
+// Stores tailored resume in chrome.storage.local under:
+//   Resume_tailored_text, Resume_tailored_pdf, Resume_tailored_name, Resume_tailored_meta
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function _saIsAutoTailorEnabled() {
+  try {
+    if (typeof getStorageDataSync !== 'function') return false;
+    const got = await getStorageDataSync(['autoTailorEnabled']);
+    return !!(got && got.autoTailorEnabled === true);
+  } catch (_) {
+    return false;
+  }
+}
+
+function _saPageKey(url) {
+  try {
+    const u = new URL(String(url || window.location?.href || ''));
+    return `${u.origin}${u.pathname}`;
+  } catch (_) {
+    return String(url || window.location?.href || '');
+  }
+}
+
+function _saPdfAsciiSafe(s) {
+  return String(s || '').replace(/[\u0080-\uFFFF]/g, ' ');
+}
+
+function _saPdfEscape(s) {
+  return String(s || '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+}
+
+function _saSimplePdfBytesFromText(text, { maxLines = 58 } = {}) {
+  const raw = _saPdfAsciiSafe(text || '');
+  const lines = raw
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map((l) => String(l || '').trimEnd())
+    .slice(0, maxLines);
+
+  const fontSize = 10;
+  const left = 54;
+  const top = 760;
+  const leading = 12;
+
+  let stream = 'BT\n';
+  stream += `/F1 ${fontSize} Tf\n`;
+  stream += `${left} ${top} Td\n`;
+  for (let i = 0; i < lines.length; i++) {
+    stream += `(${_saPdfEscape(lines[i] || '')}) Tj\n`;
+    if (i !== lines.length - 1) stream += `0 -${leading} Td\n`;
+  }
+  stream += '\nET\n';
+
+  const header = '%PDF-1.3\n';
+  const objs = [];
+  objs.push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
+  objs.push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
+  objs.push('3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n');
+  objs.push('4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n');
+  objs.push(`5 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`);
+
+  const offsets = [0];
+  let body = '';
+  let pos = header.length;
+  for (const o of objs) {
+    offsets.push(pos);
+    body += o;
+    pos += o.length;
+  }
+  const xrefStart = header.length + body.length;
+
+  let xref = 'xref\n0 6\n';
+  xref += '0000000000 65535 f \n';
+  for (let i = 1; i < offsets.length; i++) {
+    xref += String(offsets[i]).padStart(10, '0') + ' 00000 n \n';
+  }
+
+  const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+  const pdf = header + body + xref + trailer;
+
+  // ASCII-only => UTF-8 encoding is stable.
+  return new TextEncoder().encode(pdf);
+}
+
+function _saUint8ToBase64(bytes) {
+  try {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  } catch (_) {
+    return '';
+  }
+}
+
+function _saTryGetTopHostForAutoTailor() {
+  try {
+    return window.top || window;
+  } catch (_) {
+    return window;
+  }
+}
+
+async function _saMaybeAutoTailorBeforeAutofill({ source = 'autofill' } = {}) {
+  const enabled = await _saIsAutoTailorEnabled();
+  if (!enabled) return { ok: false, reason: 'disabled' };
+
+  // Avoid multiple frames doing the same work.
+  const host = _saTryGetTopHostForAutoTailor();
+  host.__SmartApplyAutoTailorState = host.__SmartApplyAutoTailorState || { inFlight: false, lastPageKey: '', lastAt: 0 };
+  const st = host.__SmartApplyAutoTailorState;
+
+  const pageKey = _saPageKey(window.location.href);
+  if (st.inFlight) return { ok: false, reason: 'in_flight' };
+  if (st.lastPageKey === pageKey && Date.now() - (st.lastAt || 0) < 30_000) return { ok: false, reason: 'recent' };
+
+  // Need a resume + API key
+  const fullSync = (typeof getStorageDataSync === 'function') ? await getStorageDataSync() : {};
+  const apiKey = fullSync && (fullSync['API Key'] || fullSync.apiKey);
+  if (!apiKey) return { ok: false, reason: 'missing_api_key' };
+
+  const local = (typeof getStorageDataLocal === 'function') ? await getStorageDataLocal(['Resume', 'Resume_tailored_meta', 'Resume_tailored_pdf']) : {};
+  const resumeB64 = String(local?.Resume || '').trim();
+  if (!resumeB64) return { ok: false, reason: 'missing_resume' };
+
+  const ctx = extractJobContextFromDocument(document);
+  const title = String(ctx?.title || '').trim();
+  const company = String(ctx?.company || '').trim();
+  const jd = String(ctx?.description || '').trim();
+
+  if (!title && jd.length < 250) return { ok: false, reason: 'missing_job_context' };
+
+  // Cache check
+  try {
+    const meta = local?.Resume_tailored_meta;
+    if (local?.Resume_tailored_pdf && meta && _saPageKey(meta.pageUrl || '') === pageKey) {
+      const when = Date.parse(meta.updatedAt || meta.createdAt || '') || 0;
+      if (when && Date.now() - when < 6 * 60 * 60 * 1000) {
+        return { ok: true, reason: 'cached' };
+      }
+    }
+  } catch (_) {}
+
+  st.inFlight = true;
+  st.lastPageKey = pageKey;
+  st.lastAt = Date.now();
+
+  try {
+    _saShowToast('Auto-tailor: tailoring resume…');
+
+    const jdClip = jd.length > 12000 ? jd.slice(0, 12000) : jd;
+
+    const prompt = `You are an expert resume writer.\n\nRewrite the attached resume PDF to match the job description while staying 100% truthful.\nDo NOT invent employers, degrees, certifications, job titles, dates, or technologies not present in the resume.\n\nReturn ONLY valid JSON:\n{\n  \"version\": \"0.1\",\n  \"job_title\": \"\",\n  \"company\": \"\",\n  \"tailored_resume_text\": \"\"\n}\n\nFormatting constraints:\n- Plain text, ATS-friendly\n- 1 page maximum (roughly <= 58 lines)\n- Use clear sections and concise bullet points\n\nJob title: ${title || '(unknown)'}\nCompany: ${company || '(unknown)'}\nPage URL: ${window.location.href}\n\nJob description:\n${jdClip || '(not found)'}\n`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inline_data: { data: resumeB64, mime_type: 'application/pdf' } },
+            ],
+          },
+        ],
+        generationConfig: { temperature: 0.25, responseMimeType: 'application/json' },
+      }),
+    });
+
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || json?.error) {
+      const msg = json?.error?.message || `Gemini HTTP ${res.status}`;
+      throw new Error(msg);
+    }
+
+    const outText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!outText) throw new Error('Gemini response missing text');
+
+    const s = String(outText);
+    const first = s.indexOf('{');
+    const last = s.lastIndexOf('}');
+    const jsonText = first !== -1 && last !== -1 && last > first ? s.slice(first, last + 1) : s;
+    const out = JSON.parse(jsonText);
+
+    const tailored = String(out?.tailored_resume_text || '').trim();
+    if (!tailored) throw new Error('No tailored_resume_text returned');
+
+    const pdfBytes = _saSimplePdfBytesFromText(tailored);
+    const pdfB64 = _saUint8ToBase64(pdfBytes);
+
+    const nowIso = new Date().toISOString();
+    const meta = {
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      pageUrl: String(window.location.href),
+      pageKey,
+      jobTitle: String(out?.job_title || title || ''),
+      company: String(out?.company || company || ''),
+      source,
+    };
+
+    if (chrome?.storage?.local?.set) {
+      chrome.storage.local.set(
+        {
+          Resume_tailored_text: tailored,
+          Resume_tailored_pdf: pdfB64,
+          Resume_tailored_name: 'resume-tailored.pdf',
+          Resume_tailored_meta: meta,
+        },
+        () => {}
+      );
+    }
+
+    _saShowToast('Auto-tailor: saved tailored resume');
+    return { ok: true, reason: 'tailored' };
+  } catch (e) {
+    console.warn('SmartApply: auto-tailor failed', e);
+    try { _saShowToast('Auto-tailor failed (see console)'); } catch (_) {}
+    return { ok: false, reason: 'exception', error: String(e?.message || e) };
+  } finally {
+    st.inFlight = false;
   }
 }
 
@@ -2232,7 +2475,21 @@ async function _saApplySelectorEntry(entry, { root, key, fillValue, profile } = 
   if (method === 'uploadresume' || method === 'uploadcoverletter') {
     const localData = await getStorageDataLocal();
     if (method === 'uploadresume') {
-      return await _saUploadFromLocalBase64(el, localData.Resume, localData.Resume_name || 'resume.pdf', 'application/pdf');
+      let b64 = localData.Resume;
+      let name = localData.Resume_name || 'resume.pdf';
+
+      // Prefer tailored resume if it matches this page.
+      try {
+        const meta = localData.Resume_tailored_meta;
+        const pageKey = _saPageKey(window.location.href);
+        const metaKey = meta?.pageKey || _saPageKey(meta?.pageUrl || '');
+        if (localData.Resume_tailored_pdf && metaKey && metaKey === pageKey) {
+          b64 = localData.Resume_tailored_pdf;
+          name = localData.Resume_tailored_name || 'resume-tailored.pdf';
+        }
+      } catch (_) {}
+
+      return await _saUploadFromLocalBase64(el, b64, name, 'application/pdf');
     }
     if (method === 'uploadcoverletter') {
       return await _saUploadFromLocalBase64(el, localData['Cover Letter'], localData['Cover Letter_name'] || 'coverletter.pdf', 'application/pdf');
@@ -2629,6 +2886,11 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
   const now = Date.now();
   if (!force && now - smartApplyLastAutofillAt < 1500) return false;
 
+  // Optional: auto-tailor resume before autofill (opt-in)
+  try {
+    await _saMaybeAutoTailorBeforeAutofill({ source: reason || 'autofill' });
+  } catch (_) {}
+
   // Prefer Simplify-style ATS selector config when available.
   // This supports many ATS domains beyond our legacy hostname heuristics.
   try {
@@ -2848,6 +3110,85 @@ function setupLongTextareaHints() {
 
     observer.observe(document.body, { childList: true, subtree: true });
   } catch (_) {}
+}
+
+function extractJobContextFromDocument(doc) {
+  try {
+    const d = doc && doc.querySelector ? doc : document;
+
+    const pickText = (v) => String(v || '').replace(/\s+/g, ' ').trim();
+
+    // Title
+    const titleCandidates = [
+      pickText(d.querySelector('[data-testid*="job-title" i]')?.textContent),
+      pickText(d.querySelector('.job__title h1')?.textContent),
+      pickText(d.querySelector('h1')?.textContent),
+      pickText(d.querySelector('meta[property="og:title"]')?.getAttribute?.('content')),
+      pickText(d.title),
+    ].filter(Boolean);
+
+    const title = titleCandidates[0] ? String(titleCandidates[0]).slice(0, 160) : '';
+
+    // Company
+    const companyCandidates = [
+      pickText(d.querySelector('meta[property="og:site_name"]')?.getAttribute?.('content')),
+      pickText(d.querySelector('meta[name="application-name"]')?.getAttribute?.('content')),
+      pickText(d.querySelector('[data-testid*="company" i]')?.textContent),
+    ].filter(Boolean);
+    const company = companyCandidates[0] ? String(companyCandidates[0]).slice(0, 120) : '';
+
+    // Description (best-effort)
+    const selectors = [
+      '.job__description',
+      '.job__body',
+      '.posting',
+      'main',
+      'article',
+      '[class*="description" i]',
+      '[id*="description" i]',
+    ];
+
+    const nodes = [];
+    for (const sel of selectors) {
+      try {
+        nodes.push(...Array.from(d.querySelectorAll(sel) || []));
+      } catch (_) {}
+    }
+
+    const scoreText = (t) => {
+      const s = String(t || '');
+      const len = s.length;
+      if (!len) return 0;
+      let score = len;
+      const lc = s.toLowerCase();
+      if (lc.includes('responsibil')) score += 500;
+      if (lc.includes('qualification')) score += 500;
+      if (lc.includes('requirements')) score += 300;
+      if (lc.includes('about the role') || lc.includes('about the job')) score += 300;
+      return score;
+    };
+
+    let best = { text: '', score: 0 };
+    for (const el of nodes.slice(0, 80)) {
+      const t = pickText(el?.innerText || el?.textContent);
+      // Avoid very short blurbs / nav.
+      if (t.length < 200) continue;
+      if (t.length > 40000) continue;
+      const s = scoreText(t);
+      if (s > best.score) best = { text: t, score: s };
+    }
+
+    const description = best.text ? best.text.slice(0, 20000) : '';
+
+    return {
+      ok: true,
+      title,
+      company,
+      description,
+    };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
 }
 
 function normalizeText(str) {

@@ -519,6 +519,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return;
     }
 
+    // Popup → background: extract job context from the active tab (content script heuristics)
+    if (request?.action === 'GET_ACTIVE_TAB_JOB_CONTEXT') {
+      try {
+        const tabs = await _p((cb) => chrome.tabs.query({ active: true, currentWindow: true }, cb));
+        const tabId = tabs?.[0]?.id;
+        const pageUrl = tabs?.[0]?.url || '';
+        if (!Number.isFinite(tabId)) {
+          sendResponse({ ok: false, reason: 'no_active_tab' });
+          return;
+        }
+
+        const ctx = await _p((cb) => chrome.tabs.sendMessage(tabId, { action: 'EXTRACT_JOB_CONTEXT' }, cb));
+        sendResponse({ ok: true, pageUrl, ...(ctx || {}) });
+        return;
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e?.message || e) });
+        return;
+      }
+    }
+
     // List mode (popup → background)
     if (request?.action === 'LIST_MODE_SET_ENABLED') {
       const val = request?.value === true;

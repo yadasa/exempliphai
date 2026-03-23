@@ -17,6 +17,17 @@
             When enabled, Exempliphai will try to click the page’s <b>Submit</b>/<b>Next</b>/<b>Continue</b> button after it finishes autofilling.
         </p>
 
+        <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0;">
+            <label class="switch">
+                <input type="checkbox" v-model="autoTailorEnabled" @change="toggleAutoTailor" />
+                <span class="slider round"></span>
+            </label>
+            <span>Auto-tailor resume before autofill</span>
+        </div>
+        <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+            When enabled, Exempliphai will attempt to extract the job description from the current tab, tailor your resume with Gemini, and upload the tailored version.
+        </p>
+
         <div class="range-container" style="margin: 0.9rem 0 0.35rem 0;">
             <div class="range-row">
                 <span>Autofill delay (ms)</span>
@@ -341,6 +352,7 @@ export default {
         const cloudSyncEnabled = ref(false);
         const aiMappingEnabled = ref(false);
         const autoSubmitEnabled = ref(false);
+        const autoTailorEnabled = ref(false);
         const listModeEnabled = ref(false);
         const closePreviousTabs = ref(false);
 
@@ -437,11 +449,12 @@ export default {
         const loadSettings = async () => {
             if (!chrome?.storage) return;
             chrome.storage.sync.get(
-                ['cloudSyncEnabled', 'aiMappingEnabled', 'autoSubmitEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
+                ['cloudSyncEnabled', 'aiMappingEnabled', 'autoSubmitEnabled', 'autoTailorEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
                 (result) => {
                     cloudSyncEnabled.value = !!(result as any).cloudSyncEnabled;
                     aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
                     autoSubmitEnabled.value = !!(result as any).autoSubmitEnabled;
+                    autoTailorEnabled.value = !!(result as any).autoTailorEnabled;
                     listModeEnabled.value = !!(result as any).listModeEnabled;
                     closePreviousTabs.value = !!(result as any).closePreviousTabs;
                     autofillDelayMs.value = normalizeAutofillDelayMs((result as any).autofillDelayMs);
@@ -484,6 +497,12 @@ export default {
         const toggleAutoSubmit = () => {
             chrome.storage.sync.set({ autoSubmitEnabled: autoSubmitEnabled.value }, () => {
                 console.log("Auto-submit toggled:", autoSubmitEnabled.value);
+            });
+        };
+
+        const toggleAutoTailor = () => {
+            chrome.storage.sync.set({ autoTailorEnabled: autoTailorEnabled.value }, () => {
+                console.log("Auto-tailor toggled:", autoTailorEnabled.value);
             });
         };
 
@@ -647,6 +666,9 @@ export default {
                 if (changes?.autoSubmitEnabled) {
                     autoSubmitEnabled.value = !!changes.autoSubmitEnabled.newValue;
                 }
+                if (changes?.autoTailorEnabled) {
+                    autoTailorEnabled.value = !!changes.autoTailorEnabled.newValue;
+                }
                 if (changes?.listModeEnabled) {
                     listModeEnabled.value = !!changes.listModeEnabled.newValue;
                 }
@@ -695,6 +717,8 @@ export default {
             toggleAiMapping,
             autoSubmitEnabled,
             toggleAutoSubmit,
+            autoTailorEnabled,
+            toggleAutoTailor,
 
             autofillDelayMs,
             saveAutofillDelay,

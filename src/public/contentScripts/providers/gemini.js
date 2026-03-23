@@ -185,6 +185,53 @@ Optional profile facts:
 ${ps || '(none)'}`;
 }
 
+export function buildJobRecsSystemPrompt() {
+  return `You are a job recommendation engine.
+Return ONLY valid JSON.
+Do not include any prose outside JSON.`;
+}
+
+export function buildJobRecsUserPrompt({
+  profile = {},
+  resumeDetails = {},
+  desiredLocation = '',
+  countMin = 10,
+  countMax = 15,
+} = {}) {
+  return `Create ${countMin}-${countMax} job recommendations for this candidate.
+
+Return ONLY valid JSON with this exact structure:
+{
+  "version": "0.1",
+  "generated_at": "${new Date().toISOString()}",
+  "recommendations": [
+    {
+      "title": "",
+      "company": "",
+      "location": "",
+      "salary": "",
+      "why_match": "",
+      "links": [{"label": "", "url": "https://..."}]
+    }
+  ]
+}
+
+Rules:
+- Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.
+- Keep why_match 1-2 sentences.
+- If you don't know salary, return an empty string.
+- If you don't know a real job URL, include a Google search link.
+
+Desired location: ${desiredLocation || '(none)'}
+
+Profile:
+${JSON.stringify(profile || {}, null, 2)}
+
+Resume details:
+${JSON.stringify(resumeDetails || {}, null, 2)}
+`;
+}
+
 async function geminiGenerateContent({
   apiKey,
   model,

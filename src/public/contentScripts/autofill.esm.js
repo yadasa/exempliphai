@@ -102,3 +102,4 @@ export const normalizeText = sandbox.normalizeText;
 export const matchScore = sandbox.matchScore;
 export const isGreenhouse = sandbox.isGreenhouse;
 export const tabToFirstInput = sandbox.tabToFirstInput;
+export const extractJobContextFromDocument = sandbox.extractJobContextFromDocument;

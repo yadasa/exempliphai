@@ -7,6 +7,8 @@ import {
   buildTier1MappingUserPrompt,
   buildTier2NarrativeSystemPrompt,
   buildTier2NarrativeUserPrompt,
+  buildJobRecsSystemPrompt,
+  buildJobRecsUserPrompt,
 } from '../public/contentScripts/providers/gemini.js';
 
 test('Tier 1 system prompt includes required rules', () => {
@@ -74,4 +76,19 @@ test('Tier 2 user prompt includes constraints and context blocks', () => {
   assert.match(prompt, /Optional profile facts:/);
   assert.match(prompt, /Site guidance:/);
   assert.match(prompt, /Synonym hint:/);
+});
+
+test('Job recs prompts include JSON-only requirement and desired location', () => {
+  const sys = buildJobRecsSystemPrompt();
+  assert.match(sys, /Return ONLY valid JSON/i);
+
+  const user = buildJobRecsUserPrompt({
+    profile: { Email: 'x@example.com' },
+    resumeDetails: { skills: ['JS'] },
+    desiredLocation: 'Remote',
+  });
+
+  assert.match(user, /10-15 job recommendations/i);
+  assert.match(user, /Desired location: Remote/i);
+  assert.match(user, /"recommendations"/);
 });
