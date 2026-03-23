@@ -78,6 +78,7 @@ import { usePrivacy } from '@/composables/Privacy';
 import { useExplanation } from '@/composables/Explanation.ts';
 import { useResumeDetails } from '@/composables/ResumeDetails';
 import { simplePdfFromText, uint8ToBase64, downloadBlob } from '@/utils/simplePdf';
+import { buildTailorResumePrompt } from '@/utils/tailorPrompt.js';
 export default {
   components: { CustomDropdown },
   props: ['label', 'placeHolder', 'explanation'],
@@ -107,6 +108,14 @@ export default {
     const tailoredText = ref('');
     const tailoredMeta = ref<any | null>(null);
 
+    const countWords = (s: string) => {
+      const t = String(s || '').trim();
+      if (!t) return 0;
+      return t.split(/\s+/).filter(Boolean).length;
+    };
+
+    const tailoredWordCount = computed(() => countWords(tailoredText.value));
+
     const tailoredMetaText = computed(() => {
       if (!tailoredMeta.value) return '';
       const m = tailoredMeta.value || {};
@@ -116,6 +125,10 @@ export default {
       const url = (m.pageUrl || '').toString().trim();
       const title = [jt, co].filter(Boolean).join(' @ ');
       const bits = [title || url || 'Unknown job', at ? `Saved ${at}` : 'Saved'];
+
+      const wc = tailoredWordCount.value;
+      if (wc) bits.push(wc > 600 ? `Words ${wc} (over 600)` : `Words ${wc}`);
+
       return bits.filter(Boolean).join(' · ');
     });
 
@@ -299,40 +312,12 @@ export default {
         const company = String(jobCtx?.company || '').trim();
         const jd = String(jobCtx?.description || jobCtx?.jobDescription || '').trim();
 
-        const jdClip = jd.length > 12000 ? jd.slice(0, 12000) : jd;
-
-        const prompt = `You are an expert resume writer.
-
-You will receive:
-- A candidate's resume as an attached PDF
-- A job context (title/company) and a job description extracted from the active tab (may be partial)
-
-Task:
-Rewrite the resume to be strongly aligned to the job description while staying 100% truthful.
-Do NOT invent employers, degrees, certifications, job titles, dates, or technologies not present in the resume.
-
-Output:
-Return ONLY valid JSON with this exact structure:
-{
-  "version": "0.1",
-  "job_title": "",
-  "company": "",
-  "tailored_resume_text": ""
-}
-
-Formatting constraints for tailored_resume_text:
-- Plain text, ATS-friendly
-- 1 page maximum (roughly <= 58 lines)
-- Use clear sections and concise bullet points
-- Emphasize relevant skills/keywords from the JD
-
-Job title: ${jobTitle || '(unknown)'}
-Company: ${company || '(unknown)'}
-Page URL: ${pageUrl || '(unknown)'}
-
-Job description:
-${jdClip || '(not found)'}
-`;
+        const prompt = buildTailorResumePrompt({
+          jobTitle,
+          company,
+          pageUrl,
+          jobDescription: jd,
+        });
 
         const resp = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`,

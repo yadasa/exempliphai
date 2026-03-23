@@ -220,7 +220,10 @@ Rules:
 - Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.
 - Keep why_match 1-2 sentences.
 - If you don't know salary, return an empty string.
-- If you don't know a real job URL, include a Google search link.
+- Links MUST be direct job posting or application URLs (no search pages).
+  - Allowed: LinkedIn job posting URLs (e.g. https://www.linkedin.com/jobs/view/...), or company ATS postings (Greenhouse/Lever/Workday/Ashby/SmartRecruiters/Workable/iCIMS), or a company careers posting page.
+  - NOT allowed: Google/Bing/DuckDuckGo search URLs.
+- If you cannot provide a real direct application URL with high confidence, set "links" to an empty array (do NOT guess).
 
 Desired location: ${desiredLocation || '(none)'}
 

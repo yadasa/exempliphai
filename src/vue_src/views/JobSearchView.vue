@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { filterDirectApplicationLinks, isDirectApplicationUrl } from '@/utils/jobLinks.js';
 
 type JobLink = { label?: string; url: string };
 
@@ -74,7 +75,10 @@ Rules:
 - Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.
 - Keep why_match 1-2 sentences.
 - If you don't know salary, return an empty string.
-- If you don't know a real job URL, include a Google search link.
+- Links MUST be direct job posting or application URLs (no search pages).
+  - Allowed: LinkedIn job posting URLs (e.g. https://www.linkedin.com/jobs/view/...), or company ATS postings (Greenhouse/Lever/Workday/Ashby/SmartRecruiters/Workable/iCIMS), or a company careers posting page.
+  - NOT allowed: Google/Bing/DuckDuckGo search URLs.
+- If you cannot provide a real direct application URL with high confidence, set "links" to an empty array (do NOT guess).
 
 Desired location: ${desiredLocation || '(none)'}
 
@@ -122,19 +126,17 @@ function openUrl(url: string) {
   chrome.tabs.create({ url: u });
 }
 
-function openSearch(rec: JobRec) {
-  const q = [rec.title, rec.company, desiredLocation.value].filter(Boolean).join(' ');
-  const url = `https://www.google.com/search?q=${encodeURIComponent(q + ' job')}`;
-  openUrl(url);
-}
-
 function openTailorApply(rec: JobRec) {
-  const first = rec?.links?.find((l) => l && typeof l.url === 'string' && l.url.startsWith('http'));
+  const first = (Array.isArray(rec?.links) ? rec.links : []).find((l) =>
+    l && typeof (l as any)?.url === 'string' && isDirectApplicationUrl((l as any).url)
+  );
   if (first?.url) {
     openUrl(first.url);
     return;
   }
-  openSearch(rec);
+
+  // No fallbacks to Google/search engines — direct links only.
+  alert('No direct application link is available for this recommendation.');
 }
 
 async function generateRecommendations() {
@@ -174,15 +176,20 @@ async function generateRecommendations() {
         location: r.location ? String(r.location).trim() : '',
         salary: r.salary ? String(r.salary).trim() : '',
         why_match: r.why_match ? String(r.why_match).trim() : '',
-        links: Array.isArray(r.links)
-          ? r.links
-              .map((l: any) => ({ label: l?.label ? String(l.label) : '', url: String(l?.url || '') }))
-              .filter((l: JobLink) => l.url && l.url.startsWith('http'))
-              .slice(0, 4)
-          : [],
+        links: filterDirectApplicationLinks((r as any).links).slice(0, 4),
       }));
 
-    chrome.storage.local.set({ jobSearchLast: { ...out, recommendations: recs.value } }, () => {});
+    chrome.storage.local.set(
+      {
+        jobSearchLast: {
+          version: String((out as any)?.version || '0.1'),
+          generated_at: String((out as any)?.generated_at || new Date().toISOString()),
+          desiredLocation: String(desiredLocation.value || ''),
+          recommendations: recs.value,
+        },
+      },
+      () => {}
+    );
   } catch (e: any) {
     errorMsg.value = String(e?.message || e);
   } finally {
@@ -190,13 +197,18 @@ async function generateRecommendations() {
   }
 }
 
-// Load cached recs quickly
-try {
-  chrome.storage.local.get(['jobSearchLast'], (res) => {
-    const prev = (res as any)?.jobSearchLast?.recommendations;
-    if (Array.isArray(prev) && prev.length) recs.value = prev;
-  });
-} catch (_) {}
+// Load cached recs quickly on view init
+onMounted(() => {
+  try {
+    chrome.storage.local.get(['jobSearchLast'], (res) => {
+      const last = (res as any)?.jobSearchLast || {};
+      const prev = last?.recommendations;
+      const prevLoc = last?.desiredLocation;
+      if (!desiredLocation.value && typeof prevLoc === 'string') desiredLocation.value = prevLoc;
+      if (Array.isArray(prev) && prev.length) recs.value = prev;
+    });
+  } catch (_) {}
+});
 </script>
 
 <template>
@@ -247,8 +259,15 @@ try {
         </p>
 
         <div style="display:flex; gap:0.5rem; margin-top: 0.75rem;">
-          <button class="action-btn export-btn" @click="openSearch(rec)">Open Search</button>
-          <button class="action-btn" style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white;" @click="openTailorApply(rec)">Tailor &amp; Apply</button>
+          <button
+            class="action-btn"
+            style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white;"
+            @click="openTailorApply(rec)"
+            :disabled="!(rec.links && rec.links.length)"
+            :title="(rec.links && rec.links.length) ? 'Open the direct application link' : 'No direct application link available'"
+          >
+            {{ (rec.links && rec.links.length) ? 'Open Apply Link' : 'No Apply Link' }}
+          </button>
         </div>
 
         <div v-if="rec.links && rec.links.length" style="margin-top: 0.75rem;">

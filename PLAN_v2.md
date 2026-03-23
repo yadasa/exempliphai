@@ -536,6 +536,9 @@ erDiagram
 ## 10) 2026-03-23 Additions: Resume Tailor + Auto-Tailor + Job Search (Base Gemini)
 
 Shipped on base Gemini model (`gemini-3-flash-preview`):
-- **Resume Tailor button** under the Resume upload control (popup). Pulls job title/description from the active tab via background → content-script heuristics, generates a 1-page ATS-friendly tailored resume preview, and supports **save + download (.txt / PDF)**.
+- **Resume Tailor button** under the Resume upload control (popup). Pulls job title/description from the active tab via background → content-script heuristics and generates a tailored resume with **surgical edits only** (no invented facts). Target output is **<= 1 page** and **<= 600 words** (goal 400–600). Supports **preview + save + download (.txt / PDF)** and displays a word-count hint.
 - **Auto-tailor toggle** in Settings. When enabled, the content script attempts to tailor the resume before autofill and then prefers the tailored PDF for upload on matching pages.
-- **Job Search tab** in the popup. Uses saved resume details + profile fields to generate 10–15 job recommendations (title/company/location/salary/why-match/links) and shows card actions: **Open Search** + **Tailor & Apply**.
+- **Job Search tab** in the popup. Uses saved resume details + profile fields to generate 10–15 job recommendations (title/company/location/salary/why-match/links).
+  - **Direct application links only** (LinkedIn job posting / company ATS like Greenhouse/Lever/Workday/etc.). **No Google/search URLs**.
+  - If a direct apply URL can’t be provided, links are omitted/empty and the UI disables the apply-link action.
+  - Results persist to `chrome.storage.local.jobSearchLast` and load on view init (includes last desired location + recommendations).

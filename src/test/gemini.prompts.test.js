@@ -78,7 +78,7 @@ test('Tier 2 user prompt includes constraints and context blocks', () => {
   assert.match(prompt, /Synonym hint:/);
 });
 
-test('Job recs prompts include JSON-only requirement and desired location', () => {
+test('Job recs prompts include JSON-only requirement, desired location, and direct-link rules', () => {
   const sys = buildJobRecsSystemPrompt();
   assert.match(sys, /Return ONLY valid JSON/i);
 
@@ -91,4 +91,9 @@ test('Job recs prompts include JSON-only requirement and desired location', () =
   assert.match(user, /10-15 job recommendations/i);
   assert.match(user, /Desired location: Remote/i);
   assert.match(user, /"recommendations"/);
+
+  // Direct application links only (no search-engine links)
+  assert.match(user, /direct job posting|direct application/i);
+  assert.doesNotMatch(user, /google\s+search/i);
+  assert.doesNotMatch(user, /www\.google\.com\/search/i);
 });
