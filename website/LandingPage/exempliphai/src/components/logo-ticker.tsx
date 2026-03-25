@@ -47,6 +47,8 @@ export function LogoTicker() {
                   src={company.logo.src}
                   alt={company.name}
                   key={index}
+                  width={120}
+                  height={32}
                   className="h-8 w-auto"
                 />
               ))}

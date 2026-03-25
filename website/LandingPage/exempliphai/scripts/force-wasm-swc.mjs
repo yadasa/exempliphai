@@ -46,8 +46,15 @@ const wasmDest = join(
 );
 
 if (existsSync(wasmSrc)) {
-  mkdirSync(wasmDest, { recursive: true });
-  cpSync(wasmSrc, wasmDest, { recursive: true });
+  // Clean up any prior copy/symlink from previous installs.
+  if (existsSync(wasmDest)) {
+    rmSync(wasmDest, { recursive: true, force: true });
+  }
+
+  // wasmSrc is a pnpm-managed symlink. Dereference so we copy real files
+  // and avoid creating a symlink where Next expects a directory tree.
+  mkdirSync(join(wasmDest, ".."), { recursive: true });
+  cpSync(wasmSrc, wasmDest, { recursive: true, dereference: true });
   // eslint-disable-next-line no-console
   console.log("[postinstall] Copied wasm SWC bindings into node_modules/next/wasm");
 }
