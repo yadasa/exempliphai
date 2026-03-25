@@ -1,0 +1,144 @@
+{
+  "hero": {
+    "eyebrow": "Your job search, on autopilot",
+    "headline": {
+      "line1": "Find, tailor, and apply",
+      "emphasis": "10× faster"
+    },
+    "subheadline": "ExempliPhai uses one private profile to auto-search roles, tailor your resume, autofill applications, and track every application end-to-end — without selling your data.",
+    "stats": [
+      { "label": "Applications prefilled", "value": "Millions" },
+      { "label": "Time saved per application", "value": "15–30 min" },
+      { "label": "Privacy-first", "value": "No data selling" }
+    ],
+    "ctas": {
+      "primary": { "label": "Get started free", "href": "/login" },
+      "secondary": { "label": "See how it works", "href": "#how-it-works" }
+    },
+    "privacyNote": "Full anonymization. You stay in control of what gets shared."
+  },
+  "features": {
+    "title": "Everything you need to go from search → offer.",
+    "subtitle": "Stop juggling job boards, spreadsheets, and copy/paste. ExempliPhai automates the busywork so you can focus on interviews.",
+    "items": [
+      {
+        "title": "Auto-search & smart matches",
+        "description": "Tell us your target roles, location, and dealbreakers. We continuously surface relevant jobs and filter out noise.",
+        "badge": null
+      },
+      {
+        "title": "Resume tailoring in one click",
+        "description": "Generate a job-specific resume version, highlight missing keywords, and keep your core story consistent.",
+        "badge": null
+      },
+      {
+        "title": "Autofill + auto-apply flows",
+        "description": "Autofill repetitive questions, reuse verified answers, and speed through forms with fewer errors.",
+        "badge": null
+      },
+      {
+        "title": "List mode for batch apply",
+        "description": "Queue jobs, batch-tailor resumes, and knock out applications in focused sprints.",
+        "badge": "New"
+      },
+      {
+        "title": "Job tracking that doesn’t drift",
+        "description": "Bookmark roles from multiple boards, track status, deadlines, notes, and follow-ups in one place.",
+        "badge": null
+      },
+      {
+        "title": "AI Q&A for every posting",
+        "description": "Ask: “Why am I a fit?”, “What should I emphasize?”, “What gaps should I address?” — and get actionable answers.",
+        "badge": null
+      }
+    ]
+  },
+  "howItWorks": {
+    "title": "How it works",
+    "subtitle": "A simple, repeatable workflow you can run every day — without burnout.",
+    "steps": [
+      {
+        "title": "Create one private profile",
+        "description": "Import your resume once. Add your target roles, preferences, and dealbreakers — we’ll keep it up to date."
+      },
+      {
+        "title": "Auto-search and shortlist",
+        "description": "We continuously find roles that match your criteria and present them in a clean list for quick decisions."
+      },
+      {
+        "title": "Auto-tailor + prep your story",
+        "description": "Tailor your resume to each job and use AI Q&A to craft strong, consistent answers for applications and interviews."
+      },
+      {
+        "title": "Apply fast and track everything",
+        "description": "Autofill forms, reduce retyping, and automatically track what you applied to — so follow-ups are easy."
+      }
+    ]
+  },
+  "testimonials": {
+    "title": "Real momentum, not just more tabs.",
+    "subtitle": "Job seekers use ExempliPhai to move faster with less chaos — and keep their data private.",
+    "items": [
+      {
+        "quote": "I stopped losing opportunities to missed deadlines. The tracker + batch apply flow is a game changer.",
+        "name": "Maya R.",
+        "role": "New Grad, Software Engineering"
+      },
+      {
+        "quote": "The resume tailoring is fast, but what surprised me most was the Q&A — it helped me explain my experience clearly.",
+        "name": "Jordan K.",
+        "role": "Career switcher"
+      },
+      {
+        "quote": "I used to spend 25 minutes per application. Now it’s closer to 5–10 with autofill and saved answers.",
+        "name": "Sam T.",
+        "role": "Operations"
+      },
+      {
+        "quote": "List mode makes it feel like a workout set. Pick 10 roles, tailor, apply, done.",
+        "name": "Elena V.",
+        "role": "Marketing"
+      },
+      {
+        "quote": "Auto-search brought me roles I wouldn’t have found. It’s like having an assistant that actually listens to my dealbreakers.",
+        "name": "Chris P.",
+        "role": "Product"
+      },
+      {
+        "quote": "Finally a job tool that’s privacy-first. No creepy retargeting, no data selling.",
+        "name": "Nina S.",
+        "role": "Design"
+      }
+    ]
+  },
+  "faq": {
+    "title": "Got questions?",
+    "subtitle": "Quick answers before you get started.",
+    "items": [
+      {
+        "q": "Is ExempliPhai free?",
+        "a": "ExempliPhai includes a free plan with core job search, tracking, and autofill tools. We may offer optional paid tiers for advanced automation and AI features."
+      },
+      {
+        "q": "Do you sell my data?",
+        "a": "No. We do not sell personal data. We minimize what we collect, anonymize wherever possible, and you control what information is used for applications."
+      },
+      {
+        "q": "How does auto-search work?",
+        "a": "Based on your preferences (roles, location/remote, seniority, compensation, keywords, exclusions), we continuously scan supported sources and surface matches in a shortlist you can review."
+      },
+      {
+        "q": "What does “resume tailoring” mean here?",
+        "a": "We generate a job-specific version of your resume that emphasizes the most relevant experience and keywords, while keeping your facts and formatting consistent."
+      },
+      {
+        "q": "Can ExempliPhai auto-apply to jobs for me?",
+        "a": "ExempliPhai can streamline applying with autofill and guided flows. Where full auto-apply is available, you’ll always be able to review before submission."
+      },
+      {
+        "q": "Will employers see my profile?",
+        "a": "Only if you explicitly choose to share it. By default, your profile is private and used to personalize matches and tailor documents."
+      }
+    ]
+  }
+}
