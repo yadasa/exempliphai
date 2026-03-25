@@ -4,7 +4,7 @@ import type { Route } from "next";
 import Image from "next/image";
 import Link, { type LinkProps } from "next/link";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { ActionButton } from "@/components/action-button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,7 @@ export default function SiteHeader() {
           </Link>
 
           <section className="max-md:hidden">
-            <nav className="flex items-center gap-8 text-sm">
+            <nav aria-label="Primary" className="flex items-center gap-8 text-sm">
               {siteConfig.navItems.map((item) => (
                 <Link
                   href={item.href as Route}
@@ -90,16 +90,25 @@ function MobileNav({
   authed: boolean;
   className?: string;
 }) {
+  const contentId = useId();
+
   // Prevent body scroll when the menu is open
-  if (typeof window !== "undefined") {
-    document.body.style.overflow = open ? "hidden" : "unset";
-  }
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = open ? "hidden" : prev || "";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
+          aria-expanded={open}
+          aria-controls={contentId}
           className={cn(
             "extend-touch-target !p-0 flex size-9 touch-manipulation items-center justify-center",
             className,
@@ -125,7 +134,8 @@ function MobileNav({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        className="no-scrollbar h-(--radix-popper-available-height) w-(--radix-popper-available-width) overflow-y-auto rounded-none border-none bg-background/90 p-0 shadow-none backdrop-blur duration-100"
+        id={contentId}
+        className="no-scrollbar h-(--radix-popper-available-height) w-(--radix-popper-available-width) overflow-y-auto rounded-none border-none bg-background/90 p-0 shadow-none backdrop-blur duration-150"
         align="start"
         side="bottom"
         alignOffset={-32}

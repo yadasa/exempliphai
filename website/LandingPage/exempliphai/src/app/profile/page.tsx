@@ -237,8 +237,8 @@ function ProfileInner() {
   }
 
   return (
-    <div className="container py-16">
-      <div className="mx-auto max-w-5xl rounded-xl border bg-card p-6 md:p-8">
+    <div className="container py-14 md:py-16">
+      <div className="mx-auto max-w-5xl rounded-2xl border bg-card p-6 shadow-sm md:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
           <div className="flex gap-3">
@@ -255,53 +255,67 @@ function ProfileInner() {
           Stored in Firestore at <span className="font-mono">users/{user?.uid}</span>.
         </p>
 
-        {err ? (
-          <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
-            {err}
-          </div>
-        ) : null}
-        {msg ? (
-          <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
-            {msg}
-          </div>
-        ) : null}
-        {errs.length ? (
-          <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-            Validation: {errs[0]}
-          </div>
-        ) : null}
+        <div aria-live="polite" aria-atomic="true">
+          {err ? (
+            <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
+              {err}
+            </div>
+          ) : null}
+          {msg ? (
+            <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
+              {msg}
+            </div>
+          ) : null}
+          {errs.length ? (
+            <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+              Validation: {errs[0]}
+            </div>
+          ) : null}
+        </div>
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
+          <div role="tablist" aria-label="Profile sections" className="flex flex-wrap gap-2">
             <button
-              className={`h-10 rounded-md border px-3 text-sm font-semibold ${
-                tab === "profile" ? "bg-muted" : "bg-card"
+              role="tab"
+              aria-selected={tab === "profile"}
+              className={`h-10 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "profile" ? "bg-muted" : "bg-card hover:bg-muted"
               }`}
               onClick={() => setTab("profile")}
+              type="button"
             >
               Profile
             </button>
             <button
-              className={`h-10 rounded-md border px-3 text-sm font-semibold ${
-                tab === "education" ? "bg-muted" : "bg-card"
+              role="tab"
+              aria-selected={tab === "education"}
+              className={`h-10 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "education" ? "bg-muted" : "bg-card hover:bg-muted"
               }`}
               onClick={() => setTab("education")}
+              type="button"
             >
               Education
             </button>
             <button
-              className={`h-10 rounded-md border px-3 text-sm font-semibold ${
-                tab === "experience" ? "bg-muted" : "bg-card"
+              role="tab"
+              aria-selected={tab === "experience"}
+              className={`h-10 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "experience" ? "bg-muted" : "bg-card hover:bg-muted"
               }`}
               onClick={() => setTab("experience")}
+              type="button"
             >
               Experience
             </button>
             <button
-              className={`h-10 rounded-md border px-3 text-sm font-semibold ${
-                tab === "raw" ? "bg-muted" : "bg-card"
+              role="tab"
+              aria-selected={tab === "raw"}
+              className={`h-10 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "raw" ? "bg-muted" : "bg-card hover:bg-muted"
               }`}
               onClick={() => setTab("raw")}
+              type="button"
             >
               Raw JSON
             </button>
@@ -309,16 +323,18 @@ function ProfileInner() {
 
           <div className="flex gap-2">
             <button
-              className="h-10 rounded-md border bg-card px-3 text-sm font-semibold disabled:opacity-60"
+              className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
               onClick={load}
               disabled={busy !== null}
+              type="button"
             >
               {busy === "load" ? "Loading…" : "Reload"}
             </button>
             <button
-              className="h-10 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+              className="bg-gradient-primary h-10 rounded-md px-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
               onClick={save}
               disabled={busy !== null}
+              type="button"
             >
               {busy === "save" ? "Saving…" : "Save"}
             </button>
@@ -328,7 +344,7 @@ function ProfileInner() {
         <div className="mt-6">
           {tab === "raw" ? (
             <textarea
-              className="min-h-[520px] w-full rounded-lg border bg-background p-3 font-mono text-xs"
+              className="min-h-[520px] w-full rounded-lg border bg-background p-3 font-mono text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               spellCheck={false}
               value={JSON.stringify(profile || {}, null, 2)}
               onChange={(e) => {
@@ -348,13 +364,14 @@ function ProfileInner() {
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Education</h2>
                 <button
-                  className="h-10 rounded-md border bg-card px-3 text-sm font-semibold"
+                  className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() =>
                     addArrayItem(
                       "education",
                       (educationArrayField as any)?.item?.fields || [],
                     )
                   }
+                  type="button"
                 >
                   Add
                 </button>
@@ -369,8 +386,9 @@ function ProfileInner() {
                   <div className="flex items-center justify-between">
                     <div className="text-sm font-semibold">Education #{idx + 1}</div>
                     <button
-                      className="h-9 rounded-md border bg-card px-3 text-sm font-semibold"
+                      className="h-9 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => removeArrayItem("education", idx)}
+                      type="button"
                     >
                       Remove
                     </button>
@@ -400,13 +418,14 @@ function ProfileInner() {
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold">Experience</h2>
                 <button
-                  className="h-10 rounded-md border bg-card px-3 text-sm font-semibold"
+                  className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() =>
                     addArrayItem(
                       "experience",
                       (experienceArrayField as any)?.item?.fields || [],
                     )
                   }
+                  type="button"
                 >
                   Add
                 </button>
@@ -423,8 +442,9 @@ function ProfileInner() {
                       Experience #{idx + 1}
                     </div>
                     <button
-                      className="h-9 rounded-md border bg-card px-3 text-sm font-semibold"
+                      className="h-9 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => removeArrayItem("experience", idx)}
+                      type="button"
                     >
                       Remove
                     </button>
@@ -494,7 +514,7 @@ function Field({
 
       {field.type === "boolean" ? (
         <select
-          className="h-11 rounded-md border bg-background px-3 text-sm"
+          className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
           value={value === true ? "true" : value === false ? "false" : ""}
           onChange={(e) => onChange(e.target.value)}
         >
@@ -504,13 +524,13 @@ function Field({
         </select>
       ) : field.multiline ? (
         <textarea
-          className="min-h-24 rounded-md border bg-background px-3 py-2 text-sm"
+          className="min-h-24 rounded-md border bg-background px-3 py-2 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
         <input
-          className="h-11 rounded-md border bg-background px-3 text-sm"
+          className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.format === "date" ? "YYYY-MM-DD" : ""}

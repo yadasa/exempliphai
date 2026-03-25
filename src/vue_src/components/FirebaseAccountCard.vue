@@ -192,37 +192,54 @@ onBeforeUnmount(() => {
     <h3>Account (Firebase Phone Auth)</h3>
     <p>Sign in with SMS to sync your LOCAL_PROFILE to Firestore (<span class="code">users/&lt;uid&gt;</span>).</p>
 
-    <div v-if="err" class="banner err">{{ err }}</div>
-    <div v-if="msg" class="banner ok">{{ msg }}</div>
+    <div v-if="err" class="banner err" role="alert">{{ err }}</div>
+    <div v-if="msg" class="banner ok" role="status" aria-live="polite">{{ msg }}</div>
 
     <div class="row">
       <div class="col">
-        <label class="lab">Phone (E.164)</label>
-        <input class="input" v-model="phone" placeholder="+15551234567" :disabled="isAuthed || sending || verifying" />
+        <label class="lab" for="fb-phone">Phone (E.164)</label>
+        <input
+          id="fb-phone"
+          class="input"
+          v-model="phone"
+          placeholder="+15551234567"
+          type="tel"
+          inputmode="tel"
+          autocomplete="tel"
+          :disabled="isAuthed || sending || verifying"
+        />
       </div>
-      <button class="btn primary" @click="sendCode" :disabled="isAuthed || sending || verifying || !phone.trim()">
+      <button class="btn primary" type="button" @click="sendCode" :disabled="isAuthed || sending || verifying || !phone.trim()">
         {{ sending ? 'Sending…' : 'Send Code' }}
       </button>
     </div>
 
     <div class="row" style="margin-top: 10px;">
       <div class="col">
-        <label class="lab">SMS Code</label>
-        <input class="input" v-model="smsCode" placeholder="123456" :disabled="isAuthed || verifying" />
+        <label class="lab" for="fb-sms">SMS Code</label>
+        <input
+          id="fb-sms"
+          class="input"
+          v-model="smsCode"
+          placeholder="123456"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          :disabled="isAuthed || verifying"
+        />
       </div>
-      <button class="btn" @click="verifyCode" :disabled="isAuthed || verifying || !smsCode.trim()">
+      <button class="btn" type="button" @click="verifyCode" :disabled="isAuthed || verifying || !smsCode.trim()">
         {{ verifying ? 'Verifying…' : 'Verify' }}
       </button>
     </div>
 
     <div v-if="isAuthed" class="authed">
       <div><b>Signed in:</b> {{ user?.phoneNumber || user?.uid }}</div>
-      <button class="btn danger" @click="doSignOut">Sign out</button>
+      <button class="btn danger" type="button" @click="doSignOut">Sign out</button>
     </div>
 
     <div class="sync-row">
-      <button class="btn" @click="pullFromCloud" :disabled="!isAuthed || syncBusy">{{ syncBusy ? 'Working…' : 'Pull from Cloud' }}</button>
-      <button class="btn primary" @click="pushToCloud" :disabled="!isAuthed || syncBusy">{{ syncBusy ? 'Working…' : 'Push to Cloud' }}</button>
+      <button class="btn" type="button" @click="pullFromCloud" :disabled="!isAuthed || syncBusy">{{ syncBusy ? 'Working…' : 'Pull from Cloud' }}</button>
+      <button class="btn primary" type="button" @click="pushToCloud" :disabled="!isAuthed || syncBusy">{{ syncBusy ? 'Working…' : 'Push to Cloud' }}</button>
     </div>
 
     <!-- reCAPTCHA container (invisible) -->
@@ -264,6 +281,13 @@ onBeforeUnmount(() => {
   color: var(--text-primary);
   padding: 10px;
   border-radius: 12px;
+  outline: none;
+  transition: box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.input:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-color) 65%, var(--card-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 22%, transparent);
 }
 
 .btn {
@@ -272,10 +296,15 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   cursor: pointer;
   font-weight: 800;
-  transition: transform 0.12s ease, filter 0.12s ease;
+  transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
   background: var(--card-bg);
   color: var(--text-primary);
   border: 1px solid var(--card-border);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 28%, transparent);
 }
 
 .btn.primary {

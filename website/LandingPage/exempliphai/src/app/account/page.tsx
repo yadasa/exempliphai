@@ -83,8 +83,8 @@ function AccountInner() {
   }
 
   return (
-    <div className="container py-24">
-      <div className="mx-auto max-w-2xl rounded-xl border bg-card p-8">
+    <div className="container py-20 md:py-24">
+      <div className="mx-auto max-w-2xl rounded-2xl border bg-card p-6 shadow-sm md:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
           <div className="flex gap-3">
@@ -101,22 +101,25 @@ function AccountInner() {
           Signed in as <span className="font-medium">{user?.phoneNumber}</span>
         </p>
 
-        {err ? (
-          <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
-            {err}
-          </div>
-        ) : null}
-        {msg ? (
-          <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
-            {msg}
-          </div>
-        ) : null}
+        <div aria-live="polite" aria-atomic="true">
+          {err ? (
+            <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
+              {err}
+            </div>
+          ) : null}
+          {msg ? (
+            <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
+              {msg}
+            </div>
+          ) : null}
+        </div>
 
         <div className="mt-6 grid gap-3">
-          <label className="grid gap-1">
+          <label className="grid gap-1" htmlFor="account-display-name">
             <span className="text-sm font-medium">Display name</span>
             <input
-              className="h-11 rounded-md border bg-background px-3 text-sm"
+              id="account-display-name"
+              className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="Jane Doe"
@@ -126,14 +129,14 @@ function AccountInner() {
 
           <div className="flex flex-wrap gap-3">
             <button
-              className="h-11 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+              className="bg-gradient-primary h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
               onClick={save}
               disabled={busy}
             >
               Save
             </button>
             <button
-              className="h-11 rounded-md border bg-card px-4 text-sm font-semibold disabled:opacity-60"
+              className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
               onClick={logout}
               disabled={busy}
             >

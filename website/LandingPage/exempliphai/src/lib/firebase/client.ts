@@ -8,11 +8,9 @@ import {
 
 function env(name: string): string {
   const v = process.env[name];
-  if (!v) {
-    throw new Error(
-      `Missing env var ${name}. Copy .env.example -> .env.local and fill it in.`,
-    );
-  }
+  // In local/dev environments we still want pages to render without crashing,
+  // even if Firebase isn't configured yet.
+  if (!v) return "";
   return v;
 }
 
@@ -34,6 +32,23 @@ export function getFirebase(): FirebaseClients {
     messagingSenderId: env("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID"),
     appId: env("NEXT_PUBLIC_FIREBASE_APP_ID"),
   };
+
+  const isConfigured = !!(
+    firebaseConfig.apiKey &&
+    firebaseConfig.authDomain &&
+    firebaseConfig.projectId &&
+    firebaseConfig.appId
+  );
+
+  if (!isConfigured) {
+    // Don't crash the whole app (dev DX + better error surfacing in UI).
+    // Pages that need auth will handle this gracefully.
+    cached = {
+      auth: null as unknown as Auth,
+      db: null as unknown as Firestore,
+    };
+    return cached;
+  }
 
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
   const auth = getAuth(app);

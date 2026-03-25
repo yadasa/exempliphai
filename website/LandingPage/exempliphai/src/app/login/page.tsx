@@ -81,29 +81,42 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="container py-24">
-      <div className="mx-auto max-w-lg rounded-xl border bg-card p-8">
+    <div className="relative overflow-hidden">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 -z-10 opacity-70"
+        style={{
+          background:
+            "radial-gradient(1000px 600px at 20% 10%, color-mix(in oklab, var(--color-primary) 22%, transparent), transparent 60%), radial-gradient(900px 500px at 80% 20%, color-mix(in oklab, var(--brand-violet) 18%, transparent), transparent 55%)",
+        }}
+      />
+
+      <div className="container py-20 md:py-24">
+        <div className="mx-auto max-w-lg rounded-2xl border bg-card/80 p-6 shadow-sm backdrop-blur md:p-8">
         <h1 className="text-2xl font-semibold tracking-tight">Log in</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Sign in with your phone number (SMS verification).
         </p>
 
-        {err ? (
-          <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
-            {err}
-          </div>
-        ) : null}
-        {msg ? (
-          <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
-            {msg}
-          </div>
-        ) : null}
+        <div aria-live="polite" aria-atomic="true">
+          {err ? (
+            <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
+              {err}
+            </div>
+          ) : null}
+          {msg ? (
+            <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
+              {msg}
+            </div>
+          ) : null}
+        </div>
 
         <div className="mt-6 grid gap-3">
-          <label className="grid gap-1">
+          <label className="grid gap-1" htmlFor="login-phone">
             <span className="text-sm font-medium">Phone (E.164)</span>
             <input
-              className="h-11 rounded-md border bg-background px-3 text-sm"
+              id="login-phone"
+              className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               placeholder="+15551234567"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
@@ -114,17 +127,18 @@ export default function LoginPage() {
           </label>
 
           <button
-            className="h-11 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            className="bg-gradient-primary h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             onClick={sendCode}
             disabled={!phone.trim() || busy !== null}
           >
             {busy === "send" ? "Sending…" : "Send code"}
           </button>
 
-          <label className="grid gap-1">
+          <label className="grid gap-1" htmlFor="login-code">
             <span className="text-sm font-medium">SMS code</span>
             <input
-              className="h-11 rounded-md border bg-background px-3 text-sm"
+              id="login-code"
+              className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               placeholder="123456"
               value={code}
               onChange={(e) => setCode(e.target.value)}
@@ -135,7 +149,7 @@ export default function LoginPage() {
           </label>
 
           <button
-            className="h-11 rounded-md border bg-card px-4 text-sm font-semibold disabled:opacity-60"
+            className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             onClick={verifyCode}
             disabled={!code.trim() || busy !== null}
           >
@@ -146,13 +160,17 @@ export default function LoginPage() {
         {/* invisible reCAPTCHA container */}
         <div id="recaptcha-container" />
 
-        <div className="mt-6 flex items-center justify-between">
-          <Link className="text-sm text-primary underline" href="/">
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <Link className="text-sm text-primary underline-offset-4 hover:underline" href="/">
             Back to home
           </Link>
-          <Link className="text-sm text-primary underline" href={"/account" as any}>
+          <Link
+            className="text-sm text-primary underline-offset-4 hover:underline"
+            href={"/account" as any}
+          >
             Account
           </Link>
+        </div>
         </div>
       </div>
     </div>

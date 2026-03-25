@@ -43,7 +43,7 @@
   --text-primary: rgba(255, 255, 255, 0.95);
   --text-secondary: rgba(255, 255, 255, 0.65);
 
-  --accent-color: #7c3aed; /* violet */
+  --accent-color: #667eea; /* blue (matches gradient) */
   --accent-2: #22c55e;
 
   --border-color: rgba(255, 255, 255, 0.12);
@@ -80,7 +80,7 @@
   --text-primary: #0f172a; /* slate-900 */
   --text-secondary: rgba(15, 23, 42, 0.65);
 
-  --accent-color: #6d28d9; /* violet-700 */
+  --accent-color: #4f63e6; /* blue (matches gradient) */
   --accent-2: #16a34a;
 
   --border-color: rgba(15, 23, 42, 0.10);

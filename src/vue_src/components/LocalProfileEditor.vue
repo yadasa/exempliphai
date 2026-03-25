@@ -34,6 +34,12 @@ const status = reactive<{ msg: string; kind?: 'ok' | 'err' }>(
 
 const profile = ref<Record<string, any>>({});
 
+function fieldId(section: string, idx: number | null, key: string) {
+  const safe = String(key || '').replace(/[^a-zA-Z0-9_-]+/g, '-');
+  const p = idx == null ? 'x' : String(idx);
+  return `lp-${section}-${p}-${safe}`;
+}
+
 function setStatus(msg: string, kind?: 'ok' | 'err') {
   status.msg = msg;
   status.kind = kind;
@@ -204,24 +210,24 @@ onMounted(async () => {
 <template>
   <div class="local-profile">
     <div class="top-row">
-      <div class="tabs">
-        <button class="tab" :class="{ active: activeTab === 'profile' }" @click="activeTab = 'profile'">Profile</button>
-        <button class="tab" :class="{ active: activeTab === 'education' }" @click="activeTab = 'education'">Education</button>
-        <button class="tab" :class="{ active: activeTab === 'experience' }" @click="activeTab = 'experience'">Experience</button>
-        <button class="tab" :class="{ active: activeTab === 'raw' }" @click="activeTab = 'raw'">Raw JSON</button>
+      <div class="tabs" role="tablist" aria-label="Profile editor sections">
+        <button class="tab" role="tab" type="button" :aria-selected="activeTab === 'profile'" :class="{ active: activeTab === 'profile' }" @click="activeTab = 'profile'">Profile</button>
+        <button class="tab" role="tab" type="button" :aria-selected="activeTab === 'education'" :class="{ active: activeTab === 'education' }" @click="activeTab = 'education'">Education</button>
+        <button class="tab" role="tab" type="button" :aria-selected="activeTab === 'experience'" :class="{ active: activeTab === 'experience' }" @click="activeTab = 'experience'">Experience</button>
+        <button class="tab" role="tab" type="button" :aria-selected="activeTab === 'raw'" :class="{ active: activeTab === 'raw' }" @click="activeTab = 'raw'">Raw JSON</button>
       </div>
       <div class="actions">
-        <button class="btn" @click="loadProfile">Reload</button>
-        <button class="btn primary" @click="saveProfile">Save</button>
-        <button class="btn danger" @click="clearProfile">Clear</button>
+        <button class="btn" type="button" @click="loadProfile">Reload</button>
+        <button class="btn primary" type="button" @click="saveProfile">Save</button>
+        <button class="btn danger" type="button" @click="clearProfile">Clear</button>
       </div>
     </div>
 
-    <div v-if="status.msg" class="status" :class="status.kind">
+    <div v-if="status.msg" class="status" :class="status.kind" role="status" aria-live="polite">
       {{ status.msg }}
     </div>
 
-    <div v-if="validationErrors.length" class="status err" style="margin-top: 10px;">
+    <div v-if="validationErrors.length" class="status err" style="margin-top: 10px;" role="alert">
       Validation: {{ validationErrors[0] }}
     </div>
 
@@ -239,28 +245,47 @@ onMounted(async () => {
 
       <div v-else-if="activeTab === 'education'">
         <div class="section-title">Education</div>
-        <button class="btn" @click="addArrayItem('education', (educationArrayField as any)?.item?.fields || [])">Add</button>
+        <button class="btn" type="button" @click="addArrayItem('education', (educationArrayField as any)?.item?.fields || [])">Add</button>
         <div v-if="getArray('education').length === 0" class="note">No items yet.</div>
         <div v-for="(item, idx) in getArray('education')" :key="idx" class="card">
           <div class="card-top">
             <div class="badge">Education #{{ idx + 1 }}</div>
-            <button class="btn danger" @click="removeArrayItem('education', idx)">Remove</button>
+            <button class="btn danger" type="button" @click="removeArrayItem('education', idx)">Remove</button>
           </div>
           <div class="grid">
             <div v-for="f in ((educationArrayField as any)?.item?.fields || [])" :key="f.key" class="field">
-              <label class="fieldLabel">{{ f.label }}</label>
+              <label class="fieldLabel" :for="fieldId('education', idx, f.key)">
+                {{ f.label }}<span v-if="f.required"> *</span>
+              </label>
               <template v-if="f.type === 'boolean'">
-                <select class="input" :value="item?.[f.key] === true ? 'true' : item?.[f.key] === false ? 'false' : ''" @change="(e:any) => updateArrayItemField('education', idx, f, e.target.value)">
+                <select
+                  class="input"
+                  :id="fieldId('education', idx, f.key)"
+                  :value="item?.[f.key] === true ? 'true' : item?.[f.key] === false ? 'false' : ''"
+                  @change="(e:any) => updateArrayItemField('education', idx, f, e.target.value)"
+                >
                   <option value="">—</option>
                   <option value="true">true</option>
                   <option value="false">false</option>
                 </select>
               </template>
               <template v-else-if="f.multiline">
-                <textarea class="input" rows="4" :value="item?.[f.key] ?? ''" @input="(e:any) => updateArrayItemField('education', idx, f, e.target.value)" />
+                <textarea
+                  class="input"
+                  :id="fieldId('education', idx, f.key)"
+                  rows="4"
+                  :value="item?.[f.key] ?? ''"
+                  @input="(e:any) => updateArrayItemField('education', idx, f, e.target.value)"
+                />
               </template>
               <template v-else>
-                <input class="input" :type="f.type === 'number' ? 'number' : 'text'" :value="item?.[f.key] ?? ''" @input="(e:any) => updateArrayItemField('education', idx, f, e.target.value)" />
+                <input
+                  class="input"
+                  :id="fieldId('education', idx, f.key)"
+                  :type="f.type === 'number' ? 'number' : 'text'"
+                  :value="item?.[f.key] ?? ''"
+                  @input="(e:any) => updateArrayItemField('education', idx, f, e.target.value)"
+                />
               </template>
             </div>
           </div>
@@ -269,28 +294,47 @@ onMounted(async () => {
 
       <div v-else-if="activeTab === 'experience'">
         <div class="section-title">Experience</div>
-        <button class="btn" @click="addArrayItem('experience', (experienceArrayField as any)?.item?.fields || [])">Add</button>
+        <button class="btn" type="button" @click="addArrayItem('experience', (experienceArrayField as any)?.item?.fields || [])">Add</button>
         <div v-if="getArray('experience').length === 0" class="note">No items yet.</div>
         <div v-for="(item, idx) in getArray('experience')" :key="idx" class="card">
           <div class="card-top">
             <div class="badge">Experience #{{ idx + 1 }}</div>
-            <button class="btn danger" @click="removeArrayItem('experience', idx)">Remove</button>
+            <button class="btn danger" type="button" @click="removeArrayItem('experience', idx)">Remove</button>
           </div>
           <div class="grid">
             <div v-for="f in ((experienceArrayField as any)?.item?.fields || [])" :key="f.key" class="field">
-              <label class="fieldLabel">{{ f.label }}</label>
+              <label class="fieldLabel" :for="fieldId('experience', idx, f.key)">
+                {{ f.label }}<span v-if="f.required"> *</span>
+              </label>
               <template v-if="f.type === 'boolean'">
-                <select class="input" :value="item?.[f.key] === true ? 'true' : item?.[f.key] === false ? 'false' : ''" @change="(e:any) => updateArrayItemField('experience', idx, f, e.target.value)">
+                <select
+                  class="input"
+                  :id="fieldId('experience', idx, f.key)"
+                  :value="item?.[f.key] === true ? 'true' : item?.[f.key] === false ? 'false' : ''"
+                  @change="(e:any) => updateArrayItemField('experience', idx, f, e.target.value)"
+                >
                   <option value="">—</option>
                   <option value="true">true</option>
                   <option value="false">false</option>
                 </select>
               </template>
               <template v-else-if="f.multiline">
-                <textarea class="input" rows="4" :value="item?.[f.key] ?? ''" @input="(e:any) => updateArrayItemField('experience', idx, f, e.target.value)" />
+                <textarea
+                  class="input"
+                  :id="fieldId('experience', idx, f.key)"
+                  rows="4"
+                  :value="item?.[f.key] ?? ''"
+                  @input="(e:any) => updateArrayItemField('experience', idx, f, e.target.value)"
+                />
               </template>
               <template v-else>
-                <input class="input" :type="f.type === 'number' ? 'number' : 'text'" :value="item?.[f.key] ?? ''" @input="(e:any) => updateArrayItemField('experience', idx, f, e.target.value)" />
+                <input
+                  class="input"
+                  :id="fieldId('experience', idx, f.key)"
+                  :type="f.type === 'number' ? 'number' : 'text'"
+                  :value="item?.[f.key] ?? ''"
+                  @input="(e:any) => updateArrayItemField('experience', idx, f, e.target.value)"
+                />
               </template>
             </div>
           </div>
@@ -303,19 +347,39 @@ onMounted(async () => {
           <div class="grid">
             <template v-for="f in cat.fields" :key="f.key">
               <div v-if="f.type !== 'array'" class="field">
-                <label class="fieldLabel">{{ f.label }}<span v-if="f.required"> *</span></label>
+                <label class="fieldLabel" :for="fieldId('profile', null, f.key)">
+                  {{ f.label }}<span v-if="f.required"> *</span>
+                </label>
                 <template v-if="f.type === 'boolean'">
-                  <select class="input" :value="profile?.[f.key] === true ? 'true' : profile?.[f.key] === false ? 'false' : ''" @change="(e:any) => updateField(f, e.target.value)">
+                  <select
+                    class="input"
+                    :id="fieldId('profile', null, f.key)"
+                    :value="profile?.[f.key] === true ? 'true' : profile?.[f.key] === false ? 'false' : ''"
+                    @change="(e:any) => updateField(f, e.target.value)"
+                  >
                     <option value="">—</option>
                     <option value="true">true</option>
                     <option value="false">false</option>
                   </select>
                 </template>
                 <template v-else-if="f.multiline">
-                  <textarea class="input" rows="4" :value="profile?.[f.key] ?? ''" @input="(e:any) => updateField(f, e.target.value)" />
+                  <textarea
+                    class="input"
+                    :id="fieldId('profile', null, f.key)"
+                    rows="4"
+                    :value="profile?.[f.key] ?? ''"
+                    @input="(e:any) => updateField(f, e.target.value)"
+                  />
                 </template>
                 <template v-else>
-                  <input class="input" :type="f.type === 'number' ? 'number' : 'text'" :placeholder="f.format === 'date' ? 'YYYY-MM-DD' : ''" :value="profile?.[f.key] ?? ''" @input="(e:any) => updateField(f, e.target.value)" />
+                  <input
+                    class="input"
+                    :id="fieldId('profile', null, f.key)"
+                    :type="f.type === 'number' ? 'number' : 'text'"
+                    :placeholder="f.format === 'date' ? 'YYYY-MM-DD' : ''"
+                    :value="profile?.[f.key] ?? ''"
+                    @input="(e:any) => updateField(f, e.target.value)"
+                  />
                 </template>
               </div>
             </template>
@@ -354,10 +418,21 @@ onMounted(async () => {
   color: var(--text-primary);
   font-weight: 800;
   cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+}
+
+.tab:hover {
+  filter: brightness(1.03);
+}
+
+.tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 28%, transparent);
 }
 
 .tab.active {
   outline: 2px solid color-mix(in srgb, var(--accent-color) 70%, white);
+  outline-offset: 1px;
 }
 
 .actions {
@@ -373,6 +448,21 @@ onMounted(async () => {
   color: var(--text-primary);
   font-weight: 800;
   cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+}
+
+.btn:hover {
+  filter: brightness(1.03);
+}
+
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 28%, transparent);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .btn.primary {
@@ -425,6 +515,13 @@ onMounted(async () => {
   color: var(--text-primary);
   padding: 10px;
   border-radius: 12px;
+  outline: none;
+  transition: box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.input:focus-visible {
+  border-color: color-mix(in srgb, var(--accent-color) 65%, var(--card-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 22%, transparent);
 }
 
 .raw {

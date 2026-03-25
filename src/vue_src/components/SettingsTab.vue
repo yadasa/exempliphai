@@ -3,7 +3,7 @@
         <h2 class="subheading">General</h2>
         <InputField label="API Key" explanation="The API Key field requires a Gemini-1.5-flash api key." placeHolder="AIyKwaSyBTOk..." />
         <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--accent-color); text-decoration: none;">Get a free API Key here</a>
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" style="color: var(--accent-color); text-decoration: none;">Get a free API Key here</a>
         </p>
 
         <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0;">
@@ -843,6 +843,11 @@ export default {
     filter: brightness(1.02);
 }
 
+.action-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 28%, transparent), var(--shadow-1);
+}
+
 .toggle-container {
     display: flex;
     align-items: center;
@@ -900,5 +905,9 @@ input:checked + .slider:before {
 
 .slider.round:before {
   border-radius: 999px;
+}
+
+.switch input:focus-visible + .slider {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-color) 28%, transparent);
 }
 </style>
