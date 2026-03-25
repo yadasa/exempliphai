@@ -1,16 +1,157 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  type ConfirmationResult,
+} from "firebase/auth";
+import { getFirebase } from "@/lib/firebase/client";
+import { useAuth } from "@/lib/auth/auth-context";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const { user, loading } = useAuth();
+
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState<"send" | "verify" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const confirmationRef = useRef<ConfirmationResult | null>(null);
+  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+
+  useEffect(() => {
+    if (!loading && user) router.replace("/account" as any);
+  }, [loading, user, router]);
+
+  async function sendCode() {
+    setErr(null);
+    setMsg(null);
+    setBusy("send");
+
+    try {
+      const { auth } = getFirebase();
+
+      if (!recaptchaRef.current) {
+        recaptchaRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
+          size: "invisible",
+        });
+      }
+
+      const confirmation = await signInWithPhoneNumber(
+        auth,
+        phone.trim(),
+        recaptchaRef.current,
+      );
+      confirmationRef.current = confirmation;
+      setMsg("SMS sent. Enter the code to verify.");
+    } catch (e: any) {
+      try {
+        recaptchaRef.current?.clear();
+      } catch {
+        // ignore
+      }
+      recaptchaRef.current = null;
+      setErr(String(e?.message || e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function verifyCode() {
+    setErr(null);
+    setMsg(null);
+    setBusy("verify");
+
+    try {
+      if (!confirmationRef.current) throw new Error("Send the SMS code first.");
+      await confirmationRef.current.confirm(code.trim());
+      setMsg("Signed in.");
+      setCode("");
+      router.replace("/account" as any);
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="container py-24">
       <div className="mx-auto max-w-lg rounded-xl border bg-card p-8">
         <h1 className="text-2xl font-semibold tracking-tight">Log in</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          This is a placeholder route for the landing page nav.
+          Sign in with your phone number (SMS verification).
         </p>
-        <div className="mt-6">
+
+        {err ? (
+          <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
+            {err}
+          </div>
+        ) : null}
+        {msg ? (
+          <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
+            {msg}
+          </div>
+        ) : null}
+
+        <div className="mt-6 grid gap-3">
+          <label className="grid gap-1">
+            <span className="text-sm font-medium">Phone (E.164)</span>
+            <input
+              className="h-11 rounded-md border bg-background px-3 text-sm"
+              placeholder="+15551234567"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              inputMode="tel"
+              autoComplete="tel"
+              disabled={busy !== null}
+            />
+          </label>
+
+          <button
+            className="h-11 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            onClick={sendCode}
+            disabled={!phone.trim() || busy !== null}
+          >
+            {busy === "send" ? "Sending…" : "Send code"}
+          </button>
+
+          <label className="grid gap-1">
+            <span className="text-sm font-medium">SMS code</span>
+            <input
+              className="h-11 rounded-md border bg-background px-3 text-sm"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              disabled={busy !== null}
+            />
+          </label>
+
+          <button
+            className="h-11 rounded-md border bg-card px-4 text-sm font-semibold disabled:opacity-60"
+            onClick={verifyCode}
+            disabled={!code.trim() || busy !== null}
+          >
+            {busy === "verify" ? "Verifying…" : "Verify"}
+          </button>
+        </div>
+
+        {/* invisible reCAPTCHA container */}
+        <div id="recaptcha-container" />
+
+        <div className="mt-6 flex items-center justify-between">
           <Link className="text-sm text-primary underline" href="/">
             Back to home
+          </Link>
+          <Link className="text-sm text-primary underline" href={"/account" as any}>
+            Account
           </Link>
         </div>
       </div>

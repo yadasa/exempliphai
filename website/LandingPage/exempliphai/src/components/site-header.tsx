@@ -15,9 +15,11 @@ import {
 } from "@/components/ui/popover";
 import { siteConfig } from "@/config/site-config";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/lib/auth/auth-context";
 
 export default function SiteHeader() {
   const [isOpen, setIsOpen] = useState(false);
+  const { user } = useAuth();
 
   return (
     <header className="sticky top-0 z-20 border-b bg-background/75 py-4 backdrop-blur max-md:backdrop-blur-sm">
@@ -56,10 +58,10 @@ export default function SiteHeader() {
                 </Link>
               ))}
               <Link
-                href={siteConfig.links.loginUrl as Route}
+                href={(user ? "/account" : siteConfig.links.loginUrl) as Route}
                 className="text-foreground/70 transition hover:text-foreground"
               >
-                Log in
+                {user ? "Account" : "Log in"}
               </Link>
             </nav>
           </section>
@@ -69,7 +71,7 @@ export default function SiteHeader() {
             <Link href={siteConfig.links.waitlistUrl as Route} className="max-md:hidden">
               <ActionButton label="Join waitlist" />
             </Link>
-            <MobileNav open={isOpen} setOpen={setIsOpen} className="flex md:hidden" />
+            <MobileNav open={isOpen} setOpen={setIsOpen} authed={!!user} className="flex md:hidden" />
           </section>
         </div>
       </div>
@@ -80,10 +82,12 @@ export default function SiteHeader() {
 function MobileNav({
   open,
   setOpen,
+  authed,
   className,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
+  authed: boolean;
   className?: string;
 }) {
   // Prevent body scroll when the menu is open
@@ -140,8 +144,11 @@ function MobileNav({
                   {item.label}
                 </MobileLink>
               ))}
-              <MobileLink href={siteConfig.links.loginUrl as Route} onOpenChange={setOpen}>
-                Log in
+              <MobileLink
+                href={(authed ? "/account" : siteConfig.links.loginUrl) as Route}
+                onOpenChange={setOpen}
+              >
+                {authed ? "Account" : "Log in"}
               </MobileLink>
               <MobileLink href={siteConfig.links.waitlistUrl as Route} onOpenChange={setOpen}>
                 Join waitlist

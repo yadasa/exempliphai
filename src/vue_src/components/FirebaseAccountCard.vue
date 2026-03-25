@@ -1,0 +1,315 @@
+<script setup lang="ts">
+import { onMounted, onBeforeUnmount, ref, computed } from 'vue';
+import { getFirebase } from '@/lib/firebase';
+import {
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  onAuthStateChanged,
+  signOut,
+  type ConfirmationResult,
+  type User,
+} from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+
+const KEY = 'LOCAL_PROFILE';
+const LEGACY_KEY = 'EXEMPLIPHAI_LOCAL_PROFILE';
+
+const phone = ref('');
+const smsCode = ref('');
+const sending = ref(false);
+const verifying = ref(false);
+const syncBusy = ref(false);
+const err = ref<string | null>(null);
+const msg = ref<string | null>(null);
+
+const user = ref<User | null>(null);
+const confirmation = ref<ConfirmationResult | null>(null);
+let unsub: (() => void) | null = null;
+let recaptcha: RecaptchaVerifier | null = null;
+
+const isAuthed = computed(() => !!user.value);
+
+function setError(e: any) {
+  err.value = String(e?.message || e);
+  msg.value = null;
+}
+
+function setMessage(m: string) {
+  msg.value = m;
+  err.value = null;
+}
+
+async function sendCode() {
+  err.value = null;
+  msg.value = null;
+  sending.value = true;
+  try {
+    const { auth } = getFirebase();
+
+    if (!recaptcha) {
+      recaptcha = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+      });
+    }
+
+    confirmation.value = await signInWithPhoneNumber(auth, phone.value.trim(), recaptcha);
+    setMessage('SMS sent. Enter the code to verify.');
+  } catch (e) {
+    // If reCAPTCHA is in a bad state, rebuild it.
+    try {
+      recaptcha?.clear();
+    } catch (_) {}
+    recaptcha = null;
+    setError(e);
+  } finally {
+    sending.value = false;
+  }
+}
+
+async function verifyCode() {
+  err.value = null;
+  msg.value = null;
+  verifying.value = true;
+  try {
+    if (!confirmation.value) throw new Error('Send the SMS code first.');
+    await confirmation.value.confirm(smsCode.value.trim());
+    setMessage('Signed in.');
+    smsCode.value = '';
+  } catch (e) {
+    setError(e);
+  } finally {
+    verifying.value = false;
+  }
+}
+
+async function doSignOut() {
+  err.value = null;
+  msg.value = null;
+  try {
+    const { auth } = getFirebase();
+    await signOut(auth);
+    confirmation.value = null;
+    setMessage('Signed out.');
+  } catch (e) {
+    setError(e);
+  }
+}
+
+async function loadLocalProfile(): Promise<Record<string, any>> {
+  const got = await chrome.storage.local.get([KEY, LEGACY_KEY]);
+  const p = (got as any)[KEY] || (got as any)[LEGACY_KEY] || {};
+  return p && typeof p === 'object' && !Array.isArray(p) ? p : {};
+}
+
+async function saveLocalProfile(p: Record<string, any>) {
+  await chrome.storage.local.set({ [KEY]: p, [LEGACY_KEY]: p });
+}
+
+async function pushToCloud() {
+  syncBusy.value = true;
+  err.value = null;
+  msg.value = null;
+  try {
+    const u = user.value;
+    if (!u) throw new Error('Sign in first.');
+    const { db } = getFirebase();
+
+    const p = await loadLocalProfile();
+    await setDoc(
+      doc(db, 'users', u.uid),
+      {
+        ...p,
+        account: {
+          phoneNumber: u.phoneNumber || null,
+          uid: u.uid,
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    setMessage('Uploaded local profile to Firestore (users/{uid}).');
+  } catch (e) {
+    setError(e);
+  } finally {
+    syncBusy.value = false;
+  }
+}
+
+async function pullFromCloud() {
+  syncBusy.value = true;
+  err.value = null;
+  msg.value = null;
+  try {
+    const u = user.value;
+    if (!u) throw new Error('Sign in first.');
+    const { db } = getFirebase();
+
+    const snap = await getDoc(doc(db, 'users', u.uid));
+    if (!snap.exists()) {
+      throw new Error('No profile found in Firestore for this user yet.');
+    }
+
+    const data = snap.data() as any;
+    // Remove metadata fields
+    delete data.updatedAt;
+    // Keep account as-is (optional)
+
+    await saveLocalProfile(data);
+    setMessage('Downloaded Firestore profile into LOCAL_PROFILE.');
+  } catch (e) {
+    setError(e);
+  } finally {
+    syncBusy.value = false;
+  }
+}
+
+onMounted(() => {
+  try {
+    const { auth } = getFirebase();
+    unsub = onAuthStateChanged(auth, (u) => {
+      user.value = u;
+    });
+  } catch (e: any) {
+    setError(e);
+  }
+});
+
+onBeforeUnmount(() => {
+  try {
+    unsub?.();
+  } catch (_) {}
+  unsub = null;
+  try {
+    recaptcha?.clear();
+  } catch (_) {}
+  recaptcha = null;
+});
+</script>
+
+<template>
+  <div class="action-card">
+    <h3>Account (Firebase Phone Auth)</h3>
+    <p>Sign in with SMS to sync your LOCAL_PROFILE to Firestore (<span class="code">users/&lt;uid&gt;</span>).</p>
+
+    <div v-if="err" class="banner err">{{ err }}</div>
+    <div v-if="msg" class="banner ok">{{ msg }}</div>
+
+    <div class="row">
+      <div class="col">
+        <label class="lab">Phone (E.164)</label>
+        <input class="input" v-model="phone" placeholder="+15551234567" :disabled="isAuthed || sending || verifying" />
+      </div>
+      <button class="btn primary" @click="sendCode" :disabled="isAuthed || sending || verifying || !phone.trim()">
+        {{ sending ? 'Sending…' : 'Send Code' }}
+      </button>
+    </div>
+
+    <div class="row" style="margin-top: 10px;">
+      <div class="col">
+        <label class="lab">SMS Code</label>
+        <input class="input" v-model="smsCode" placeholder="123456" :disabled="isAuthed || verifying" />
+      </div>
+      <button class="btn" @click="verifyCode" :disabled="isAuthed || verifying || !smsCode.trim()">
+        {{ verifying ? 'Verifying…' : 'Verify' }}
+      </button>
+    </div>
+
+    <div v-if="isAuthed" class="authed">
+      <div><b>Signed in:</b> {{ user?.phoneNumber || user?.uid }}</div>
+      <button class="btn danger" @click="doSignOut">Sign out</button>
+    </div>
+
+    <div class="sync-row">
+      <button class="btn" @click="pullFromCloud" :disabled="!isAuthed || syncBusy">{{ syncBusy ? 'Working…' : 'Pull from Cloud' }}</button>
+      <button class="btn primary" @click="pushToCloud" :disabled="!isAuthed || syncBusy">{{ syncBusy ? 'Working…' : 'Push to Cloud' }}</button>
+    </div>
+
+    <!-- reCAPTCHA container (invisible) -->
+    <div id="recaptcha-container"></div>
+  </div>
+</template>
+
+<style scoped>
+.code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+.banner {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--card-border);
+  margin-bottom: 10px;
+}
+.banner.err { border-color: rgba(239,68,68,0.6); }
+.banner.ok { border-color: rgba(34,197,94,0.5); }
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: end;
+}
+
+.col { flex: 1; }
+
+.lab {
+  display: block;
+  font-size: 0.85rem;
+  opacity: 0.85;
+  margin-bottom: 4px;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  padding: 10px;
+  border-radius: 12px;
+}
+
+.btn {
+  padding: 0.7rem 1rem;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 800;
+  transition: transform 0.12s ease, filter 0.12s ease;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--card-border);
+}
+
+.btn.primary {
+  background: var(--gradient-primary);
+  color: white;
+  border: none;
+}
+
+.btn.danger {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: white;
+  border: none;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.authed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sync-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+@media (max-width: 560px) {
+  .row, .sync-row, .authed { flex-direction: column; align-items: stretch; }
+}
+</style>

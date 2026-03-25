@@ -6,6 +6,7 @@ import { siteConfig } from "@/config/site-config";
 import { cn } from "@/lib/utils";
 import Script from "next/script";
 import { CustomCursor } from "@/components/custom-cursor";
+import { AuthProvider } from "@/lib/auth/auth-context";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -64,7 +65,9 @@ export default function RootLayout({
           }}
         />
         <CustomCursor />
-        <main className="flex min-h-screen flex-col">{children}</main>
+        <AuthProvider>
+          <main className="flex min-h-screen flex-col">{children}</main>
+        </AuthProvider>
       </body>
     </html>
   );

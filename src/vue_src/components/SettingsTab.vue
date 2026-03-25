@@ -170,6 +170,8 @@
                 <p>Download a backup of your profile and resume data.</p>
                 <button @click="exportData" class="action-btn export-btn">Export to JSON</button>
             </div>
+
+            <FirebaseAccountCard />
             
             <div class="action-card">
                 <h3>Cloud Sync (Experimental)</h3>
@@ -196,6 +198,7 @@
 <script lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import InputField from '@/components/InputField.vue';
+import FirebaseAccountCard from '@/components/FirebaseAccountCard.vue';
 
 type JobQueueItem = {
     url: string;
@@ -343,7 +346,8 @@ function sendMessage<T = any>(msg: any): Promise<T> {
 
 export default {
     components: {
-        InputField
+        InputField,
+        FirebaseAccountCard,
     },
     setup() {
         const fileInput = ref<HTMLInputElement | null>(null);
