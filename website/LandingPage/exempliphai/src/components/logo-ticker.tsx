@@ -21,7 +21,7 @@ export function LogoTicker() {
     { name: "Celestial", logo: CelestialLogo },
   ] satisfies Array<{
     name: string;
-    logo: string;
+    logo: string | { src: string };
   }>;
 
   return (
@@ -44,7 +44,7 @@ export function LogoTicker() {
             >
               {[...COMPANIES, ...COMPANIES].map((company, index) => (
                 <Image
-                  src={company.logo}
+                  src={typeof company.logo === "string" ? company.logo : company.logo.src}
                   alt={company.name}
                   key={index}
                   width={120}
