@@ -10,6 +10,7 @@ import { CustomCursor } from "@/components/custom-cursor";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteConfig.links.deploymentUrl),
   title: siteConfig.name,
   description: siteConfig.description,
   creator: siteConfig.creator,
