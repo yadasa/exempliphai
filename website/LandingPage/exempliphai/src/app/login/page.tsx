@@ -11,6 +11,25 @@ import {
 import { getFirebase } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/auth-context";
 
+function normalizeUsPhoneToE164(input: string): string {
+  const raw = input.trim();
+  const digits = raw.replace(/\D/g, "");
+
+  // Accept:
+  // - 10 digits: 5551234567 -> +15551234567
+  // - 11 digits starting with 1: 15551234567 -> +15551234567
+  // - E.164 with +1 prefix: +15551234567
+  if (raw.startsWith("+")) {
+    if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+    throw new Error("Enter +1XXXXXXXXXX");
+  }
+
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+
+  throw new Error("Enter +1XXXXXXXXXX");
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { user, loading } = useAuth();
@@ -50,10 +69,13 @@ export default function LoginPage() {
         });
       }
 
-      console.debug("[login] Sending SMS", { phone: phone.trim() });
+      const normalizedPhone = normalizeUsPhoneToE164(phone);
+      setPhone(normalizedPhone);
+
+      console.debug("[login] Sending SMS", { phone: normalizedPhone });
       const confirmation = await signInWithPhoneNumber(
         auth,
-        phone.trim(),
+        normalizedPhone,
         recaptchaRef.current,
       );
       confirmationRef.current = confirmation;

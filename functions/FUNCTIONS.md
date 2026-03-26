@@ -85,6 +85,13 @@ Example:
 
 The website login page uses Firebase Phone Auth (reCAPTCHA + `signInWithPhoneNumber`).
 
+Login phone input is normalized to US E.164 on send:
+
+- `5551234567` → `+15551234567`
+- `15551234567` → `+15551234567`
+
+If the number is not in `+1XXXXXXXXXX` form after normalization, the UI shows: `Enter +1XXXXXXXXXX`.
+
 If the `NEXT_PUBLIC_FIREBASE_*` env vars are missing in the Next.js deployment/build,
 Firebase will not initialize and login will show a friendly error instead of crashing.
 
