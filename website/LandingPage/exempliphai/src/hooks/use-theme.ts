@@ -5,12 +5,12 @@ import { useEffect, useState } from "react";
 export type ThemeMode = "light" | "dark";
 
 function getInitialTheme(): ThemeMode {
-  if (typeof window === "undefined") return "light";
+  // Default to dark.
+  // NOTE: this runs client-side; layout.tsx also sets an early theme class.
+  if (typeof window === "undefined") return "dark";
   const saved = window.localStorage.getItem("theme");
   if (saved === "dark" || saved === "light") return saved;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  return "dark";
 }
 
 export function useTheme() {

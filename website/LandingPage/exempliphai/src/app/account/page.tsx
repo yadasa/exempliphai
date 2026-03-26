@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { RequireAuth } from "@/lib/auth/require-auth";
@@ -24,12 +25,18 @@ export default function AccountPage() {
 
 function AccountInner() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const [tab, setTab] = useState<"account" | "referrals">("account");
+
+  useEffect(() => {
+    const t = (searchParams?.get("tab") || "").toLowerCase();
+    if (t === "referrals") setTab("referrals");
+  }, [searchParams]);
 
   const [refBusy, setRefBusy] = useState(false);
   const [refCode, setRefCode] = useState<string>("");

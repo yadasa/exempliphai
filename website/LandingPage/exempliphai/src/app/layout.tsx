@@ -6,6 +6,8 @@ import { siteConfig } from "@/config/site-config";
 import { cn } from "@/lib/utils";
 import Script from "next/script";
 import { CustomCursor } from "@/components/custom-cursor";
+import SiteFooter from "@/components/site-footer";
+import SiteHeader from "@/components/site-header";
 import { AuthProvider } from "@/lib/auth/auth-context";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -54,11 +56,10 @@ export default function RootLayout({
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(() => {
+  // Default to dark (unless user explicitly chose light).
   try {
     const saved = localStorage.getItem('theme');
-    const theme = saved === 'dark' || saved === 'light'
-      ? saved
-      : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    const theme = (saved === 'dark' || saved === 'light') ? saved : 'dark';
     document.documentElement.classList.toggle('dark', theme === 'dark');
   } catch (_) {}
 })();`,
@@ -66,7 +67,11 @@ export default function RootLayout({
         />
         <CustomCursor />
         <AuthProvider>
-          <main className="flex min-h-screen flex-col">{children}</main>
+          <div className="flex min-h-screen flex-col">
+            <SiteHeader />
+            <main className="flex-1">{children}</main>
+            <SiteFooter />
+          </div>
         </AuthProvider>
       </body>
     </html>

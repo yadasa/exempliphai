@@ -44,7 +44,7 @@ export default function LoginPage() {
   const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
 
   useEffect(() => {
-    if (!loading && user) router.replace("/account" as any);
+    if (!loading && user) router.replace("/dashboard" as any);
   }, [loading, user, router]);
 
   async function sendCode() {
@@ -104,7 +104,7 @@ export default function LoginPage() {
       await confirmationRef.current.confirm(code.trim());
       setMsg("Signed in.");
       setCode("");
-      router.replace("/account" as any);
+      router.replace("/dashboard" as any);
     } catch (e: any) {
       console.error("[login] verifyCode error", e);
       setErr(String(e?.message || e));

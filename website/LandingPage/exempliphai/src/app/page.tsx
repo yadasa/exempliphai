@@ -4,14 +4,11 @@ import { HeroSection } from "@/components/hero-section";
 import { FAQ } from "@/components/faq";
 import { HowItWorks } from "@/components/how-it-works";
 import { LogoTicker } from "@/components/logo-ticker";
-import SiteFooter from "@/components/site-footer";
-import SiteHeader from "@/components/site-header";
 import { Testimonials } from "@/components/testimonials";
 
 export default function Home() {
   return (
     <>
-      <SiteHeader />
       <HeroSection />
       <LogoTicker />
       <Features />
@@ -19,7 +16,6 @@ export default function Home() {
       <Testimonials />
       <FAQ />
       <CallToAction />
-      <SiteFooter />
     </>
   );
 }
