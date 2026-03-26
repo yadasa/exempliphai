@@ -25,8 +25,12 @@ const msg = ref<string | null>(null);
 
 const referralBusy = ref(false);
 const referralCode = ref<string>('');
+const siteBaseUrl = computed(() =>
+  String((import.meta as any).env?.VITE_SITE_BASE_URL || 'https://exempliphai.com').replace(/\/+$/, '')
+);
+
 const referralLink = computed(() => {
-  const base = String((import.meta as any).env?.VITE_SITE_BASE_URL || 'https://exempliphai.com').replace(/\/+$/, '');
+  const base = siteBaseUrl.value;
   return referralCode.value ? `${base}/r/${referralCode.value}` : '';
 });
 
@@ -208,7 +212,7 @@ async function copyReferralLink() {
 onMounted(() => {
   try {
     const { auth } = getFirebase();
-    unsub = onAuthStateChanged(auth, (u) => {
+    unsub = onAuthStateChanged(auth, (u: User | null) => {
       user.value = u;
     });
   } catch (e: any) {
@@ -284,7 +288,7 @@ onBeforeUnmount(() => {
           <div style="font-weight:900;">Referrals</div>
           <div style="opacity:0.82; font-size:0.85rem; margin-top:2px;">Share your link to earn points.</div>
         </div>
-        <a class="btn" :href="String((import.meta as any).env?.VITE_SITE_BASE_URL || 'https://exempliphai.com').replace(/\/+$/, '') + '/account'" target="_blank" rel="noreferrer">
+        <a class="btn" :href="siteBaseUrl + '/account'" target="_blank" rel="noreferrer">
           Open account
         </a>
       </div>
