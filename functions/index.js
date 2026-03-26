@@ -73,7 +73,7 @@ async function resolveReferrerUidByCode(code) {
   return isNonEmptyString(uid) ? uid : null;
 }
 
-exports.getOrCreateReferralCode = onCall({ region: REGION }, async (req) => {
+exports.getOrCreateReferralCode = onCall({ region: REGION, cors: true }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
 
