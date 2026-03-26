@@ -52,12 +52,64 @@
       "id": "eeo",
       "title": "EEO (optional)",
       "fields": [
-        {"key": "gender", "label": "Gender (1/2/3/4 depending on ATS)", "type": "string"},
-        {"key": "ethnicity", "label": "Ethnicity (string or array in some ATS)", "type": "string"},
-        {"key": "hispanic", "label": "Hispanic (true/false)", "type": "boolean"},
-        {"key": "veteran_v2", "label": "Veteran Status (1/2/3)", "type": "string"},
-        {"key": "disability_v2", "label": "Disability Status (1/2/3)", "type": "string"},
-        {"key": "lgbt_v2", "label": "LGBT (1/2/3)", "type": "string"}
+        {
+          "key": "gender",
+          "label": "Gender",
+          "type": "string",
+          "options": [
+            "Male",
+            "Female",
+            "Non-binary",
+            "Decline to self-identify",
+            "Other"
+          ]
+        },
+        {
+          "key": "ethnicity",
+          "label": "Race",
+          "type": "string",
+          "options": [
+            "American Indian or Alaskan Native",
+            "Asian",
+            "Black or African American",
+            "White",
+            "Native Hawaiian or Other Pacific Islander",
+            "Two or More Races",
+            "Decline To Self Identify"
+          ]
+        },
+        {
+          "key": "hispanic",
+          "label": "Hispanic/Latino",
+          "type": "string",
+          "options": ["Yes", "No", "Decline To Self Identify"]
+        },
+        {
+          "key": "veteran_v2",
+          "label": "Veteran Status",
+          "type": "string",
+          "options": [
+            "I am not a protected veteran",
+            "I identify as one or more of the classifications of a protected veteran",
+            "I don't wish to answer"
+          ]
+        },
+        {
+          "key": "disability_v2",
+          "label": "Disability Status",
+          "type": "string",
+          "options": [
+            "Yes, I have a disability, or have had one in the past",
+            "No, I do not have a disability and have not had one in the past",
+            "I do not want to answer"
+          ]
+        },
+        {
+          "key": "lgbt_v2",
+          "label": "LGBT (optional)",
+          "type": "string",
+          "options": ["Yes", "No", "Prefer not to say"]
+        }
       ]
     },
     {

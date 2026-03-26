@@ -16,6 +16,7 @@ type SchemaField = {
   required?: boolean;
   format?: "email" | "date" | string;
   multiline?: boolean;
+  options?: string[];
 };
 
 type SchemaCategory = {
@@ -64,6 +65,33 @@ function FieldInput({
   value: any;
   onChange: (val: any) => void;
 }) {
+  const common =
+    "w-full rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring";
+
+  // Prefer explicit dropdowns when schema provides options.
+  if (Array.isArray(field.options) && field.options.length) {
+    return (
+      <label className="grid gap-1">
+        <span className="text-sm font-medium">
+          {field.label}
+          {field.required ? <span className="text-red-400"> *</span> : null}
+        </span>
+        <select
+          className={cn(common, "h-11")}
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">—</option>
+          {field.options.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
   if (field.type === "boolean") {
     const boolVal = value === true;
     return (
@@ -78,9 +106,6 @@ function FieldInput({
       </label>
     );
   }
-
-  const common =
-    "w-full rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring";
 
   return (
     <label className="grid gap-1">

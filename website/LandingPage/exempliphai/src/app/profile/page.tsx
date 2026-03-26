@@ -15,6 +15,7 @@ type SchemaField = {
   required?: boolean;
   format?: "email" | "date" | string;
   multiline?: boolean;
+  options?: string[];
   item?: { title?: string; fields: SchemaField[] };
 };
 
@@ -570,7 +571,20 @@ function Field({
         {field.required ? " *" : ""}
       </span>
 
-      {field.type === "boolean" ? (
+      {Array.isArray(field.options) && field.options.length ? (
+        <select
+          className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+          value={value ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">—</option>
+          {field.options.map((opt) => (
+            <option key={opt} value={opt}>
+              {opt}
+            </option>
+          ))}
+        </select>
+      ) : field.type === "boolean" ? (
         <select
           className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
           value={value === true ? "true" : value === false ? "false" : ""}
