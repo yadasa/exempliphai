@@ -1,8 +1,26 @@
 "use client";
 
 import Link from "next/link";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { cn } from "@/lib/utils";
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border bg-card p-5 shadow-sm">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
+    </div>
+  );
+}
 
 function Card({
   href,
@@ -38,7 +56,65 @@ function Card({
   );
 }
 
+function ApplicationsChart({
+  data,
+}: {
+  data: Array<{ day: string; total: number }>;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card p-5 shadow-sm">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold">Total applications</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            Mock data for now — will connect to real tracking soon.
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -10 }}>
+            <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+            <XAxis dataKey="day" tickLine={false} axisLine={false} />
+            <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
+            <Tooltip
+              contentStyle={{
+                borderRadius: 12,
+                borderColor: "rgba(255,255,255,0.12)",
+                background: "rgba(15,15,15,0.9)",
+              }}
+              labelStyle={{ color: "rgba(255,255,255,0.8)" }}
+              itemStyle={{ color: "white" }}
+            />
+            <Line
+              type="monotone"
+              dataKey="total"
+              stroke="hsl(var(--primary))"
+              strokeWidth={2.5}
+              dot={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
+  const totalApps = 42;
+  const timeSavedHours = (totalApps * 14) / 60;
+
+  const appsSeries: Array<{ day: string; total: number }> = [
+    { day: "Mon", total: 4 },
+    { day: "Tue", total: 9 },
+    { day: "Wed", total: 15 },
+    { day: "Thu", total: 18 },
+    { day: "Fri", total: 24 },
+    { day: "Sat", total: 33 },
+    { day: "Sun", total: 42 },
+  ];
+
   return (
     <RequireAuth>
       <div className="container py-14 md:py-16">
@@ -57,6 +133,20 @@ export default function DashboardPage() {
             <p className="text-sm text-muted-foreground">
               Quick links to your account, profile, and tools.
             </p>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard label="Total apps" value={String(totalApps)} />
+            <StatCard
+              label="Time saved"
+              value={`~${timeSavedHours.toFixed(1)} hrs`}
+            />
+            <StatCard label="Autofills" value="—" />
+            <StatCard label="Tailored resumes" value="—" />
+          </div>
+
+          <div className="mt-4">
+            <ApplicationsChart data={appsSeries} />
           </div>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
