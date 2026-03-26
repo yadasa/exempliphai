@@ -22,11 +22,11 @@ export default function SiteHeader() {
   const { user } = useAuth();
 
   return (
-    <header className="sticky top-0 z-20 border-b bg-background/75 py-4 backdrop-blur max-md:backdrop-blur-sm">
+    <header className="absolute inset-x-0 top-0 z-20 bg-transparent py-4">
       <div className="container max-md:px-4">
         <div className="mx-auto flex max-w-5xl items-center justify-between md:rounded-xl md:border md:bg-background/60 md:p-2.5 md:backdrop-blur">
           <Link href="/" className="flex items-center gap-3">
-            <div className="inline-flex size-10 items-center justify-center rounded-lg border bg-card">
+            <div className="inline-flex size-10 items-center justify-center rounded-lg bg-transparent">
               <Image
                 src="/icons/logo-main.png"
                 alt="exempliphai logo"
