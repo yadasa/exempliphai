@@ -11,13 +11,9 @@ import {
   type Functions,
 } from "firebase/functions";
 
-function env(name: string): string {
-  const v = process.env[name];
-  // In local/dev environments we still want pages to render without crashing,
-  // even if Firebase isn't configured yet.
-  if (!v) return "";
-  return v;
-}
+// NOTE: In Next.js client bundles, `process.env.FOO` gets inlined at build time,
+// but `process.env[name]` (dynamic access) does NOT. So we must read each
+// NEXT_PUBLIC_* var via static property access.
 
 export type FirebaseClients = {
   // Note: when Firebase env vars are missing we intentionally return `null` clients
@@ -53,13 +49,24 @@ export function getFirebase(): FirebaseClients {
   }
 
   const firebaseConfig = {
-    apiKey: env("NEXT_PUBLIC_FIREBASE_API_KEY"),
-    authDomain: env("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"),
-    projectId: env("NEXT_PUBLIC_FIREBASE_PROJECT_ID"),
-    storageBucket: env("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET"),
-    messagingSenderId: env("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID"),
-    appId: env("NEXT_PUBLIC_FIREBASE_APP_ID"),
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? "",
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? "",
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "",
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? "",
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? "",
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? "",
   };
+
+  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+    console.log("firebaseConfig:", {
+      apiKey: !!firebaseConfig.apiKey,
+      authDomain: !!firebaseConfig.authDomain,
+      projectId: !!firebaseConfig.projectId,
+      storageBucket: !!firebaseConfig.storageBucket,
+      messagingSenderId: !!firebaseConfig.messagingSenderId,
+      appId: !!firebaseConfig.appId,
+    });
+  }
 
   const required = {
     NEXT_PUBLIC_FIREBASE_API_KEY: firebaseConfig.apiKey,
