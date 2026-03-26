@@ -3,6 +3,8 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { useMemo, useState } from "react";
+import DatePicker from "react-datepicker";
+import { format as formatDate, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import schema from "@/config/local_profile_schema.json";
@@ -29,21 +31,48 @@ function ensureObj(x: any): Record<string, any> {
   return x && typeof x === "object" && !Array.isArray(x) ? x : {};
 }
 
+function getByPath(obj: any, path: string) {
+  const parts = String(path || "").split(".").filter(Boolean);
+  let cur = obj;
+  for (const p of parts) {
+    if (!cur || typeof cur !== "object") return undefined;
+    cur = (cur as any)[p];
+  }
+  return cur;
+}
+
+function setByPath(obj: any, path: string, value: any) {
+  const parts = String(path || "").split(".").filter(Boolean);
+  if (!parts.length) return;
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    const next = (cur as any)[p];
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      (cur as any)[p] = {};
+    }
+    cur = (cur as any)[p];
+  }
+  (cur as any)[parts[parts.length - 1]] = value;
+}
+
 function isValidEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
 
-function validateFields(
-  profile: ThemeProfile,
-  fields: SchemaField[],
-): string[] {
+function validateFields(profile: ThemeProfile, fields: SchemaField[]): string[] {
   const errs: string[] = [];
   for (const f of fields) {
     if (f.type === "array") continue;
-    const raw = profile?.[f.key];
+
+    const raw = getByPath(profile, f.key);
     const s = raw == null ? "" : String(raw).trim();
 
     if (f.required && !s) errs.push(`${f.label} is required`);
+
+    if (f.key === "account.displayName" && s && s.length < 2) {
+      errs.push("Display name is too short");
+    }
 
     if (f.format === "email" && s && !isValidEmail(s)) {
       errs.push(`${f.label} looks invalid`);
@@ -107,10 +136,44 @@ function FieldInput({
     );
   }
 
+  const label =
+    field.key === "location"
+      ? "City, State, ZIP"
+      : field.key === "birthday"
+        ? "Birthday"
+        : field.label;
+
+  if (field.format === "date") {
+    const v = String(value ?? "").trim();
+    const selected = v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? parseISO(v) : null;
+    return (
+      <label className="grid gap-1">
+        <span className="text-sm font-medium">
+          {label}
+          {field.required ? <span className="text-red-400"> *</span> : null}
+        </span>
+        <DatePicker
+          selected={selected}
+          onChange={(d: Date | null) => {
+            if (!d) onChange("");
+            else onChange(formatDate(d, "yyyy-MM-dd"));
+          }}
+          dateFormat="yyyy-MM-dd"
+          showMonthDropdown
+          showYearDropdown
+          dropdownMode="select"
+          maxDate={new Date()}
+          placeholderText="YYYY-MM-DD"
+          className={cn(common, "h-11")}
+        />
+      </label>
+    );
+  }
+
   return (
     <label className="grid gap-1">
       <span className="text-sm font-medium">
-        {field.label}
+        {label}
         {field.required ? <span className="text-red-400"> *</span> : null}
       </span>
       {field.multiline ? (
@@ -125,7 +188,9 @@ function FieldInput({
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           inputMode={field.type === "number" ? "numeric" : undefined}
-          placeholder={field.format === "date" ? "YYYY-MM-DD" : undefined}
+          placeholder={
+            field.key === "location" ? "Austin, TX 78701" : undefined
+          }
         />
       )}
     </label>
@@ -145,10 +210,28 @@ export function OnboardingModal({
 }) {
   const categories = useMemo(() => {
     const cats = ((schema as any).categories as SchemaCategory[]) || [];
-    // Onboarding: keep it short but schema-driven.
-    const ids = ["personal", "location", "work_auth"];
+    // Onboarding: keep it short, match the extension's core autofill needs.
+    // Explicitly skip work authorization questions.
+    const ids = ["personal", "location"];
     const picked = cats.filter((c) => ids.includes(c.id));
-    return picked.length ? picked : cats.slice(0, 3);
+
+    const base = picked.length ? picked : cats.slice(0, 2);
+
+    // Step 3: require a display name for the website account UI.
+    const accountStep: SchemaCategory = {
+      id: "account",
+      title: "Account",
+      fields: [
+        {
+          key: "account.displayName",
+          label: "Display name",
+          type: "string",
+          required: true,
+        },
+      ],
+    };
+
+    return [...base, accountStep];
   }, []);
 
   const [step, setStep] = useState(0);
@@ -175,8 +258,23 @@ export function OnboardingModal({
 
   async function finish() {
     setErr(null);
+
+    // If the user leaves display name blank, generate a reasonable default.
+    const ensured = (() => {
+      const next = { ...(draft || {}) } as any;
+      const curDn = String(getByPath(next, "account.displayName") || "").trim();
+      if (curDn) return next;
+
+      const preferred = String(getByPath(next, "preferred_name") || "").trim();
+      const first = String(getByPath(next, "first_name") || "").trim();
+      const last = String(getByPath(next, "last_name") || "").trim();
+      const gen = (preferred || [first, last].filter(Boolean).join(" ")).trim();
+      if (gen) setByPath(next, "account.displayName", gen);
+      return next;
+    })();
+
     const allErrs = validateFields(
-      draft,
+      ensured,
       categories.flatMap((c) => (c.fields || []).filter((f) => f.type !== "array")),
     );
     if (allErrs.length) {
@@ -186,7 +284,7 @@ export function OnboardingModal({
 
     setBusy(true);
     try {
-      await onComplete(draft);
+      await onComplete(ensured);
       onOpenChange(false);
     } catch (e: any) {
       setErr(String(e?.message || e));
@@ -245,28 +343,64 @@ export function OnboardingModal({
               </div>
             ) : null}
 
+            {cat?.id === "account" ? (
+              <div className="mt-5 rounded-xl border bg-background/40 p-4 text-sm">
+                <div className="font-semibold">Pick a display name</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  This is what you’ll see on your dashboard and account page.
+                </div>
+                <div className="mt-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setDraft((prev) => {
+                        const next = { ...(prev || {}) } as any;
+                        const preferred = String(getByPath(next, "preferred_name") || "").trim();
+                        const first = String(getByPath(next, "first_name") || "").trim();
+                        const last = String(getByPath(next, "last_name") || "").trim();
+                        const gen = (preferred || [first, last].filter(Boolean).join(" ")).trim();
+                        if (gen) setByPath(next, "account.displayName", gen);
+                        return next;
+                      });
+                    }}
+                    disabled={busy}
+                  >
+                    Use my name
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-5 grid gap-3">
               {stepFields.map((f) => (
                 <FieldInput
                   key={f.key}
                   field={f}
-                  value={(draft as any)?.[f.key]}
+                  value={getByPath(draft, f.key)}
                   onChange={(val) =>
                     setDraft((prev) => {
                       const next = { ...(prev || {}) } as any;
                       if (f.type === "number") {
                         const n = val === "" || val == null ? null : Number(val);
-                        if (n == null || !Number.isFinite(n)) delete next[f.key];
-                        else next[f.key] = n;
+                        if (n == null || !Number.isFinite(n)) {
+                          // don't write invalid numbers
+                          return next;
+                        }
+                        setByPath(next, f.key, n);
                         return next;
                       }
                       if (f.type === "boolean") {
-                        next[f.key] = !!val;
+                        setByPath(next, f.key, !!val);
                         return next;
                       }
                       const s = String(val ?? "").trim();
-                      if (!s) delete next[f.key];
-                      else next[f.key] = s;
+                      if (!s) {
+                        setByPath(next, f.key, null);
+                      } else {
+                        setByPath(next, f.key, s);
+                      }
                       return next;
                     })
                   }
