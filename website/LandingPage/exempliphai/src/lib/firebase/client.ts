@@ -5,6 +5,11 @@ import {
   connectFirestoreEmulator,
   type Firestore,
 } from "firebase/firestore";
+import {
+  getFunctions,
+  connectFunctionsEmulator,
+  type Functions,
+} from "firebase/functions";
 
 function env(name: string): string {
   const v = process.env[name];
@@ -17,6 +22,7 @@ function env(name: string): string {
 export type FirebaseClients = {
   auth: Auth;
   db: Firestore;
+  functions: Functions;
 };
 
 let cached: FirebaseClients | null = null;
@@ -46,6 +52,7 @@ export function getFirebase(): FirebaseClients {
     cached = {
       auth: null as unknown as Auth,
       db: null as unknown as Firestore,
+      functions: null as unknown as Functions,
     };
     return cached;
   }
@@ -53,6 +60,7 @@ export function getFirebase(): FirebaseClients {
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = getFirestore(app);
+  const functions = getFunctions(app);
 
   const useEmulators =
     String(process.env.NEXT_PUBLIC_FIREBASE_USE_EMULATORS || "false").toLowerCase() ===
@@ -67,6 +75,11 @@ export function getFirebase(): FirebaseClients {
     const fsPort = Number(
       process.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_EMULATOR_PORT || 8080,
     );
+    const fnHost =
+      process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_EMULATOR_HOST || "localhost";
+    const fnPort = Number(
+      process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_EMULATOR_PORT || 5001,
+    );
 
     try {
       connectAuthEmulator(auth, authUrl, { disableWarnings: true });
@@ -79,8 +92,14 @@ export function getFirebase(): FirebaseClients {
     } catch {
       // ignore if already connected
     }
+
+    try {
+      connectFunctionsEmulator(functions, fnHost, fnPort);
+    } catch {
+      // ignore if already connected
+    }
   }
 
-  cached = { auth, db };
+  cached = { auth, db, functions };
   return cached;
 }
