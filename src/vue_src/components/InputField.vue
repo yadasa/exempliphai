@@ -271,11 +271,7 @@ export default {
     const downloadTailoredPdf = () => {
       if (!tailoredText.value) return;
       const bytes = simplePdfFromText(tailoredText.value);
-      // TS DOM types can be picky about Uint8Array<ArrayBufferLike> vs BlobPart.
-      // Make an explicit ArrayBuffer copy.
-      const copy = new Uint8Array(bytes.byteLength);
-      copy.set(bytes);
-      const blob = new Blob([copy.buffer], { type: 'application/pdf' });
+      const blob = new Blob([bytes], { type: 'application/pdf' });
       downloadBlob(blob, 'resume-tailored.pdf');
     };
 
