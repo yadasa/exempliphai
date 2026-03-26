@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -71,7 +71,31 @@ function ProfileInner() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const [autoSave, setAutoSave] = useState(true);
+  const lastSavedRef = useRef<string>("");
+  const autoSaveTimerRef = useRef<any>(null);
+
   const errs = useMemo(() => validate(profile), [profile]);
+
+  useEffect(() => {
+    if (!autoSave) return;
+    if (busy !== null) return;
+    if (!user) return;
+    if (errs.length) return;
+
+    const cur = JSON.stringify(profile || {});
+    if (cur === lastSavedRef.current) return;
+
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 1200);
+
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, autoSave, errs.length, busy, user?.uid]);
 
   const profileCats = useMemo(
     () =>
@@ -192,12 +216,15 @@ function ProfileInner() {
       const snap = await getDoc(doc(db, "users", user.uid));
       if (!snap.exists()) {
         setProfile({});
+        lastSavedRef.current = JSON.stringify({});
         setMsg("No profile found yet in Firestore. Fill it out and Save.");
         return;
       }
       const data = snap.data() as any;
       delete data.updatedAt;
-      setProfile(ensureObj(data));
+      const next = ensureObj(data);
+      setProfile(next);
+      lastSavedRef.current = JSON.stringify(next);
       setMsg("Loaded from Firestore.");
     } catch (e: any) {
       setErr(String(e?.message || e));
@@ -206,10 +233,10 @@ function ProfileInner() {
     }
   }
 
-  async function save() {
+  async function save(opts?: { silent?: boolean }) {
     setBusy("save");
     setErr(null);
-    setMsg(null);
+    if (!opts?.silent) setMsg(null);
 
     try {
       if (!user) throw new Error("Not signed in");
@@ -228,17 +255,28 @@ function ProfileInner() {
         },
         { merge: true },
       );
-      setMsg("Saved to Firestore.");
+
+      lastSavedRef.current = JSON.stringify(profile || {});
+      if (!opts?.silent) setMsg("Saved to Firestore.");
     } catch (e: any) {
-      setErr(String(e?.message || e));
+      if (!opts?.silent) setErr(String(e?.message || e));
     } finally {
       setBusy(null);
     }
   }
 
   return (
-    <div className="container py-14 md:py-16">
-      <div className="mx-auto max-w-5xl rounded-2xl border bg-card p-6 shadow-sm md:p-8">
+    <div className="container relative py-14 md:py-16">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] opacity-70"
+        style={{
+          background:
+            "radial-gradient(900px 520px at 20% 10%, color-mix(in oklab, var(--color-primary) 24%, transparent), transparent 62%), radial-gradient(900px 520px at 80% 15%, color-mix(in oklab, var(--brand-violet) 22%, transparent), transparent 58%)",
+        }}
+      />
+
+      <div className="mx-auto max-w-5xl rounded-2xl border bg-card/80 p-6 shadow-sm backdrop-blur md:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
           <div className="flex gap-3">
@@ -278,8 +316,10 @@ function ProfileInner() {
             <button
               role="tab"
               aria-selected={tab === "profile"}
-              className={`h-10 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                tab === "profile" ? "bg-muted" : "bg-card hover:bg-muted"
+              className={`h-10 rounded-md px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "profile"
+                  ? "bg-gradient-primary text-primary-foreground"
+                  : "border bg-card hover:bg-muted"
               }`}
               onClick={() => setTab("profile")}
               type="button"
@@ -289,8 +329,10 @@ function ProfileInner() {
             <button
               role="tab"
               aria-selected={tab === "education"}
-              className={`h-10 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                tab === "education" ? "bg-muted" : "bg-card hover:bg-muted"
+              className={`h-10 rounded-md px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "education"
+                  ? "bg-gradient-primary text-primary-foreground"
+                  : "border bg-card hover:bg-muted"
               }`}
               onClick={() => setTab("education")}
               type="button"
@@ -300,8 +342,10 @@ function ProfileInner() {
             <button
               role="tab"
               aria-selected={tab === "experience"}
-              className={`h-10 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                tab === "experience" ? "bg-muted" : "bg-card hover:bg-muted"
+              className={`h-10 rounded-md px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "experience"
+                  ? "bg-gradient-primary text-primary-foreground"
+                  : "border bg-card hover:bg-muted"
               }`}
               onClick={() => setTab("experience")}
               type="button"
@@ -311,8 +355,10 @@ function ProfileInner() {
             <button
               role="tab"
               aria-selected={tab === "raw"}
-              className={`h-10 rounded-md border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                tab === "raw" ? "bg-muted" : "bg-card hover:bg-muted"
+              className={`h-10 rounded-md px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "raw"
+                  ? "bg-gradient-primary text-primary-foreground"
+                  : "border bg-card hover:bg-muted"
               }`}
               onClick={() => setTab("raw")}
               type="button"
@@ -321,23 +367,35 @@ function ProfileInner() {
             </button>
           </div>
 
-          <div className="flex gap-2">
-            <button
-              className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-              onClick={load}
-              disabled={busy !== null}
-              type="button"
-            >
-              {busy === "load" ? "Loading…" : "Reload"}
-            </button>
-            <button
-              className="bg-gradient-primary h-10 rounded-md px-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-              onClick={save}
-              disabled={busy !== null}
-              type="button"
-            >
-              {busy === "save" ? "Saving…" : "Save"}
-            </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={autoSave}
+                onChange={(e) => setAutoSave(e.target.checked)}
+              />
+              Auto-save
+            </label>
+
+            <div className="flex gap-2">
+              <button
+                className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                onClick={load}
+                disabled={busy !== null}
+                type="button"
+              >
+                {busy === "load" ? "Loading…" : "Reload"}
+              </button>
+              <button
+                className="bg-gradient-primary h-10 rounded-md px-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                onClick={() => save()}
+                disabled={busy !== null}
+                type="button"
+              >
+                {busy === "save" ? "Saving…" : "Save"}
+              </button>
+            </div>
           </div>
         </div>
 
