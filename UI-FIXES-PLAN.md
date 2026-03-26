@@ -5,8 +5,8 @@
 > Goals (from request):
 > 1) **/login post-validation redirect**: route users to **/account** or open **profile onboarding modal** when profile is incomplete.
 > 2) **Referrals reliability**: add CORS to `getOrCreateReferralCode`, fix referrals tab blank state w/ loading + error handling.
-> 3) **New user multi-step modal** (agency.ai look: blur + gradients + progress bar): steps = personal (first/last/displayName validation), email/location, resume upload; ensure it **matches LocalProfileEditor schema** and **syncs to Firestore**.
-> 4) **/account + /profile UI polish** (match extension blue/purple theme): modern cards/tabs; remove Veteran/Disability/LGBT fields; “Auto-submit” toggle becomes safer; unify landing + extension styling language.
+> 3) **New user multi-step modal** (agency.ai look: blur + gradients + progress bar): steps = personal, email/location, resume upload; ensure it **exactly matches the extension LocalProfileEditor schema (fields + labels + options)** and **syncs to Firestore**.
+> 4) **/account + /profile UI polish** (match extension blue/purple theme): modern cards/tabs; **do not remove any profile fields**; fix Veteran/Disability/LGBT to proper dropdowns; “Auto-submit” toggle becomes safer; unify landing + extension styling language.
 >
 > This document is **plan-only**. Implementation should wait for explicit approval.
 
@@ -30,6 +30,20 @@
 ### Extension (Vue)
 - Local profile editor: `exempliphai/src/vue_src/components/LocalProfileEditor.vue`
 - Schema source (extension build/public): `exempliphai/src/public/config/local_profile_schema.json`
+- Legacy popup field reference (labels/options used by autofill mapping): `exempliphai/DATA_FIELDS.md`
+
+### Canonical schema rule (must mirror extension)
+The web onboarding modal **and** `/account/profile` UI must mirror the extension LocalProfileEditor **exactly**:
+- same categories
+- same field keys
+- same field labels
+- same input types
+- for fields that are effectively enums (notably EEO), provide **the same dropdown options** on web as in extension popup semantics.
+
+Source of truth priority:
+1) `src/vue_src/components/LocalProfileEditor.vue` rendering behavior (boolean tri-state select, date placeholder rules, etc.)
+2) `src/public/config/local_profile_schema.json` (keys/labels/types/required/format)
+3) `DATA_FIELDS.md` (exact human-facing options for dropdown-like concepts, and wording expected by autofill matchers)
 
 ---
 
@@ -161,28 +175,68 @@ Add CORS configuration consistent with Firebase Functions v2 callable capabiliti
 
 ### Steps & validation
 
-#### Step 1 — Personal
-Fields:
-- `first_name` (required)
-- `last_name` (required)
-- `account.displayName` (required)
+#### Step 1 — Personal (schema-exact)
+Fields (must match `local_profile_schema.json` `personal` category):
+- `first_name` (required) — label: **First Name**
+- `last_name` (required) — label: **Last Name**
+- `email` (required) — label: **Email** (email format validation)
+- `phone` (optional) — label: **Phone**
+- `preferred_name` (optional) — label: **Preferred Name**
+- `birthday` (optional) — label: **Birthday (YYYY-MM-DD)** (date format validation)
 
-Validation (per request):
-- first/last/displayName: **no spaces** and **no special characters**
-  - Recommend regex: `^[A-Za-z0-9_]+$`
-  - If we want to allow hyphen in names: extend later; for now follow request strictly.
+Validation:
+- Follow schema `required` + `format` rules exactly (email + YYYY-MM-DD).
+- Do **not** introduce additional character restrictions that the extension editor does not enforce.
 
-UX notes:
-- Show examples and “why”:
-  - displayName used for referral identity / handle
+Note:
+- If we still want a web-only handle/display name for referrals UX, keep it **separate** from the LocalProfile schema (e.g., `users/{uid}.account.displayName`) and do not gate onboarding completion on it unless the extension is updated to include it too.
 
-#### Step 2 — Email + Location
-Fields (schema-aligned):
-- `email` (required, validate format)
-- `location` (optional, freeform)
-- optionally: `city`, `state`, `country`, `postal_code` (optional, collapsible “advanced”)
+#### Step 2 — Location + Work Authorization + Links (schema-exact)
+Fields (must match `local_profile_schema.json` categories `location`, `work_auth`, `social`):
+- **Location**
+  - `location` — **Location (freeform)**
+  - `address` — **Address**
+  - `city` — **City**
+  - `state` — **State / Province**
+  - `country` — **Country / Region**
+  - `postal_code` — **Postal Code**
+- **Work Authorization** (render booleans as tri-state select like the extension: `— / true / false`)
+  - `work_auth` — **Work Authorization (generic)**
+  - `work_auth_us` — **Work Authorization (US)**
+  - `work_auth_uk` — **Work Authorization (UK)**
+  - `work_auth_ca` — **Work Authorization (Canada)**
+  - `sponsorship` — **Need Sponsorship**
+- **Social & Links**
+  - `linkedin` — **LinkedIn**
+  - `github` — **GitHub**
+  - `portfolio` — **Portfolio**
+  - `additional_url` — **Website**
 
-#### Step 3 — Resume Upload
+#### Step 3 — EEO + Skills + Settings (schema-exact)
+Fields (must match `local_profile_schema.json` categories `eeo`, `skills`, `settings`):
+- **EEO (optional)**
+  - `gender` — **Gender (1/2/3/4 depending on ATS)** (string)
+  - `ethnicity` — **Ethnicity (string or array in some ATS)** (string)
+  - `hispanic` — **Hispanic (true/false)** (boolean tri-state select)
+  - `veteran_v2` — **Veteran Status (1/2/3)** (string dropdown)
+  - `disability_v2` — **Disability Status (1/2/3)** (string dropdown)
+  - `lgbt_v2` — **LGBT (1/2/3)** (string dropdown)
+
+EEO dropdown options (fix required):
+- Today these fields are `string` in the schema; the web UI must not render them as freeform text.
+- Render as explicit **3-option dropdowns** (plus blank `—`):
+  - **Yes** / **No** / **Prefer not to say**
+- Additionally, keep compatibility with extension/autofill wording:
+  - accept/save any existing stored string values (do not delete/overwrite unexpectedly)
+  - map legacy verbose values (see `DATA_FIELDS.md` for Veteran/Disability wording) to the closest of the 3 options for display, but preserve the original on save unless the user changes it.
+
+- **Skills**
+  - `skill` — **Skills (comma separated)** (string)
+
+- **Settings**
+  - `autoSubmit` — **Auto-submit (dangerous)** (boolean) — must use the safe enable flow described in §4.3.
+
+#### Step 4 — Resume Upload (web-only)
 Goals:
 - Let user upload a resume (PDF/DOCX) and store it reliably.
 - Update Firestore with:
@@ -198,9 +252,8 @@ Schema alignment note:
 
 ### Firestore write strategy (safe merge)
 - Use `setDoc(..., { merge: true })`
-- Write keys consistent with `/profile` editor:
-  - top-level fields like `first_name`, `last_name`, `email`, `location`, ...
-  - nested `account.displayName`
+- Write keys consistent with `/profile` editor (schema-exact):
+  - top-level fields like `first_name`, `last_name`, `email`, `phone`, `preferred_name`, `birthday`, `location`, `address`, `city`, `state`, `country`, `postal_code`, work auth booleans, social links, EEO fields, `skill`
   - `updatedAt: serverTimestamp()`
 - Add onboarding marker:
   - `onboarding.completedAt` + `onboarding.version`
@@ -226,7 +279,7 @@ Plan for “sync”:
 
 ---
 
-## 4) /account + /profile UI Polish + Field Pruning + Safer Auto-submit
+## 4) /account + /profile UI Polish + Schema Parity + Safer Auto-submit
 
 ### 4.1 Unify style language (web + extension)
 
@@ -245,25 +298,38 @@ Where:
   - `--gradient-primary` should mirror web’s `bg-gradient-primary`
   - ensure focus rings match
 
-### 4.2 Remove Veteran/Disability/LGBT fields
+### 4.2 Veteran/Disability/LGBT: keep fields, fix to proper dropdowns (no removals)
 
 #### Current
 Schema includes EEO fields:
-- `veteran_v2`, `disability_v2`, `lgbt_v2`
+- `veteran_v2`, `disability_v2`, `lgbt_v2` (currently typed as `string`)
+
+The extension LocalProfileEditor currently renders `string` fields as freeform text inputs.
 
 #### Plan
-- Remove those fields from both schema copies:
-  - `exempliphai/src/public/config/local_profile_schema.json`
-  - `website/LandingPage/exempliphai/src/config/local_profile_schema.json`
+- **Do not remove** `veteran_v2`, `disability_v2`, or `lgbt_v2` from either schema.
+- Update both web and extension UIs so these three fields render as **explicit dropdowns** with:
+  - blank option: `—`
+  - `Yes`
+  - `No`
+  - `Prefer not to say`
 
-Options for EEO category:
-- Keep category but only:
-  - `gender`, `ethnicity`, `hispanic`
-- Or remove EEO category entirely (product choice).
+Compatibility requirement (important):
+- Many existing users may have verbose values stored (see `DATA_FIELDS.md` examples for Veteran/Disability).
+- UI must be able to **display** those existing values safely:
+  - if stored value is not one of the 3 canonical options, show a non-destructive “(existing value)” state and/or map it to closest canonical choice for display.
+  - do **not** delete or overwrite stored values unless the user explicitly changes the dropdown.
+
+Implementation approach (plan-level):
+- Add `enum`/`options` support to the schema (recommended), e.g.
+  - `{"key":"veteran_v2", "type":"string", "options":["Yes","No","Prefer not to say"]}`
+- Update `LocalProfileEditor.vue` renderer to use `<select>` when `field.options` exists.
+- Update web `/profile` renderer to do the same so both UIs are schema-driven and stay in sync.
 
 Acceptance criteria:
-- Web `/profile` no longer renders those inputs.
-- Extension LocalProfileEditor no longer renders them.
+- These fields appear in both web + extension.
+- They are dropdowns with `Yes/No/Prefer not to say` (+ blank).
+- Existing non-canonical strings remain intact until user changes them.
 
 ### 4.3 “Auto-submit” safe toggle
 
@@ -291,9 +357,11 @@ Acceptance criteria:
 1. **Referrals reliability**
    - Add callable CORS option
    - Fix referrals tab states + retry
-2. **Schema pruning** (remove sensitive fields)
-   - Update schema in both web + extension
-   - Verify renders + saves
+2. **Schema mirroring + options parity**
+   - Ensure web schema copy exactly matches extension schema (keys/labels/types)
+   - Add schema support for dropdown options/enums where needed (EEO v2 + any other extension popup dropdowns we want to preserve)
+   - Update both renderers (web + extension) to respect `options` and render `<select>`
+   - Verify save/load does not destroy existing values
 3. **Onboarding modal**
    - Build component + validation
    - Firestore writes + completion marker
@@ -354,5 +422,5 @@ Acceptance criteria:
 - `getOrCreateReferralCode` works across origins (CORS resolved).
 - Onboarding modal collects required data, uploads resume, syncs to Firestore, and sets completion marker.
 - `/account` + `/profile` are visually consistent with extension theme.
-- Veteran/Disability/LGBT removed from schema and UIs.
+- Veteran/Disability/LGBT kept in schema and UIs, rendered as `Yes/No/Prefer not to say` dropdowns (+ blank), without destroying existing saved values.
 - Auto-submit requires explicit confirmation (safer toggle).
