@@ -18,6 +18,37 @@ cd ../..
 firebase emulators:start --only auth,firestore,functions --project openclaw-test
 ```
 
+## Deploy
+
+Run deploys from the **repo root** (the directory that contains the top-level `firebase.json`).
+That `firebase.json` points Functions source at `exempliphai/functions`.
+
+```bash
+# From repo root
+firebase deploy --only functions,firestore:rules,firestore:indexes --project <your-project-id>
+```
+
+### Windows PowerShell note (common failure)
+
+If your `firebase.json` contains a Functions `predeploy` hook like:
+
+```json
+"predeploy": ["npm --prefix %RESOURCE_DIR% run lint"]
+```
+
+That works in **cmd.exe** but **not** in PowerShell.
+Fix by either removing the hook or changing it to a cross-platform form (recommended):
+
+```json
+"predeploy": ["npm --prefix \"$RESOURCE_DIR\" run lint"]
+```
+
+Or in PowerShell specifically:
+
+```powershell
+npm --prefix $env:RESOURCE_DIR run lint
+```
+
 ## Endpoints
 
 - Callable:

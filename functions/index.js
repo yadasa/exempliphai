@@ -12,7 +12,7 @@ const { logger } = require("firebase-functions");
 // Initialize Admin
 try {
   admin.initializeApp();
-} catch (e) {
+} catch {
   // ignore if already initialized
 }
 
@@ -238,8 +238,12 @@ exports.applyAttribution = onCall({ region: REGION }, async (req) => {
     const referralDocSnap = await tx.get(referralDocRef);
 
     // Determine identity to store (masked later in list API, but we store raw-ish too).
-    const referredDisplayName = String(userSnap.get("account.displayName") || "");
-    const referredPhoneNumber = String(userSnap.get("account.phoneNumber") || auth.token?.phone_number || "");
+    const referredDisplayName = String(
+      userSnap.get("account.displayName") || "",
+    );
+    const referredPhoneNumber = String(
+      userSnap.get("account.phoneNumber") || auth.token?.phone_number || "",
+    );
 
     if (!referralDocSnap.exists) {
       tx.set(referralDocRef, {
