@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { RequireAuth } from "@/lib/auth/require-auth";
@@ -27,6 +27,7 @@ export default function AccountPage() {
 
 function AccountInner() {
   const { user } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [displayName, setDisplayName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -169,6 +170,8 @@ function AccountInner() {
     try {
       const { auth } = getFirebase();
       await signOut(auth);
+      // RequireAuth will also catch this, but do it explicitly for a crisp UX.
+      router.replace("/login");
     } catch (e: any) {
       setErr(String(e?.message || e));
     } finally {
