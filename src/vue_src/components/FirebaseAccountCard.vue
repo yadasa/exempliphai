@@ -10,6 +10,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 
 const KEY = 'LOCAL_PROFILE';
 const LEGACY_KEY = 'EXEMPLIPHAI_LOCAL_PROFILE';
@@ -21,6 +22,13 @@ const verifying = ref(false);
 const syncBusy = ref(false);
 const err = ref<string | null>(null);
 const msg = ref<string | null>(null);
+
+const referralBusy = ref(false);
+const referralCode = ref<string>('');
+const referralLink = computed(() => {
+  const base = String((import.meta as any).env?.VITE_SITE_BASE_URL || 'https://exempliphai.com').replace(/\/+$/, '');
+  return referralCode.value ? `${base}/r/${referralCode.value}` : '';
+});
 
 const user = ref<User | null>(null);
 const confirmation = ref<ConfirmationResult | null>(null);
@@ -164,6 +172,39 @@ async function pullFromCloud() {
   }
 }
 
+async function loadReferralCode() {
+  referralBusy.value = true;
+  err.value = null;
+  msg.value = null;
+  try {
+    const u = user.value;
+    if (!u) throw new Error('Sign in first.');
+
+    const { functions } = getFirebase();
+    const fn = httpsCallable(functions, 'getOrCreateReferralCode');
+    const res = await fn({});
+    referralCode.value = String((res.data as any)?.code || '');
+
+    if (referralCode.value) {
+      setMessage('Referral code loaded.');
+    }
+  } catch (e) {
+    setError(e);
+  } finally {
+    referralBusy.value = false;
+  }
+}
+
+async function copyReferralLink() {
+  try {
+    if (!referralLink.value) throw new Error('Load your referral code first.');
+    await navigator.clipboard.writeText(referralLink.value);
+    setMessage('Copied referral link.');
+  } catch (e) {
+    setError(e);
+  }
+}
+
 onMounted(() => {
   try {
     const { auth } = getFirebase();
@@ -235,6 +276,28 @@ onBeforeUnmount(() => {
     <div v-if="isAuthed" class="authed">
       <div><b>Signed in:</b> {{ user?.phoneNumber || user?.uid }}</div>
       <button class="btn danger" type="button" @click="doSignOut">Sign out</button>
+    </div>
+
+    <div v-if="isAuthed" class="referrals">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:900;">Referrals</div>
+          <div style="opacity:0.82; font-size:0.85rem; margin-top:2px;">Share your link to earn points.</div>
+        </div>
+        <a class="btn" :href="String((import.meta as any).env?.VITE_SITE_BASE_URL || 'https://exempliphai.com').replace(/\/+$/, '') + '/account'" target="_blank" rel="noreferrer">
+          Open account
+        </a>
+      </div>
+
+      <div class="sync-row" style="margin-top:10px;">
+        <button class="btn" type="button" @click="loadReferralCode" :disabled="referralBusy">{{ referralBusy ? 'Loading…' : (referralCode ? 'Refresh code' : 'Get code') }}</button>
+        <button class="btn primary" type="button" @click="copyReferralLink" :disabled="!referralLink">Copy link</button>
+      </div>
+
+      <div v-if="referralCode" style="margin-top:10px;">
+        <div style="opacity:0.82; font-size:0.85rem;">Code: <span class="code">{{ referralCode }}</span></div>
+        <div style="opacity:0.82; font-size:0.85rem; margin-top:4px; word-break:break-all;">Link: <span class="code">{{ referralLink }}</span></div>
+      </div>
     </div>
 
     <div class="sync-row">
@@ -336,6 +399,12 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 10px;
   margin-top: 12px;
+}
+
+.referrals {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--card-border);
 }
 
 @media (max-width: 560px) {

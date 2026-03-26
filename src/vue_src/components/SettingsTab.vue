@@ -171,6 +171,20 @@
                 <button @click="exportData" class="action-btn export-btn">Export to JSON</button>
             </div>
 
+            <div class="action-card">
+                <h3>Referrals</h3>
+                <p>Share a referral link with friends to earn points. (Requires signing in above.)</p>
+                <a
+                  class="action-btn export-btn"
+                  :href="siteBaseUrl + '/account'"
+                  target="_blank"
+                  rel="noreferrer"
+                  style="display:inline-block; text-align:center; text-decoration:none;"
+                >
+                  Open referral dashboard
+                </a>
+            </div>
+
             <FirebaseAccountCard />
             
             <div class="action-card">
@@ -359,6 +373,10 @@ export default {
         const autoTailorEnabled = ref(false);
         const listModeEnabled = ref(false);
         const closePreviousTabs = ref(false);
+
+        const siteBaseUrl = computed(() =>
+            String((import.meta as any).env?.VITE_SITE_BASE_URL || 'https://exempliphai.com').replace(/\/+$/, '')
+        );
 
         // AI usage (local-only)
         const aiUsageLog = ref<AiUsageEntry[]>([]);
@@ -711,6 +729,7 @@ export default {
         });
 
         return {
+            siteBaseUrl,
             exportData,
             importData,
             triggerFileInput,
