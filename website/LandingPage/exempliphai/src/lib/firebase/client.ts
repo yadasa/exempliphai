@@ -35,6 +35,15 @@ let warnedMissingEnv = false;
 export function getFirebase(): FirebaseClients {
   if (cached) return cached;
 
+  // Debug helper: verify NEXT_PUBLIC_* env vars are being inlined by Next.js.
+  // (Project ID is not secret.)
+  if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
+    console.debug(
+      "[firebase] NEXT_PUBLIC_FIREBASE_PROJECT_ID =",
+      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    );
+  }
+
   const firebaseConfig = {
     apiKey: env("NEXT_PUBLIC_FIREBASE_API_KEY"),
     authDomain: env("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"),
