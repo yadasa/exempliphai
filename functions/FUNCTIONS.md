@@ -80,3 +80,24 @@ Emulator base URL format:
 Example:
 
 `http://localhost:5001/openclaw-test/us-central1/createAttribution?code=ABCD1234`
+
+## Website (Next.js) Firebase env vars (login / SMS)
+
+The website login page uses Firebase Phone Auth (reCAPTCHA + `signInWithPhoneNumber`).
+
+If the `NEXT_PUBLIC_FIREBASE_*` env vars are missing in the Next.js deployment/build,
+Firebase will not initialize and login will show a friendly error instead of crashing.
+
+Required:
+
+- `NEXT_PUBLIC_FIREBASE_API_KEY`
+- `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+- `NEXT_PUBLIC_FIREBASE_APP_ID`
+
+Optional (emulators):
+
+- `NEXT_PUBLIC_FIREBASE_USE_EMULATORS=true`
+- `NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_URL` (default `http://localhost:9099`)
+- `NEXT_PUBLIC_FIREBASE_FIRESTORE_EMULATOR_HOST` / `_PORT`
+- `NEXT_PUBLIC_FIREBASE_FUNCTIONS_EMULATOR_HOST` / `_PORT`

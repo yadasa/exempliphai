@@ -34,14 +34,23 @@ export default function LoginPage() {
     setBusy("send");
 
     try {
-      const { auth } = getFirebase();
+      const fb = getFirebase();
+      const auth = fb.auth;
+
+      if (!auth) {
+        throw new Error(
+          "Firebase auth is not configured. Set NEXT_PUBLIC_FIREBASE_* env vars and redeploy.",
+        );
+      }
 
       if (!recaptchaRef.current) {
+        console.debug("[login] Initializing RecaptchaVerifier");
         recaptchaRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
           size: "invisible",
         });
       }
 
+      console.debug("[login] Sending SMS", { phone: phone.trim() });
       const confirmation = await signInWithPhoneNumber(
         auth,
         phone.trim(),
@@ -50,6 +59,7 @@ export default function LoginPage() {
       confirmationRef.current = confirmation;
       setMsg("SMS sent. Enter the code to verify.");
     } catch (e: any) {
+      console.error("[login] sendCode error", e);
       try {
         recaptchaRef.current?.clear();
       } catch {
@@ -74,6 +84,7 @@ export default function LoginPage() {
       setCode("");
       router.replace("/account" as any);
     } catch (e: any) {
+      console.error("[login] verifyCode error", e);
       setErr(String(e?.message || e));
     } finally {
       setBusy(null);

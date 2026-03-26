@@ -20,12 +20,17 @@ function env(name: string): string {
 }
 
 export type FirebaseClients = {
+  // Note: when Firebase env vars are missing we intentionally return `null` clients
+  // casted to these types so the app can render and pages can show friendly errors.
   auth: Auth;
   db: Firestore;
   functions: Functions;
+  /** True when all required NEXT_PUBLIC_FIREBASE_* vars are present */
+  configured: boolean;
 };
 
 let cached: FirebaseClients | null = null;
+let warnedMissingEnv = false;
 
 export function getFirebase(): FirebaseClients {
   if (cached) return cached;
@@ -39,20 +44,34 @@ export function getFirebase(): FirebaseClients {
     appId: env("NEXT_PUBLIC_FIREBASE_APP_ID"),
   };
 
-  const isConfigured = !!(
-    firebaseConfig.apiKey &&
-    firebaseConfig.authDomain &&
-    firebaseConfig.projectId &&
-    firebaseConfig.appId
-  );
+  const required = {
+    NEXT_PUBLIC_FIREBASE_API_KEY: firebaseConfig.apiKey,
+    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: firebaseConfig.authDomain,
+    NEXT_PUBLIC_FIREBASE_PROJECT_ID: firebaseConfig.projectId,
+    NEXT_PUBLIC_FIREBASE_APP_ID: firebaseConfig.appId,
+  } as const;
+
+  const isConfigured = Object.values(required).every((v) => !!v);
 
   if (!isConfigured) {
+    if (!warnedMissingEnv && typeof window !== "undefined") {
+      warnedMissingEnv = true;
+      const missing = Object.entries(required)
+        .filter(([, v]) => !v)
+        .map(([k]) => k);
+      // Don't print secret values (only names + presence).
+      console.warn(
+        "[firebase] Client not configured. Missing env vars:",
+        missing.join(", "),
+      );
+    }
+
     // Don't crash the whole app (dev DX + better error surfacing in UI).
-    // Pages that need auth will handle this gracefully.
     cached = {
       auth: null as unknown as Auth,
       db: null as unknown as Firestore,
       functions: null as unknown as Functions,
+      configured: false,
     };
     return cached;
   }
@@ -100,6 +119,6 @@ export function getFirebase(): FirebaseClients {
     }
   }
 
-  cached = { auth, db, functions };
+  cached = { auth, db, functions, configured: true };
   return cached;
 }
