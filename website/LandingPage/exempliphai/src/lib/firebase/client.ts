@@ -42,6 +42,14 @@ export function getFirebase(): FirebaseClients {
       "[firebase] NEXT_PUBLIC_FIREBASE_PROJECT_ID =",
       process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     );
+    console.log('All NEXT_PUBLIC_FIREBASE_* loaded:', {
+      API_KEY: !!process.env.NEXT_PUBLIC_FIREBASE_API_KEY ? 'YES' : 'NO',
+      AUTH_DOMAIN: !!process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ? 'YES' : 'NO',
+      PROJECT_ID: !!process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ? 'YES' : 'NO',
+      APP_ID: !!process.env.NEXT_PUBLIC_FIREBASE_APP_ID ? 'YES' : 'NO',
+      STORAGE: !!process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ? 'YES' : 'NO',
+      MESSAGING: !!process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ? 'YES' : 'NO'
+    });
   }
 
   const firebaseConfig = {
