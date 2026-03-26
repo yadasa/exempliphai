@@ -1,0 +1,154 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOrgMember(orgId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.orgId == orgId;
+    }
+
+    function isOrgOwner(orgId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/organizations/$(orgId))
+        && get(/databases/$(database)/documents/organizations/$(orgId)).data.ownerUid == request.auth.uid;
+    }
+
+    // Events
+    match /events/{eventId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+    }
+    // Comments under events
+    match /events/{eventId}/comments/{commentId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+    }
+    // RSVPs under events, docId == uid
+    match /events/{eventId}/rsvps/{rsvpId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && rsvpId == request.auth.uid;
+      allow update: if request.auth != null
+        && rsvpId == request.auth.uid;
+      allow delete: if request.auth != null
+        && rsvpId == request.auth.uid;
+    }
+    // Photos under events
+    match /events/{eventId}/photos/{photoId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+    }
+    // Members, assume top-level /members/{userId}
+    match /members/{memberId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && memberId == request.auth.uid;
+    }
+    // Tickets top-level
+    match /tickets/{ticketId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.ownerId == request.auth.uid;
+    }
+    // Payments top-level
+    match /payments/{paymentId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid;
+      allow delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // DentAI user profile (maps UID → orgId)
+    match /users/{uid} {
+      allow read, write: if request.auth != null && uid == request.auth.uid;
+    }
+
+    // Display name → account lookup (needed for "Email or Display Name" sign-in).
+    // NOTE: we allow `get` (doc read) but not `list` (query) to reduce scraping.
+    match /usernames/{displayName} {
+      allow get: if true;
+      allow list: if false;
+
+      allow create: if request.auth != null
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email;
+
+      allow update, delete: if false;
+    }
+
+    // Customer doc keyed by customerNumber (ex: SVX-123456)
+    match /customers/{customerNumber} {
+      allow read, write: if request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.customerNumber == customerNumber;
+    }
+
+    // DentAI / SmartVoiceX org root doc (optional metadata like name/admins)
+    match /organizations/{orgId} {
+      // Allow first-time org creation during signup.
+      allow create: if request.auth != null
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow read, update: if isOrgMember(orgId);
+      allow delete: if false;
+    }
+
+    // DentAI / SmartVoiceX org-scoped encrypted settings config
+    match /organizations/{orgId}/settings/config {
+      allow read, write: if isOrgMember(orgId);
+    }
+
+    // Org wallet + transactions (read-only from client; writes are server-only)
+    match /organizations/{orgId}/wallet/{walletId} {
+      allow read: if isOrgMember(orgId);
+      allow write: if false;
+
+      match /transactions/{txId} {
+        allow read: if isOrgMember(orgId);
+        allow write: if false;
+      }
+    }
+
+    // Org appointments (Firestore-only when Google Calendar is disabled)
+    match /organizations/{orgId}/appointments/{aptId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isOrgOwner(orgId);
+    }
+
+    // Deny all else
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -20,11 +20,26 @@ firebase emulators:start --only auth,firestore,functions --project openclaw-test
 
 ## Deploy
 
-Run deploys from the **repo root** (the directory that contains the top-level `firebase.json`).
-That `firebase.json` points Functions source at `exempliphai/functions`.
+### Option A: deploy from `exempliphai/` (recommended on Windows)
+
+This repo includes a `exempliphai/firebase.json` with:
+
+- `functions.source = "functions"`
+- Firestore rules + indexes in `exempliphai/firestore.rules` and `exempliphai/firestore.indexes.json`
 
 ```bash
-# From repo root
+cd exempliphai
+
+# If firebase-tools isn't installed globally, use npx:
+npx firebase deploy --only functions,firestore:rules,firestore:indexes --project <your-project-id>
+```
+
+### Option B: deploy from workspace repo root
+
+The workspace root `firebase.json` points Functions source at `exempliphai/functions`.
+
+```bash
+# From workspace repo root
 firebase deploy --only functions,firestore:rules,firestore:indexes --project <your-project-id>
 ```
 
