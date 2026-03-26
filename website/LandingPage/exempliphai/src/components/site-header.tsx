@@ -58,7 +58,7 @@ export default function SiteHeader() {
                 </Link>
               ))}
               <Link
-                href={(user ? "/account" : siteConfig.links.loginUrl) as Route}
+                href={(user ? "/dashboard" : siteConfig.links.loginUrl) as Route}
                 className="text-foreground/70 transition hover:text-foreground"
               >
                 {user ? "Account" : "Log in"}
@@ -69,7 +69,7 @@ export default function SiteHeader() {
           <section className="flex items-center gap-2 max-md:gap-2.5">
             <ThemeToggle />
             <Link href={siteConfig.links.waitlistUrl as Route} className="max-md:hidden">
-              <ActionButton label="Join waitlist" />
+              <ActionButton label="Add to Chrome" />
             </Link>
             <MobileNav open={isOpen} setOpen={setIsOpen} authed={!!user} className="flex md:hidden" />
           </section>
@@ -155,13 +155,13 @@ function MobileNav({
                 </MobileLink>
               ))}
               <MobileLink
-                href={(authed ? "/account" : siteConfig.links.loginUrl) as Route}
+                href={(authed ? "/dashboard" : siteConfig.links.loginUrl) as Route}
                 onOpenChange={setOpen}
               >
                 {authed ? "Account" : "Log in"}
               </MobileLink>
               <MobileLink href={siteConfig.links.waitlistUrl as Route} onOpenChange={setOpen}>
-                Join waitlist
+                Add to Chrome
               </MobileLink>
             </div>
           </div>
