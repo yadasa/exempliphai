@@ -18,7 +18,7 @@
     "alarms"
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' https://www.google.com https://www.gstatic.com; object-src 'self'; frame-src https://www.google.com https://www.gstatic.com;"
+    "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "options_page": "local_profile.html",
   "background": {
