@@ -14,6 +14,8 @@ import {
   listMyReferrals,
   type ListMyReferralsResponse,
 } from "@/lib/referrals/client";
+import schema from "@/config/local_profile_schema.json";
+import { OnboardingModal } from "@/components/onboarding/onboarding-modal";
 
 export default function AccountPage() {
   return (
@@ -30,6 +32,9 @@ function AccountInner() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  const [userDoc, setUserDoc] = useState<Record<string, any> | null>(null);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   const [tab, setTab] = useState<"account" | "referrals">("account");
 
@@ -55,8 +60,18 @@ function AccountInner() {
         if (!user) return;
         const { db } = getFirebase();
         const snap = await getDoc(doc(db, "users", user.uid));
-        const dn = (snap.data() as any)?.account?.displayName;
-        if (alive) setDisplayName(String(dn || ""));
+        const data = (snap.data() as any) || {};
+        const dn = data?.account?.displayName;
+
+        if (!alive) return;
+        setDisplayName(String(dn || ""));
+        setUserDoc(data);
+
+        const onboardingVersion = Number(data?.onboarding?.version || 0);
+        const completedAt = data?.onboarding?.completedAt;
+        const missingRequired = !String(data?.first_name || "").trim() || !String(data?.last_name || "").trim() || !String(data?.email || "").trim();
+        const needsOnboarding = onboardingVersion !== Number((schema as any).version || 1) || !completedAt || missingRequired;
+        if (needsOnboarding) setOnboardingOpen(true);
       } catch {
         // ignore
       }
@@ -161,8 +176,36 @@ function AccountInner() {
     }
   }
 
+  async function completeOnboarding(profilePatch: Record<string, any>) {
+    if (!user) throw new Error("Not signed in");
+    const { db } = getFirebase();
+
+    await setDoc(
+      doc(db, "users", user.uid),
+      {
+        ...profilePatch,
+        onboarding: {
+          version: Number((schema as any).version || 1),
+          completedAt: serverTimestamp(),
+        },
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    setUserDoc((prev) => ({ ...(prev || {}), ...profilePatch }));
+    setMsg("Profile saved. You're all set!");
+  }
+
   return (
     <div className="container py-20 md:py-24">
+      <OnboardingModal
+        open={onboardingOpen}
+        onOpenChange={setOnboardingOpen}
+        initialProfile={userDoc || {}}
+        onComplete={completeOnboarding}
+      />
+
       <div className="mx-auto max-w-2xl rounded-2xl border bg-card p-6 shadow-sm md:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
