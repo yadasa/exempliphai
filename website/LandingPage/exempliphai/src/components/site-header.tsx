@@ -22,7 +22,7 @@ export default function SiteHeader() {
   const { user } = useAuth();
 
   return (
-    <header className="absolute inset-x-0 top-0 z-20 bg-transparent py-4">
+    <header className="fixed inset-x-0 top-0 z-50 border-b border-border/40 bg-background/70 py-4 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container max-md:px-4">
         <div className="mx-auto flex max-w-5xl items-center justify-between md:rounded-xl md:border md:bg-background/60 md:p-2.5 md:backdrop-blur">
           <Link href="/" className="flex items-center gap-3">
