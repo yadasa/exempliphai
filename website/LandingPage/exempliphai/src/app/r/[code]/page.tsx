@@ -29,13 +29,13 @@ function getFunctionsBaseUrl(): string {
 export default async function ReferralRedirectPage({
   params,
 }: {
-  params: { code: string };
+  params: Promise<{ code: string }>;
 }) {
-  const { code } = params;
+  const { code } = await params;
   const cleaned = String(code || "").trim().toUpperCase();
 
   // Always set the raw code (fallback), but prefer attributionId.
-  cookies().set("ref_code", cleaned, {
+  (await cookies()).set("ref_code", cleaned, {
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
     sameSite: "lax",
@@ -51,7 +51,7 @@ export default async function ReferralRedirectPage({
       });
       const data = (await resp.json().catch(() => null)) as any;
       if (resp.ok && data?.attributionId) {
-        cookies().set("ref_attr", String(data.attributionId), {
+        (await cookies()).set("ref_attr", String(data.attributionId), {
           path: "/",
           maxAge: 60 * 60 * 24 * 30,
           sameSite: "lax",

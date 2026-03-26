@@ -59,10 +59,7 @@ export default function SiteFooter() {
             <p className="mt-2 text-sm text-muted-foreground">
               Product updates, launch notes, and resources — occasionally.
             </p>
-            <form
-              className="mt-5 flex flex-col gap-2 sm:flex-row"
-              onSubmit={(e) => e.preventDefault()}
-            >
+            <form className="mt-5 flex flex-col gap-2 sm:flex-row">
               <label className="sr-only" htmlFor="footer-email">
                 Email address
               </label>
@@ -75,7 +72,7 @@ export default function SiteFooter() {
                 className="h-11 w-full rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               />
               <button
-                type="submit"
+                type="button"
                 className="h-11 rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Subscribe
