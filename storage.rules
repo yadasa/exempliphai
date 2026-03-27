@@ -1,0 +1,15 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Exempliphai Chrome extension uploads
+    // gs://<bucket>/data/uploads/<uid>/...
+    match /data/uploads/{uid}/{path=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Deny all else
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

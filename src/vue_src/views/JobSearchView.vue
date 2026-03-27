@@ -24,6 +24,8 @@ const loading = ref(false);
 const errorMsg = ref('');
 const recs = ref<JobRec[]>([]);
 
+const appliedKeys = ref<Set<string>>(new Set());
+
 const hasRecs = computed(() => Array.isArray(recs.value) && recs.value.length > 0);
 
 function extractFirstJsonObject(text: string): string | null {
@@ -120,10 +122,50 @@ async function geminiGenerateJson({ apiKey, promptText }: { apiKey: string; prom
   return JSON.parse(jsonText);
 }
 
+function canonUrlKey(url: string): string {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    const base = `${u.origin}${u.pathname}`;
+    return base.replace(/\/+$/, '');
+  } catch {
+    return raw;
+  }
+}
+
 function openUrl(url: string) {
   const u = String(url || '').trim();
   if (!u) return;
   chrome.tabs.create({ url: u });
+}
+
+function isRecApplied(rec: JobRec): boolean {
+  const links = Array.isArray(rec?.links) ? rec.links : [];
+  return links.some((l) => {
+    const k = canonUrlKey(String((l as any)?.url || ''));
+    return k && appliedKeys.value.has(k);
+  });
+}
+
+async function markApplied(rec: JobRec) {
+  const links = Array.isArray(rec?.links) ? rec.links : [];
+  const first = links.find((l) => l && typeof (l as any)?.url === 'string' && isDirectApplicationUrl((l as any).url));
+  if (!first?.url) throw new Error('No direct application link for this recommendation.');
+
+  const item = {
+    company: String(rec.company || '').trim() || 'Unknown',
+    role: String(rec.title || '').trim() || 'Unknown',
+    url: String(first.url).trim(),
+    date: new Date().toISOString(),
+  };
+
+  const cur = await new Promise<any>((resolve) => chrome.storage.local.get(['AppliedJobs'], (r) => resolve(r || {})));
+  const arr = Array.isArray(cur.AppliedJobs) ? cur.AppliedJobs : [];
+  const next = [item, ...arr].filter((j, idx, self) => idx === self.findIndex((x: any) => String(x?.url || '') === item.url));
+  await new Promise((resolve) => chrome.storage.local.set({ AppliedJobs: next }, () => resolve(true)));
+
+  appliedKeys.value.add(canonUrlKey(item.url));
 }
 
 function openTailorApply(rec: JobRec) {
@@ -208,6 +250,32 @@ onMounted(() => {
       if (Array.isArray(prev) && prev.length) recs.value = prev;
     });
   } catch (_) {}
+
+  try {
+    chrome.storage.local.get(['AppliedJobs'], (res) => {
+      const jobs = Array.isArray((res as any)?.AppliedJobs) ? (res as any).AppliedJobs : [];
+      const next = new Set<string>();
+      for (const j of jobs) {
+        const u = canonUrlKey(String((j as any)?.url || ''));
+        if (u) next.add(u);
+      }
+      appliedKeys.value = next;
+    });
+  } catch (_) {}
+
+  try {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName !== 'local') return;
+      if (!changes?.AppliedJobs) return;
+      const jobs = Array.isArray(changes.AppliedJobs.newValue) ? changes.AppliedJobs.newValue : [];
+      const next = new Set<string>();
+      for (const j of jobs) {
+        const u = canonUrlKey(String((j as any)?.url || ''));
+        if (u) next.add(u);
+      }
+      appliedKeys.value = next;
+    });
+  } catch (_) {}
 });
 </script>
 
@@ -258,15 +326,32 @@ onMounted(() => {
           {{ rec.why_match }}
         </p>
 
-        <div style="display:flex; gap:0.5rem; margin-top: 0.75rem;">
+        <div style="display:flex; gap:0.5rem; margin-top: 0.75rem; align-items:center; flex-wrap: wrap;">
+          <span
+            v-if="isRecApplied(rec)"
+            style="font-size: 0.75rem; font-weight: 900; padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(34,197,94,0.55); color: rgba(34,197,94,0.95);"
+          >
+            Applied
+          </span>
+
           <button
             class="action-btn"
-            style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white;"
+            style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; flex:1; min-width: 140px;"
             @click="openTailorApply(rec)"
             :disabled="!(rec.links && rec.links.length)"
             :title="(rec.links && rec.links.length) ? 'Open the direct application link' : 'No direct application link available'"
           >
             {{ (rec.links && rec.links.length) ? 'Open Apply Link' : 'No Apply Link' }}
+          </button>
+
+          <button
+            class="action-btn"
+            style="background: linear-gradient(135deg, #22c55e, #16a34a); color: white; flex:1; min-width: 140px;"
+            @click="markApplied(rec)"
+            :disabled="isRecApplied(rec) || !(rec.links && rec.links.length)"
+            :title="isRecApplied(rec) ? 'Already marked applied' : 'Add to Applied Jobs'"
+          >
+            {{ isRecApplied(rec) ? 'Applied' : 'Mark Applied' }}
           </button>
         </div>
 

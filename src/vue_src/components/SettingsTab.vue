@@ -1,5 +1,7 @@
 <template>
     <div class="settingsTab">
+        <AccountSyncCard />
+
         <h2 class="subheading">General</h2>
         <InputField label="API Key" explanation="The API Key field requires a Gemini-1.5-flash api key." placeHolder="AIyKwaSyBTOk..." />
         <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
@@ -196,6 +198,7 @@
 <script lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import InputField from '@/components/InputField.vue';
+import AccountSyncCard from '@/components/AccountSyncCard.vue';
 
 type JobQueueItem = {
     url: string;
@@ -343,7 +346,8 @@ function sendMessage<T = any>(msg: any): Promise<T> {
 
 export default {
     components: {
-        InputField
+        InputField,
+        AccountSyncCard,
     },
     setup() {
         const fileInput = ref<HTMLInputElement | null>(null);

@@ -2,6 +2,7 @@ import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, connectAuthEmulator, type Auth } from 'firebase/auth';
 import { getFirestore, connectFirestoreEmulator, type Firestore } from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator, type Functions } from 'firebase/functions';
+import { getStorage, connectStorageEmulator, type FirebaseStorage } from 'firebase/storage';
 
 function requireEnv(name: string): string {
   const v = (import.meta as any).env?.[name];
@@ -13,6 +14,7 @@ export type FirebaseClients = {
   auth: Auth;
   db: Firestore;
   functions: Functions;
+  storage: FirebaseStorage;
 };
 
 let cached: FirebaseClients | null = null;
@@ -33,6 +35,7 @@ export function getFirebase(): FirebaseClients {
   const auth = getAuth(app);
   const db = getFirestore(app);
   const functions = getFunctions(app);
+  const storage = getStorage(app);
 
   const useEmulators = String((import.meta as any).env?.VITE_FIREBASE_USE_EMULATORS || 'false').toLowerCase() === 'true';
   if (useEmulators) {
@@ -41,6 +44,8 @@ export function getFirebase(): FirebaseClients {
     const fsPort = Number((import.meta as any).env?.VITE_FIREBASE_FIRESTORE_EMULATOR_PORT || 8080);
     const fnHost = String((import.meta as any).env?.VITE_FIREBASE_FUNCTIONS_EMULATOR_HOST || 'localhost');
     const fnPort = Number((import.meta as any).env?.VITE_FIREBASE_FUNCTIONS_EMULATOR_PORT || 5001);
+    const stHost = String((import.meta as any).env?.VITE_FIREBASE_STORAGE_EMULATOR_HOST || 'localhost');
+    const stPort = Number((import.meta as any).env?.VITE_FIREBASE_STORAGE_EMULATOR_PORT || 9199);
     try {
       connectAuthEmulator(auth, authUrl, { disableWarnings: true });
     } catch (_) {}
@@ -50,8 +55,11 @@ export function getFirebase(): FirebaseClients {
     try {
       connectFunctionsEmulator(functions, fnHost, fnPort);
     } catch (_) {}
+    try {
+      connectStorageEmulator(storage, stHost, stPort);
+    } catch (_) {}
   }
 
-  cached = { auth, db, functions };
+  cached = { auth, db, functions, storage };
   return cached;
 }

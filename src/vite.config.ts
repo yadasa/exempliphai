@@ -18,7 +18,19 @@ export default defineConfig({
     },
   },
   build: {
-    outDir :'../dist/',
-    emptyOutDir: true
+    outDir: '../dist/',
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        background: fileURLToPath(new URL('./vue_src/sw/background.ts', import.meta.url)),
+      },
+      output: {
+        // Keep service worker filename stable for manifest.json
+        entryFileNames: (chunkInfo) => (chunkInfo.name === 'background' ? 'background.js' : 'assets/[name]-[hash].js'),
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
+      },
+    },
   }
 })

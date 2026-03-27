@@ -31,6 +31,18 @@
   },
   "content_scripts": [
     {
+      "js": ["contentScripts/siteAuthBridge.js"],
+      "matches": [
+        "https://exempliph.ai/*",
+        "https://www.exempliph.ai/*",
+        "https://exempliphai.com/*",
+        "https://www.exempliphai.com/*"
+      ],
+      "world": "ISOLATED",
+      "run_at": "document_end",
+      "all_frames": false
+    },
+    {
       "js": [
         "contentScripts/atsConfig.js",
         "contentScripts/utils.js",
