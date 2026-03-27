@@ -15,6 +15,7 @@
 (function () {
   const POLL_MS = 15_000;
   const KEY_PREFIX = 'firebase:authUser:';
+  const CUSTOM_TOKEN_KEY = 'EXEMPLIPHAI_FIREBASE_CUSTOM_TOKEN';
 
   function safeParseJson(raw) {
     try { return JSON.parse(raw); } catch (_) { return null; }
@@ -105,21 +106,42 @@
     window.addEventListener('storage', () => notifyBackgroundIfChanged());
   } catch (_) {}
 
+  function getCustomToken() {
+    try {
+      const v = localStorage.getItem(CUSTOM_TOKEN_KEY);
+      return v ? String(v).trim() : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   // Request/response API
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     try {
-      if (msg?.action !== 'EXEMPLIPHAI_GET_ID_TOKEN') {
-        sendResponse({ ok: false, ignored: true });
+      // Preferred: pull Firebase Web SDK tokens
+      if (msg?.action === 'EXEMPLIPHAI_GET_ID_TOKEN') {
+        const rec = findFirebaseAuthRecord();
+        if (!rec || !rec.uid || !rec.idToken) {
+          sendResponse({ ok: false, reason: 'no_firebase_auth_found' });
+          return;
+        }
+
+        sendResponse({ ok: true, ...rec });
         return;
       }
 
-      const rec = findFirebaseAuthRecord();
-      if (!rec || !rec.uid || !rec.idToken) {
-        sendResponse({ ok: false, reason: 'no_firebase_auth_found' });
+      // Back-compat: site can optionally mint and store a Firebase custom token
+      if (msg?.action === 'EXEMPLIPHAI_GET_CUSTOM_TOKEN') {
+        const token = getCustomToken();
+        if (!token) {
+          sendResponse({ ok: false, reason: 'no_custom_token_found', key: CUSTOM_TOKEN_KEY });
+          return;
+        }
+        sendResponse({ ok: true, token });
         return;
       }
 
-      sendResponse({ ok: true, ...rec });
+      sendResponse({ ok: false, ignored: true });
     } catch (e) {
       sendResponse({ ok: false, error: String(e?.message || e) });
     }

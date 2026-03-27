@@ -73,6 +73,16 @@ async function resolveReferrerUidByCode(code) {
   return isNonEmptyString(uid) ? uid : null;
 }
 
+// Mint a Firebase custom token for the currently signed-in user.
+// Intended for bridging website auth → extension auth (optional).
+exports.mintCustomToken = onCall({ region: REGION, cors: true }, async (req) => {
+  const auth = req.auth;
+  if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
+
+  const token = await admin.auth().createCustomToken(auth.uid);
+  return { token };
+});
+
 exports.getOrCreateReferralCode = onCall({ region: REGION, cors: true }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");

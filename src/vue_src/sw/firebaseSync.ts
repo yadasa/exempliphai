@@ -1213,6 +1213,29 @@ export function initFirebaseExtensionSync() {
         return;
       }
 
+      if (msg.action === 'FIREBASE_WHOAMI') {
+        if (!authState) {
+          authState = await getStoredAuth().catch(() => null);
+        }
+        sendResponse({
+          ok: true,
+          authed: !!authState,
+          uid: authState?.uid || null,
+          email: authState?.email || null,
+          providerId: authState?.providerId || null,
+          expiresAtMs: authState?.expiresAtMs || null,
+          updatedAtMs: authState?.updatedAtMs || null,
+        });
+        return;
+      }
+
+      if (msg.action === 'FIREBASE_SIGN_OUT' || msg.action === 'FIREBASE_AUTH_CLEAR') {
+        authState = null;
+        await setStoredAuth(null);
+        sendResponse({ ok: true });
+        return;
+      }
+
       // Website → extension auth update
       if (msg.action === 'FIREBASE_AUTH_UPDATE') {
         const idToken = String(msg.idToken || '').trim();
@@ -1250,12 +1273,7 @@ export function initFirebaseExtensionSync() {
         return;
       }
 
-      if (msg.action === 'FIREBASE_AUTH_CLEAR') {
-        authState = null;
-        await setStoredAuth(null);
-        sendResponse({ ok: true });
-        return;
-      }
+      // FIREBASE_AUTH_CLEAR handled above.
 
       if (msg.action === 'TRACK_CUSTOM_ANSWER') {
         await trackCustomAnswer(msg);
