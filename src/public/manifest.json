@@ -15,11 +15,22 @@
     "storage",
     "contextMenus",
     "tabs",
-    "alarms"
+    "alarms",
+    "identity"
+  ],
+  "host_permissions": [
+    "https://exempliph.ai/*",
+    "https://www.exempliph.ai/*",
+    "https://exempliphai.com/*",
+    "https://www.exempliphai.com/*",
+    "https://firestore.googleapis.com/*",
+    "https://securetoken.googleapis.com/*",
+    "https://firebasestorage.googleapis.com/*"
   ],
   "options_page": "local_profile.html",
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "commands": {
     "ai-trigger": {

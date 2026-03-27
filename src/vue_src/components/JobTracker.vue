@@ -1,5 +1,12 @@
 <template>
     <div class="jobTracker">
+        <h2 class="subheading">Tracking</h2>
+        <div class="stats-card">
+            <div class="stat-row"><b>Autofills:</b> {{ statsAutofills.toLocaleString() }}</div>
+            <div class="stat-row"><b>Custom answers generated:</b> {{ statsCustomAnswers.toLocaleString() }}</div>
+            <div class="stat-row" v-if="statsLastAutofill"><b>Last autofill:</b> {{ formatDate(statsLastAutofill) }}</div>
+        </div>
+
         <h2 class="subheading">Applied Jobs (Last 6 Months)</h2>
         <div v-if="appliedJobs.length === 0" class="no-jobs">
             No jobs applied yet.
@@ -44,13 +51,18 @@
 </template>
 
 <script lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 
 export default {
     setup() {
         const appliedJobs = ref<any[]>([]);
         const editingIndex = ref<number | null>(null);
         const editValue = ref<string>('');
+
+        // Firebase-backed stats (cached locally by the service worker)
+        const statsAutofills = ref<number>(0);
+        const statsCustomAnswers = ref<number>(0);
+        const statsLastAutofill = ref<string>('');
 
         const loadJobs = () => {
              if (!chrome.storage) return;
@@ -86,6 +98,16 @@ export default {
                      appliedJobs.value = validJobs.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
                  });
              });
+        };
+
+        const loadStats = () => {
+            if (!chrome?.storage?.local) return;
+            chrome.storage.local.get(['cloudStats'], (res) => {
+                const st = (res as any)?.cloudStats || {};
+                statsAutofills.value = Number(st?.autofills?.total || 0);
+                statsCustomAnswers.value = Number(st?.customAnswersGenerated?.total || 0);
+                statsLastAutofill.value = String(st?.lastAutofill || '');
+            });
         };
 
         const exportJobs = () => {
@@ -182,8 +204,20 @@ export default {
             editingIndex.value = null;
         };
 
+        const onStorageChanged = (changes: any, areaName: string) => {
+            if (areaName !== 'local') return;
+            if (changes?.AppliedJobs) loadJobs();
+            if (changes?.cloudStats) loadStats();
+        };
+
         onMounted(() => {
             loadJobs();
+            loadStats();
+            chrome.storage.onChanged.addListener(onStorageChanged);
+        });
+
+        onBeforeUnmount(() => {
+            chrome.storage.onChanged.removeListener(onStorageChanged);
         });
 
         return {
@@ -197,7 +231,11 @@ export default {
             saveEdit,
             exportJobs,
             importJobs,
-            triggerFileInput
+            triggerFileInput,
+
+            statsAutofills,
+            statsCustomAnswers,
+            statsLastAutofill
         };
     }
 };
@@ -207,6 +245,20 @@ export default {
 .jobTracker {
     padding: 0.25rem 0;
     color: var(--text-primary);
+}
+
+.stats-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    padding: 0.85rem 1rem;
+    box-shadow: var(--shadow-1);
+}
+
+.stat-row {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin: 0.25rem 0;
 }
 
 .no-jobs {

@@ -537,6 +537,10 @@ async function _saGenerateAiAnswer(element, opts = {}) {
     // 1) Context (Label/Question)
     const question = _saGetQuestionFromElement(element);
 
+    const pageUrl = String(window.location?.href || '');
+    let domain = '';
+    try { domain = pageUrl ? new URL(pageUrl).hostname : ''; } catch (_) {}
+
     // 2) User Data
     const fullSync = await getStorageDataSync();
     const apiKey = fullSync["API Key"];
@@ -766,7 +770,23 @@ options:
 
           if (chosen) {
             const ok = await _saSelectDropdownOptionByText(element, chosen, { timeoutMs: 3500 });
-            if (ok) return;
+            if (ok) {
+              try {
+                if (chrome?.runtime?.sendMessage) {
+                  chrome.runtime.sendMessage({
+                    action: 'TRACK_CUSTOM_ANSWER',
+                    kind: 'dropdown',
+                    prompt: String(question || '').trim(),
+                    answer: String(chosen || '').trim(),
+                    url: pageUrl,
+                    domain,
+                    ts: Date.now(),
+                    source: 'ai_answer',
+                  });
+                }
+              } catch (_) {}
+              return;
+            }
           }
         }
       }
@@ -806,6 +826,22 @@ options:
       }
       try {
         if (typeof dispatchInputAndChange === 'function') dispatchInputAndChange(element);
+      } catch (_) {}
+
+      // Metrics hook (Firebase): store the full answer
+      try {
+        if (chrome?.runtime?.sendMessage) {
+          chrome.runtime.sendMessage({
+            action: 'TRACK_CUSTOM_ANSWER',
+            kind: 'text',
+            prompt: String(question || '').trim(),
+            answer: String(answer || '').trim(),
+            url: pageUrl,
+            domain,
+            ts: Date.now(),
+            source: 'ai_answer',
+          });
+        }
       } catch (_) {}
     }
   } catch (error) {
@@ -2866,13 +2902,43 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
 function _saSendListModeAutofillResult(payload = {}) {
   try {
     if (!chrome?.runtime?.sendMessage) return;
-    // Fire-and-forget; background decides whether it cares.
-    chrome.runtime.sendMessage({
-      action: 'LIST_MODE_AUTOFILL_RESULT',
-      finalUrl: String(window.location?.href || ''),
+
+    const finalUrl = String(window.location?.href || '');
+    let domain = '';
+    try { domain = finalUrl ? new URL(finalUrl).hostname : ''; } catch (_) {}
+
+    // Filled-fields report (best-effort)
+    const rep = globalThis.__SmartApplyLastAutofillReport || {};
+    const fieldsFilled = Array.isArray(rep.fieldsFilled) ? rep.fieldsFilled : [];
+    const filledCount = Number.isFinite(rep.filledCount) ? rep.filledCount : fieldsFilled.length;
+
+    const base = {
+      finalUrl,
+      domain,
+      fieldsFilled,
+      filledCount,
       ts: Date.now(),
       ...payload,
+    };
+
+    // Existing list-mode hook
+    chrome.runtime.sendMessage({
+      action: 'LIST_MODE_AUTOFILL_RESULT',
+      ...base,
     });
+
+    // Metrics hook (Firebase): count successful autofills
+    if (false && base.ok === true) {
+      chrome.runtime.sendMessage({
+        action: 'TRACK_AUTOFILL',
+        url: finalUrl,
+        domain,
+        filledCount,
+        source: String(base.source || ''),
+        reason: String(base.reason || ''),
+        ts: Number(base.ts || Date.now()),
+      });
+    }
   } catch (_) {}
 }
 
@@ -2921,6 +2987,30 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
 
       // Rate-limit + mutation de-dupe for ATS-config mode too.
       smartApplyLastAutofillAt = now;
+
+      // Track Applied Job (ATS-config mode)
+      try {
+        let company = window.location.hostname.replace('www.', '').split('.')[0];
+        company = company.charAt(0).toUpperCase() + company.slice(1);
+
+        const jobEntry = {
+          company: company,
+          role: document.title.split('-')[0].trim() || "Unknown Role",
+          date: new Date().toISOString(),
+          url: window.location.href,
+        };
+
+        chrome.storage.local.get(['AppliedJobs'], (result) => {
+          const jobs = Array.isArray(result.AppliedJobs) ? result.AppliedJobs : [];
+          const today = new Date().toDateString();
+          const alreadyTracked = jobs.some((j) => j.url === jobEntry.url && new Date(j.date).toDateString() === today);
+          if (!alreadyTracked) {
+            jobs.unshift(jobEntry);
+            chrome.storage.local.set({ AppliedJobs: jobs });
+            try { chrome.runtime?.sendMessage?.({ action: 'TRACK_APPLIED_JOB', job: jobEntry }); } catch (_) {}
+          }
+        });
+      } catch (_) {}
 
       _saSendListModeAutofillResult({
         ok: true,

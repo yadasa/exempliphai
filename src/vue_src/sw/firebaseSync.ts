@@ -28,6 +28,7 @@ type QueueOp = {
   kind:
     | 'firestorePatchDoc'
     | 'firestoreCreateDoc'
+    | 'firestoreDeleteDoc'
     | 'firestoreCommit'
     | 'storageUpload';
   payload: any;
@@ -346,6 +347,15 @@ async function firestorePatchDoc(path: string, data: Record<string, any>): Promi
   }
 }
 
+async function firestoreDeleteDoc(path: string): Promise<void> {
+  const url = `${FIRESTORE_BASE()}/${path}`;
+  const res = await authedFetch(url, { method: 'DELETE' });
+  if (!res.ok && res.status !== 404) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`firestoreDeleteDoc ${res.status}: ${t.slice(0, 300)}`);
+  }
+}
+
 async function firestoreCreateDoc(collectionPath: string, data: Record<string, any>): Promise<void> {
   const url = `${FIRESTORE_BASE()}/${collectionPath}`;
   const body = JSON.stringify(docFields(data));
@@ -354,6 +364,22 @@ async function firestoreCreateDoc(collectionPath: string, data: Record<string, a
     const t = await res.text().catch(() => '');
     throw new Error(`firestoreCreateDoc ${res.status}: ${t.slice(0, 300)}`);
   }
+}
+
+async function firestoreRunQuery(parentDocPath: string, structuredQuery: any): Promise<any[]> {
+  const url = `${FIRESTORE_BASE()}/${parentDocPath}:runQuery`;
+  const res = await authedFetch(url, { method: 'POST', body: JSON.stringify({ structuredQuery }) });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`firestoreRunQuery ${res.status}: ${t.slice(0, 300)}`);
+  }
+
+  const rows = (await res.json().catch(() => [])) as any[];
+  const docs: any[] = [];
+  for (const r of rows || []) {
+    if (r?.document) docs.push(r.document);
+  }
+  return docs;
 }
 
 async function firestoreCommit(writes: any[]): Promise<void> {
@@ -482,7 +508,7 @@ async function pushJobFieldsSnapshot() {
   if (!authState) return;
   if (!requireFirebaseConfig()) return;
 
-  await ensureUserRootDoc();
+  await ensureUserRootDoc().catch(() => {});
 
   const uid = authState.uid;
   const syncAll = (await new Promise<Record<string, any>>((resolve) => {
@@ -521,7 +547,16 @@ async function pushJobFieldsSnapshot() {
     updatedAt: new Date(),
   };
 
-  await firestorePatchDoc(`users/${uid}/jobFields/current`, jobFieldsDoc);
+  try {
+    await firestorePatchDoc(`users/${uid}/jobFields/current`, jobFieldsDoc);
+  } catch (e: any) {
+    await enqueue({
+      kind: 'firestorePatchDoc',
+      payload: { path: `users/${uid}/jobFields/current`, data: jobFieldsDoc },
+      createdAtMs: Date.now(),
+    });
+    // Continue; settings patch can also be queued.
+  }
 
   // Also keep user.settings loosely mirrored for easy reads from the website.
   const settings: any = {
@@ -535,7 +570,15 @@ async function pushJobFieldsSnapshot() {
     autofillDelayMs: Number.isFinite(syncAll.autofillDelayMs) ? Number(syncAll.autofillDelayMs) : 2500,
   };
 
-  await firestorePatchDoc(`users/${uid}`, { settings, updatedAt: new Date() });
+  try {
+    await firestorePatchDoc(`users/${uid}`, { settings, updatedAt: new Date() });
+  } catch (_) {
+    await enqueue({
+      kind: 'firestorePatchDoc',
+      payload: { path: `users/${uid}`, data: { settings, updatedAt: new Date() } },
+      createdAtMs: Date.now(),
+    });
+  }
 }
 
 async function pullFromCloudAndPopulateLocal() {
@@ -581,6 +624,59 @@ async function pullFromCloudAndPopulateLocal() {
       if (jfData.uploads.linkedinPdf) localPatch.uploads_linkedin_pdf = jfData.uploads.linkedinPdf;
       if (jfData.uploads.tailoredResume) localPatch.uploads_tailored_resume = jfData.uploads.tailoredResume;
     }
+
+    // Pull applied jobs (last 6 months) into local cache for the Dashboard UI.
+    try {
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - 6);
+
+      const docs = await firestoreRunQuery(`users/${uid}`, {
+        from: [{ collectionId: 'appliedJobs' }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: 'timestamp' },
+            op: 'GREATER_THAN',
+            value: { timestampValue: cutoff.toISOString() },
+          },
+        },
+        orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
+        limit: 200,
+      });
+
+      const jobs = (docs || [])
+        .map((d: any) => {
+          const data = d?.fields ? fromFirestoreValue({ mapValue: { fields: d.fields } }) : {};
+          return {
+            company: String(data?.company || ''),
+            role: String(data?.role || data?.title || ''),
+            date: String(data?.timestamp || ''),
+            url: String(data?.url || ''),
+          };
+        })
+        .filter((j: any) => j.url);
+
+      localPatch.AppliedJobs = jobs;
+    } catch (_) {}
+
+    // Pull most recent job search to restore the Job Search tab quickly.
+    try {
+      const docs = await firestoreRunQuery(`users/${uid}`, {
+        from: [{ collectionId: 'jobSearches' }],
+        orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
+        limit: 1,
+      });
+
+      const d0 = docs?.[0];
+      const data = d0?.fields ? fromFirestoreValue({ mapValue: { fields: d0.fields } }) : null;
+      if (data) {
+        localPatch.jobSearchLast = {
+          version: String(data.version || '0.1'),
+          generated_at: String(data.generated_at || data.timestamp || nowIso()),
+          desiredLocation: String(data?.searchOptions?.desiredLocation || ''),
+          recommendations: Array.isArray(data.generatedJobs) ? data.generatedJobs : [],
+        };
+      }
+    } catch (_) {}
 
     if (Object.keys(localPatch).length) {
       await chrome.storage.local.set(localPatch);
@@ -631,10 +727,28 @@ async function flushQueueOnce(limit = 25) {
         await firestorePatchDoc(op.payload.path, op.payload.data);
       } else if (op.kind === 'firestoreCreateDoc') {
         await firestoreCreateDoc(op.payload.collectionPath, op.payload.data);
+      } else if (op.kind === 'firestoreDeleteDoc') {
+        await firestoreDeleteDoc(op.payload.path);
       } else if (op.kind === 'firestoreCommit') {
         await firestoreCommit(op.payload.writes);
       } else if (op.kind === 'storageUpload') {
-        await storageUpload(op.payload);
+        const meta = await storageUpload(op.payload);
+        try {
+          const cloudMetaKey = op?.payload?.cloudMetaKey;
+          const kind = op?.payload?.kind;
+          const safeName = op?.payload?.safeName;
+          if (cloudMetaKey && kind) {
+            const patch: any = {};
+            patch[String(cloudMetaKey)] = {
+              ...meta,
+              name: safeName || '',
+              kind,
+              storedAt: nowIso(),
+            };
+            await chrome.storage.local.set(patch);
+            scheduleAutosave('jobFields');
+          }
+        } catch (_) {}
       }
 
       await deleteOp(op.id);
@@ -729,7 +843,18 @@ async function maybeUploadChangedPdf(localKey: string, nameKey: string, cloudMet
 
   // Queue storage upload so it works offline too.
   const meta = await storageUpload({ path, base64: b64, contentType: 'application/pdf' }).catch(async (e) => {
-    await enqueue({ kind: 'storageUpload', payload: { path, base64: b64, contentType: 'application/pdf' }, createdAtMs: Date.now() });
+    await enqueue({
+      kind: 'storageUpload',
+      payload: {
+        path,
+        base64: b64,
+        contentType: 'application/pdf',
+        cloudMetaKey,
+        kind,
+        safeName,
+      },
+      createdAtMs: Date.now(),
+    });
     throw e;
   });
 
@@ -795,14 +920,29 @@ async function trackAutofill(ev: any) {
 
   // Also keep local cache for quick UI
   try {
-    const got = await chrome.storage.local.get(['cloudStats']);
+    const got = await chrome.storage.local.get(['cloudStats', 'cloudAutofillsHistory']);
     const cur = ((got as any).cloudStats || {}) as any;
+
     const next = {
       ...cur,
       autofills: { total: Number(cur?.autofills?.total || 0) + 1 },
       lastAutofill: nowIso(),
     };
-    await chrome.storage.local.set({ cloudStats: next });
+
+    const prevHist = Array.isArray((got as any).cloudAutofillsHistory) ? (got as any).cloudAutofillsHistory : [];
+    const item = {
+      url: String(doc.url || ''),
+      domain: String(doc.domain || ''),
+      filledCount: Number(doc.filledCount || 0),
+      source: String(doc.source || ''),
+      reason: String(doc.reason || ''),
+      ts: nowIso(),
+    };
+
+    await chrome.storage.local.set({
+      cloudStats: next,
+      cloudAutofillsHistory: [item, ...prevHist].slice(0, 50),
+    });
   } catch (_) {}
 
   scheduleFlushSoon();
@@ -836,6 +976,7 @@ async function trackCustomAnswer(ev: any) {
             document: userDocName(uid),
             fieldTransforms: [
               { fieldPath: 'stats.customAnswersGenerated.total', increment: { integerValue: '1' } },
+              { fieldPath: 'stats.lastCustomAnswer', setToServerValue: 'REQUEST_TIME' },
             ],
           },
         },
@@ -844,7 +985,44 @@ async function trackCustomAnswer(ev: any) {
     createdAtMs: Date.now(),
   });
 
+  // Local cache for UI (previews)
+  try {
+    const got = await chrome.storage.local.get(['cloudStats', 'cloudCustomAnswersHistory']);
+    const cur = ((got as any).cloudStats || {}) as any;
+
+    const nextStats = {
+      ...cur,
+      customAnswersGenerated: { total: Number(cur?.customAnswersGenerated?.total || 0) + 1 },
+      lastCustomAnswer: nowIso(),
+    };
+
+    const prevHist = Array.isArray((got as any).cloudCustomAnswersHistory) ? (got as any).cloudCustomAnswersHistory : [];
+    const item = {
+      prompt: String(doc.prompt || '').slice(0, 800),
+      answerPreview: String(doc.answer || '').slice(0, 500),
+      url: String(doc?.usedInJob?.url || ''),
+      domain: String(doc?.usedInJob?.domain || ''),
+      ts: nowIso(),
+      source: String(doc.source || 'ai_answer'),
+    };
+
+    await chrome.storage.local.set({
+      cloudStats: nextStats,
+      cloudCustomAnswersHistory: [item, ...prevHist].slice(0, 50),
+    });
+  } catch (_) {}
+
   scheduleFlushSoon();
+}
+
+function appliedJobIdFromUrl(url: string): string {
+  const u = String(url || '');
+  try {
+    return btoa(u).replace(/=+$/g, '').replace(/\+/g, '-').replace(/\//g, '_').slice(0, 150);
+  } catch (_) {
+    // Fallback: strip non-ascii
+    return btoa(u.replace(/[^\x00-\x7F]+/g, '')).replace(/=+$/g, '').replace(/\+/g, '-').replace(/\//g, '_').slice(0, 150);
+  }
 }
 
 async function trackAppliedJob(job: any) {
@@ -866,10 +1044,58 @@ async function trackAppliedJob(job: any) {
     timestamp: new Date(job?.date ? String(job.date) : nowIso()),
   };
 
-  // Stable doc id: base64url of URL hash (simple)
-  const id = btoa(url).replace(/=+$/g, '').replace(/\+/g, '-').replace(/\//g, '_').slice(0, 150);
+  const id = appliedJobIdFromUrl(url);
 
   await enqueue({ kind: 'firestorePatchDoc', payload: { path: `users/${uid}/appliedJobs/${id}`, data: doc }, createdAtMs: Date.now() });
+  scheduleFlushSoon();
+}
+
+async function syncAppliedJobsDelta(oldVal: any, newVal: any) {
+  if (!authState) return;
+  const uid = authState.uid;
+
+  const oldJobs = Array.isArray(oldVal) ? oldVal : [];
+  const newJobs = Array.isArray(newVal) ? newVal : [];
+
+  const norm = (j: any) => ({
+    url: String(j?.url || '').slice(0, 2000),
+    company: String(j?.company || '').slice(0, 200),
+    role: String(j?.role || '').slice(0, 200),
+    date: String(j?.date || ''),
+  });
+
+  const oldEntries = oldJobs
+    .map((j: any) => {
+      const jj = norm(j);
+      return [jj.url, jj] as [string, any];
+    })
+    .filter(([u]) => !!u);
+
+  const newEntries = newJobs
+    .map((j: any) => {
+      const jj = norm(j);
+      return [jj.url, jj] as [string, any];
+    })
+    .filter(([u]) => !!u);
+
+  const oldMap = new Map<string, any>(oldEntries);
+  const newMap = new Map<string, any>(newEntries);
+
+  // Upserts (new or changed)
+  for (const [url, j] of newMap.entries()) {
+    const prev = oldMap.get(url);
+    if (!prev || prev.company !== j.company || prev.role !== j.role) {
+      trackAppliedJob(j).catch(() => {});
+    }
+  }
+
+  // Deletions (removed URLs)
+  for (const [url] of oldMap.entries()) {
+    if (newMap.has(url)) continue;
+    const id = appliedJobIdFromUrl(url);
+    await enqueue({ kind: 'firestoreDeleteDoc', payload: { path: `users/${uid}/appliedJobs/${id}` }, createdAtMs: Date.now() });
+  }
+
   scheduleFlushSoon();
 }
 
@@ -892,7 +1118,7 @@ async function trackJobSearch(last: any) {
 }
 
 function scheduleFlushSoon() {
-  chrome.alarms.create(FLUSH_ALARM, { when: Date.now() + 5_000 });
+  chrome.alarms.create(FLUSH_ALARM_SOON, { when: Date.now() + 5_000 });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -901,14 +1127,12 @@ function scheduleFlushSoon() {
 
 export function initFirebaseExtensionSync() {
   // Alarms
-  chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 1 });
+  chrome.alarms.create(FLUSH_ALARM_PERIODIC, { periodInMinutes: 1 });
 
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm?.name === AUTOSAVE_ALARM) {
       if (Date.now() + 50 < autosaveScheduledAt) return;
-      pushJobFieldsSnapshot().catch(async (e) => {
-        await enqueue({ kind: 'firestorePatchDoc', payload: { path: `users/${authState?.uid}/jobFields/current`, data: {} }, createdAtMs: Date.now(), lastError: String(e) } as any);
-      });
+      pushJobFieldsSnapshot().catch(() => {});
       return;
     }
 
@@ -922,7 +1146,7 @@ export function initFirebaseExtensionSync() {
       return;
     }
 
-    if (alarm?.name === FLUSH_ALARM) {
+    if (alarm?.name === FLUSH_ALARM_PERIODIC || alarm?.name === FLUSH_ALARM_SOON) {
       flushQueue().catch(() => {});
     }
   });
@@ -955,13 +1179,17 @@ export function initFirebaseExtensionSync() {
       }
 
       if (changes?.jobSearchLast) {
-        // Delay slightly and then enqueue a job search record
         try {
           const next = changes.jobSearchLast.newValue;
-          if (next && typeof next === 'object') {
-            scheduleAutosave('jobSearch');
-            enqueue({ kind: 'firestoreCreateDoc', payload: { collectionPath: `users/${authState?.uid}/jobSearches`, data: { ...next, timestamp: new Date() } }, createdAtMs: Date.now() }).catch(() => {});
+          if (authState && next && typeof next === 'object') {
+            trackJobSearch(next).catch(() => {});
           }
+        } catch (_) {}
+      }
+
+      if (changes?.AppliedJobs) {
+        try {
+          if (authState) syncAppliedJobsDelta(changes.AppliedJobs.oldValue, changes.AppliedJobs.newValue).catch(() => {});
         } catch (_) {}
       }
 
