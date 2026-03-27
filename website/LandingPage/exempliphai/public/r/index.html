@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Referral</title>
+    <meta name="robots" content="noindex" />
+  </head>
+  <body>
+    <noscript>This page requires JavaScript.</noscript>
+
+    <script>
+      (function () {
+        // Expect URL like: /r/CODE (or /r/CODE/)
+        var path = String(window.location.pathname || "/").replace(/\/+$/, "");
+        var parts = path.split("/").filter(Boolean);
+        var idx = parts.indexOf("r");
+        var code = idx >= 0 && parts.length > idx + 1 ? parts[idx + 1] : "";
+        code = String(code || "").trim().toUpperCase();
+
+        var maxAge = 60 * 60 * 24 * 30; // 30d
+
+        if (code) {
+          // Store the raw code as a fallback.
+          document.cookie =
+            "ref_code=" +
+            encodeURIComponent(code) +
+            "; Max-Age=" +
+            maxAge +
+            "; Path=/; SameSite=Lax";
+
+          // Prefer attributionId (used by /account to apply the referral after sign-in).
+          fetch("/api/createAttribution?code=" + encodeURIComponent(code), {
+            method: "GET",
+          })
+            .then(function (res) {
+              if (!res || !res.ok) return null;
+              return res.json().catch(function () {
+                return null;
+              });
+            })
+            .then(function (data) {
+              if (data && data.attributionId) {
+                document.cookie =
+                  "ref_attr=" +
+                  encodeURIComponent(String(data.attributionId)) +
+                  "; Max-Age=" +
+                  maxAge +
+                  "; Path=/; SameSite=Lax";
+              }
+            })
+            .catch(function () {
+              // ignore
+            })
+            .finally(function () {
+              window.location.replace("/login");
+            });
+
+          return;
+        }
+
+        window.location.replace("/login");
+      })();
+    </script>
+  </body>
+</html>

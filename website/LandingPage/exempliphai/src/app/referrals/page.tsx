@@ -1,5 +1,14 @@
-import { redirect } from "next/navigation";
+"use client";
+
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function ReferralsPage() {
-  redirect("/account?tab=referrals");
+  const router = useRouter();
+
+  useEffect(() => {
+    router.replace("/account?tab=referrals");
+  }, [router]);
+
+  return null;
 }

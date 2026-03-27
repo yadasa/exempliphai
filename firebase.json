@@ -2,6 +2,24 @@
   "functions": {
     "source": "functions"
   },
+  "hosting": {
+    "public": "website/LandingPage/exempliphai/out",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/createAttribution",
+        "function": "createAttribution"
+      },
+      {
+        "source": "/r/**",
+        "destination": "/r/index.html"
+      }
+    ]
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
