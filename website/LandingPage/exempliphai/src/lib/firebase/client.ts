@@ -10,6 +10,11 @@ import {
   connectFunctionsEmulator,
   type Functions,
 } from "firebase/functions";
+import {
+  getStorage,
+  connectStorageEmulator,
+  type FirebaseStorage,
+} from "firebase/storage";
 
 // NOTE: In Next.js client bundles, `process.env.FOO` gets inlined at build time,
 // but `process.env[name]` (dynamic access) does NOT. So we must read each
@@ -21,6 +26,7 @@ export type FirebaseClients = {
   auth: Auth;
   db: Firestore;
   functions: Functions;
+  storage: FirebaseStorage;
   /** True when all required NEXT_PUBLIC_FIREBASE_* vars are present */
   configured: boolean;
 };
@@ -95,6 +101,7 @@ export function getFirebase(): FirebaseClients {
       auth: null as unknown as Auth,
       db: null as unknown as Firestore,
       functions: null as unknown as Functions,
+      storage: null as unknown as FirebaseStorage,
       configured: false,
     };
     return cached;
@@ -104,6 +111,7 @@ export function getFirebase(): FirebaseClients {
   const auth = getAuth(app);
   const db = getFirestore(app);
   const functions = getFunctions(app);
+  const storage = getStorage(app);
 
   const useEmulators =
     String(process.env.NEXT_PUBLIC_FIREBASE_USE_EMULATORS || "false").toLowerCase() ===
@@ -123,6 +131,11 @@ export function getFirebase(): FirebaseClients {
     const fnPort = Number(
       process.env.NEXT_PUBLIC_FIREBASE_FUNCTIONS_EMULATOR_PORT || 5001,
     );
+    const stHost =
+      process.env.NEXT_PUBLIC_FIREBASE_STORAGE_EMULATOR_HOST || "localhost";
+    const stPort = Number(
+      process.env.NEXT_PUBLIC_FIREBASE_STORAGE_EMULATOR_PORT || 9199,
+    );
 
     try {
       connectAuthEmulator(auth, authUrl, { disableWarnings: true });
@@ -141,8 +154,14 @@ export function getFirebase(): FirebaseClients {
     } catch {
       // ignore if already connected
     }
+
+    try {
+      connectStorageEmulator(storage, stHost, stPort);
+    } catch {
+      // ignore if already connected
+    }
   }
 
-  cached = { auth, db, functions, configured: true };
+  cached = { auth, db, functions, storage, configured: true };
   return cached;
 }
