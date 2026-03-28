@@ -10,7 +10,7 @@ import {
 
 export const landingContent = {
   hero: {
-    eyebrow: "Your job search, on autopilot",
+    eyebrow: "Your unfair advantage in a crowded job market",
     headline: {
       line1: "Find, tailor, and apply",
       emphasis: "10× faster",
@@ -23,8 +23,8 @@ export const landingContent = {
       { label: "Privacy-first", value: "No data selling" },
     ],
     ctas: {
-      primary: { label: "Get started free", href: "/login" },
-      secondary: { label: "See how it works", href: "#how-it-works" },
+      primary: { label: "Start applying free", href: "/login" },
+      secondary: { label: "See it in action (60 seconds)", href: "#how-it-works" },
     },
     privacyNote: "Full anonymization. You stay in control of what gets shared.",
   },
