@@ -61,11 +61,22 @@ const AUTOSAVE_ALARM = 'FIREBASE_AUTOSAVE_JOBFIELDS';
 const FLUSH_ALARM_PERIODIC = 'FIREBASE_SYNC_FLUSH_QUEUE_PERIODIC';
 const FLUSH_ALARM_SOON = 'FIREBASE_SYNC_FLUSH_QUEUE_SOON';
 
+// Auth: keep trying to connect to an open Exempliph tab even if the popup closes.
+// Alarms can only run at 1-minute granularity, so we combine an alarm wake-up
+// with a short in-memory interval while the SW is alive.
+const AUTH_POLL_ALARM = 'FIREBASE_AUTH_POLL_ALARM';
+const AUTH_POLL_ALARM_PERIOD_MIN = 1;
+const AUTH_POLL_INTERVAL_MS = 10_000;
+
 let authState: FirebaseAuthState | null = null;
 let applyingRemote = false;
 let autosaveScheduledAt = 0;
 let appliedJobsSyncScheduledAt = 0;
 let jobSearchSyncScheduledAt = 0;
+
+let authPollTimer: any = null;
+let authPollInFlight = false;
+let lastAuthPollAt = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IndexedDB queue
@@ -185,6 +196,87 @@ function nowIso() {
 
 function requireFirebaseConfig(): boolean {
   return !!(FIREBASE.apiKey && FIREBASE.projectId && FIREBASE.storageBucket);
+}
+
+function isExempliphUrl(url: string): boolean {
+  try {
+    const u = new URL(String(url || ''));
+    const h = u.hostname.toLowerCase();
+    return h === 'exempliph.ai' || h === 'www.exempliph.ai' || h === 'exempliphai.com' || h === 'www.exempliphai.com';
+  } catch {
+    return false;
+  }
+}
+
+async function getIdTokenFromTab(tabId: number): Promise<any> {
+  return await new Promise((resolve) => {
+    try {
+      chrome.tabs.sendMessage(tabId, { action: 'EXEMPLIPHAI_GET_ID_TOKEN' }, (resp) => {
+        const e = chrome?.runtime?.lastError;
+        if (e) resolve({ ok: false, error: e.message || String(e) });
+        else resolve(resp || { ok: false });
+      });
+    } catch (e: any) {
+      resolve({ ok: false, error: String(e?.message || e) });
+    }
+  });
+}
+
+async function tryAuthFromAnyExempliphTab(reason: string): Promise<boolean> {
+  if (authPollInFlight) return false;
+  if (Date.now() - lastAuthPollAt < 2_000) return false;
+  if (authState?.uid && authState?.idToken) return true;
+
+  authPollInFlight = true;
+  lastAuthPollAt = Date.now();
+
+  try {
+    const tabs = await chrome.tabs.query({
+      url: [
+        '*://exempliph.ai/*',
+        '*://www.exempliph.ai/*',
+        '*://exempliphai.com/*',
+        '*://www.exempliphai.com/*',
+      ],
+    });
+
+    for (const t of tabs || []) {
+      if (!t?.id) continue;
+      if (t.url && !isExempliphUrl(String(t.url))) continue;
+      const rec = await getIdTokenFromTab(t.id);
+      if (rec?.ok === true && rec?.uid && rec?.idToken) {
+        console.debug('FirebaseSync: auth pull succeeded from tab', { reason, tabId: t.id, source: rec?.key || rec?.source });
+        const jwt = parseJwt(String(rec.idToken || ''));
+        const uid = String(rec.uid || jwt?.user_id || jwt?.sub || '').trim();
+        const email = String(rec.email || jwt?.email || '').trim();
+
+        const next: FirebaseAuthState = {
+          uid,
+          idToken: String(rec.idToken || '').trim(),
+          refreshToken: rec.refreshToken ? String(rec.refreshToken).trim() : undefined,
+          expiresAtMs: Number.isFinite(rec.expiresAtMs) ? Number(rec.expiresAtMs) : undefined,
+          email: email || undefined,
+          providerId: String(rec.providerId || jwt?.firebase?.sign_in_provider || ''),
+          updatedAtMs: Date.now(),
+        };
+
+        authState = next;
+        await setStoredAuth(next);
+        await pullFromCloudAndPopulateLocal().catch(() => {});
+        scheduleAutosave('jobFields');
+        scheduleFlushSoon();
+
+        return true;
+      }
+    }
+
+    return false;
+  } catch (e) {
+    console.debug('FirebaseSync: auth pull failed', reason, e);
+    return false;
+  } finally {
+    authPollInFlight = false;
+  }
 }
 
 async function getStoredAuth(): Promise<FirebaseAuthState | null> {
@@ -1128,6 +1220,7 @@ function scheduleFlushSoon() {
 export function initFirebaseExtensionSync() {
   // Alarms
   chrome.alarms.create(FLUSH_ALARM_PERIODIC, { periodInMinutes: 1 });
+  chrome.alarms.create(AUTH_POLL_ALARM, { periodInMinutes: AUTH_POLL_ALARM_PERIOD_MIN });
 
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm?.name === AUTOSAVE_ALARM) {
@@ -1149,6 +1242,10 @@ export function initFirebaseExtensionSync() {
     if (alarm?.name === FLUSH_ALARM_PERIODIC || alarm?.name === FLUSH_ALARM_SOON) {
       flushQueue().catch(() => {});
     }
+
+    if (alarm?.name === AUTH_POLL_ALARM) {
+      tryAuthFromAnyExempliphTab('alarm').catch(() => {});
+    }
   });
 
   // Auth init
@@ -1163,6 +1260,17 @@ export function initFirebaseExtensionSync() {
     })
     .catch(() => {});
 
+  // Background auth polling: if the user signs in on the website with the popup closed,
+  // we still want to pick up their Firebase session.
+  tryAuthFromAnyExempliphTab('startup').catch(() => {});
+  try {
+    if (!authPollTimer) {
+      authPollTimer = setInterval(() => {
+        tryAuthFromAnyExempliphTab('interval').catch(() => {});
+      }, AUTH_POLL_INTERVAL_MS);
+    }
+  } catch (_) {}
+
   // Storage listeners → autosave
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (applyingRemote) return;
@@ -1174,6 +1282,26 @@ export function initFirebaseExtensionSync() {
     }
 
     if (areaName === 'local') {
+      // Keep in-memory authState in sync if some other context writes to storage.
+      if (changes?.firebaseAuth) {
+        try {
+          const next = changes.firebaseAuth.newValue;
+          if (next && typeof next === 'object' && next.uid && next.idToken) {
+            authState = {
+              uid: String(next.uid),
+              idToken: String(next.idToken),
+              refreshToken: next.refreshToken ? String(next.refreshToken) : undefined,
+              expiresAtMs: Number.isFinite(next.expiresAtMs) ? Number(next.expiresAtMs) : undefined,
+              email: next.email ? String(next.email) : undefined,
+              providerId: next.providerId ? String(next.providerId) : undefined,
+              updatedAtMs: Number.isFinite(next.updatedAtMs) ? Number(next.updatedAtMs) : Date.now(),
+            };
+          } else {
+            authState = null;
+          }
+        } catch (_) {}
+      }
+
       if (changes?.Resume_details || changes?.LOCAL_PROFILE || changes?.EXEMPLIPHAI_LOCAL_PROFILE || changes?.Resume_tailored_text || changes?.Resume_tailored_meta || changes?.Resume_tailored_name) {
         scheduleAutosave('jobFields');
       }
@@ -1217,6 +1345,7 @@ export function initFirebaseExtensionSync() {
         if (!authState) {
           authState = await getStoredAuth().catch(() => null);
         }
+        console.debug('FirebaseSync: whoami', { authed: !!authState, uid: authState?.uid || null, source: msg?.source || null });
         sendResponse({
           ok: true,
           authed: !!authState,
@@ -1238,6 +1367,7 @@ export function initFirebaseExtensionSync() {
 
       // Website → extension auth update
       if (msg.action === 'FIREBASE_AUTH_UPDATE') {
+        console.debug('FirebaseSync: FIREBASE_AUTH_UPDATE', { source: msg?.source || null, hasToken: !!String(msg?.idToken || '').trim(), uid: msg?.uid || null, email: msg?.email || null });
         const idToken = String(msg.idToken || '').trim();
         const refreshToken = String(msg.refreshToken || '').trim();
         const expiresAtMs = Number.isFinite(msg.expiresAtMs) ? Number(msg.expiresAtMs) : undefined;

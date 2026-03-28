@@ -15,7 +15,21 @@
 (function () {
   const POLL_MS = 15_000;
   const KEY_PREFIX = 'firebase:authUser:';
+
+  // Optional, website-controlled shadow record in localStorage to make bridging reliable
+  // even when Firebase Auth persistence is IndexedDB.
+  const SHADOW_AUTH_KEY = 'EXEMPLIPHAI_FIREBASE_AUTH_SHADOW';
+
+  // Back-compat: custom token support (not currently used in the extension).
   const CUSTOM_TOKEN_KEY = 'EXEMPLIPHAI_FIREBASE_CUSTOM_TOKEN';
+
+  function isDebug() {
+    try { return localStorage.getItem('EXEMPLIPHAI_DEBUG_AUTH_BRIDGE') === '1'; } catch (_) { return false; }
+  }
+
+  function debug(...args) {
+    try { if (isDebug()) console.debug('[siteAuthBridge]', ...args); } catch (_) {}
+  }
 
   function safeParseJson(raw) {
     try { return JSON.parse(raw); } catch (_) { return null; }
@@ -48,6 +62,17 @@
 
   function findFirebaseAuthRecordInWebStorage() {
     try {
+      // 1) Prefer the website-provided shadow record (if present)
+      try {
+        const rawShadow = localStorage.getItem(SHADOW_AUTH_KEY);
+        if (rawShadow) {
+          const shadowObj = safeParseJson(rawShadow);
+          const rec = extractFirebaseAuthRecord(shadowObj, SHADOW_AUTH_KEY);
+          if (rec) return rec;
+        }
+      } catch (_) {}
+
+      // 2) Otherwise fall back to scanning Firebase authUser keys
       const stores = [];
       try { if (typeof localStorage !== 'undefined') stores.push(localStorage); } catch (_) {}
       try { if (typeof sessionStorage !== 'undefined') stores.push(sessionStorage); } catch (_) {}
@@ -113,7 +138,15 @@
         const k = String(row?.fbase_key || row?.key || row?.K || row?.name || '');
         if (!k || !k.startsWith(KEY_PREFIX)) continue;
 
-        const raw = row?.value;
+        // Row value shapes vary by Firebase versions.
+        // We try a few common patterns:
+        // - stringified JSON
+        // - object with nested { value: <string|object> }
+        // - object itself
+        let raw = row?.value;
+        if (raw && typeof raw === 'object' && 'value' in raw) raw = raw.value;
+        if (raw && typeof raw === 'object' && 'value' in raw) raw = raw.value;
+
         const obj = typeof raw === 'string' ? safeParseJson(raw) : raw;
         const rec = extractFirebaseAuthRecord(obj, k);
         if (rec) return rec;
@@ -143,6 +176,7 @@
     try {
       const rec = await findFirebaseAuthRecord();
       if (!rec || !rec.uid || !rec.idToken) {
+        debug('no auth found');
         if (lastSent !== 'CLEARED') {
           lastSent = 'CLEARED';
           chrome.runtime.sendMessage({ action: 'FIREBASE_AUTH_CLEAR' });
@@ -153,6 +187,8 @@
       const h = payloadHash(rec);
       if (h && h === lastSent) return;
       lastSent = h;
+
+      debug('auth changed → FIREBASE_AUTH_UPDATE', { uid: rec.uid, email: rec.email, providerId: rec.providerId, expiresAtMs: rec.expiresAtMs, key: rec.key });
 
       chrome.runtime.sendMessage({
         action: 'FIREBASE_AUTH_UPDATE',
@@ -172,6 +208,11 @@
     notifyBackgroundIfChanged().catch(() => {});
     setInterval(() => notifyBackgroundIfChanged().catch(() => {}), POLL_MS);
     window.addEventListener('storage', () => notifyBackgroundIfChanged().catch(() => {}));
+
+    // Faster wakeups: when the page regains focus or the auth provider notifies.
+    window.addEventListener('focus', () => notifyBackgroundIfChanged().catch(() => {}));
+    document.addEventListener('visibilitychange', () => notifyBackgroundIfChanged().catch(() => {}));
+    window.addEventListener('exempliphai-auth-changed', () => notifyBackgroundIfChanged().catch(() => {}));
   } catch (_) {}
 
   function getCustomToken() {

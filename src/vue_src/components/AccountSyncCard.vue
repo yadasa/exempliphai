@@ -104,6 +104,7 @@ async function getIdTokenFromTab(tabId: number): Promise<SiteTokenResp> {
       chrome.tabs.sendMessage(tabId, { action: 'EXEMPLIPHAI_GET_ID_TOKEN' }, (r) => {
         const e = chrome?.runtime?.lastError;
         if (e) {
+          console.debug('AccountSyncCard: tabs.sendMessage error', e);
           resolve({ ok: false, error: e.message || String(e) });
           return;
         }
@@ -117,7 +118,10 @@ async function getIdTokenFromTab(tabId: number): Promise<SiteTokenResp> {
 
 async function tryConnectFromTab(tabId: number): Promise<boolean> {
   const rec = await getIdTokenFromTab(tabId);
-  if (!rec || rec.ok !== true || !rec.uid || !rec.idToken) return false;
+  if (!rec || rec.ok !== true || !rec.uid || !rec.idToken) {
+    console.debug('AccountSyncCard: no token from tab', { tabId, rec });
+    return false;
+  }
   await sendToServiceWorker(rec);
   await whoami().catch(() => {});
   return true;
@@ -250,6 +254,15 @@ function onStorageChanged(changes: any, areaName: string) {
 
 onMounted(() => {
   whoami().catch(() => {});
+
+  // If the user already signed in on the website (maybe with the popup closed),
+  // try to connect immediately on next popup open.
+  tryConnectFromAnyExempliphTab()
+    .then((ok) => {
+      if (ok) setMessage('Connected. Firebase sync is now enabled.');
+    })
+    .catch(() => {});
+
   try {
     chrome.storage.onChanged.addListener(onStorageChanged);
   } catch (_) {}
