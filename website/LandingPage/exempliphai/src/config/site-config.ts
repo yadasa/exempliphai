@@ -1,7 +1,7 @@
 export const siteConfig = {
   name: "exempliphai",
   description:
-    "ExempliPhai automates your job search with auto-search, resume tailoring, autofill, and tracking — privacy first.",
+    "exempliphai automates your job search with auto-search, resume tailoring, autofill, and tracking — privacy first.",
   creator: "exempliphai",
   links: {
     repositoryUrl: "",
@@ -10,7 +10,7 @@ export const siteConfig = {
     // Set NEXT_PUBLIC_SITE_URL in production to avoid Next.js metadataBase warnings.
     deploymentUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
     loginUrl: "/login",
-    waitlistUrl: "/#waitlist",
+    waitlistUrl: "https://exempliph.ai/#waitlist",
   },
   openGraph: {
     imageUrl: "/opengraph-image.png",
@@ -23,10 +23,10 @@ export const siteConfig = {
     imageUrl: "/opengraph-image.png",
   },
   navItems: [
-    { label: "Features", href: "#features" },
-    { label: "How it works", href: "#how-it-works" },
-    { label: "Testimonials", href: "#testimonials" },
-    { label: "FAQ", href: "#faq" },
+    { label: "Features", href: "https://exempliph.ai/#features" },
+    { label: "How it works", href: "https://exempliph.ai/#how-it-works" },
+    { label: "Testimonials", href: "https://exempliph.ai/#testimonials" },
+    { label: "FAQ", href: "https://exempliph.ai/#faq" },
   ],
 } as const;
 

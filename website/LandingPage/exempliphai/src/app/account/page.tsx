@@ -16,6 +16,7 @@ import {
 } from "@/lib/referrals/client";
 import schema from "@/config/local_profile_schema.json";
 import { OnboardingModal } from "@/components/onboarding/onboarding-modal";
+import { NavCard } from "@/components/nav-card";
 
 export default function AccountPage() {
   return (
@@ -70,8 +71,14 @@ function AccountInner() {
 
         const onboardingVersion = Number(data?.onboarding?.version || 0);
         const completedAt = data?.onboarding?.completedAt;
-        const missingRequired = !String(data?.first_name || "").trim() || !String(data?.last_name || "").trim() || !String(data?.email || "").trim();
-        const needsOnboarding = onboardingVersion !== Number((schema as any).version || 1) || !completedAt || missingRequired;
+        const missingRequired =
+          !String(data?.first_name || "").trim() ||
+          !String(data?.last_name || "").trim() ||
+          !String(data?.email || "").trim();
+        const needsOnboarding =
+          onboardingVersion !== Number((schema as any).version || 1) ||
+          !completedAt ||
+          missingRequired;
         if (needsOnboarding) setOnboardingOpen(true);
       } catch {
         // ignore
@@ -82,6 +89,8 @@ function AccountInner() {
     };
   }, [user]);
 
+  // If the user arrived via /r/CODE, the /r index sets ref_attr cookie.
+  // Apply it once after sign-in, then clear the cookie.
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -94,7 +103,6 @@ function AccountInner() {
         const attrId = m ? decodeURIComponent(m[1]) : "";
         if (!attrId) return;
 
-        // Attempt apply once, then clear cookie.
         await applyAttribution(attrId);
         if (!alive) return;
 
@@ -170,7 +178,6 @@ function AccountInner() {
     try {
       const { auth } = getFirebase();
       await signOut(auth);
-      // RequireAuth will also catch this, but do it explicitly for a crisp UX.
       router.replace("/login");
     } catch (e: any) {
       setErr(String(e?.message || e));
@@ -200,31 +207,50 @@ function AccountInner() {
     setMsg("Profile saved. You're all set!");
   }
 
+  const onboardingInitialProfile = useMemo(() => {
+    const base = (userDoc || {}) as any;
+    const phoneFromAuth = String(user?.phoneNumber || "").trim();
+    const existingPhone = String(base?.phone || "").trim();
+
+    return {
+      ...base,
+      phone: existingPhone || phoneFromAuth || null,
+    };
+  }, [userDoc, user?.phoneNumber]);
+
   return (
     <div className="container py-20 md:py-24">
       <OnboardingModal
         open={onboardingOpen}
         onOpenChange={setOnboardingOpen}
-        initialProfile={userDoc || {}}
+        initialProfile={onboardingInitialProfile}
         onComplete={completeOnboarding}
       />
 
       <div className="mx-auto max-w-2xl rounded-2xl border bg-card p-6 shadow-sm md:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
-          <div className="flex gap-3">
-            <Link className="text-sm text-primary underline" href={"/profile" as any}>
-              Edit profile
-            </Link>
-            <Link className="text-sm text-primary underline" href="/">
-              Home
-            </Link>
-          </div>
+          <Link className="text-sm text-primary underline" href={"/dashboard" as any}>
+            Dashboard
+          </Link>
         </div>
 
         <p className="mt-2 text-sm text-muted-foreground">
           Signed in as <span className="font-medium">{user?.phoneNumber}</span>
         </p>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <NavCard href="/dashboard" title="Dashboard" desc="Back to your overview." />
+          <NavCard href="/profile" title="Profile" desc="Edit your autofill profile." />
+          <NavCard href="/resume-tailoring" title="Resume Tailoring" desc="Coming soon." />
+          <NavCard href="/job-search" title="Job Search" desc="Coming soon." />
+          <NavCard
+            href="/subscription"
+            title="Manage Subscription"
+            desc="Upgrade and manage your plan."
+            gradient
+          />
+        </div>
 
         <div className="mt-6 flex flex-wrap gap-2">
           <button
@@ -268,7 +294,7 @@ function AccountInner() {
           <>
             <div className="mt-6 grid gap-3">
               <label className="grid gap-1" htmlFor="account-display-name">
-                <span className="text-sm font-medium">Display name</span>
+                <span className="text-sm font-medium">Display Name</span>
                 <input
                   id="account-display-name"
                   className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
@@ -284,6 +310,7 @@ function AccountInner() {
                   className="bg-gradient-primary h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
                   onClick={save}
                   disabled={busy}
+                  type="button"
                 >
                   Save
                 </button>
@@ -291,6 +318,7 @@ function AccountInner() {
                   className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
                   onClick={logout}
                   disabled={busy}
+                  type="button"
                 >
                   Sign out
                 </button>
@@ -340,11 +368,15 @@ function AccountInner() {
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-xl border bg-background/40 p-4">
                 <div className="text-xs text-muted-foreground">Total referrals</div>
-                <div className="mt-1 text-2xl font-semibold">{refStats?.totalReferrals ?? (refBusy ? "…" : 0)}</div>
+                <div className="mt-1 text-2xl font-semibold">
+                  {refStats?.totalReferrals ?? (refBusy ? "…" : 0)}
+                </div>
               </div>
               <div className="rounded-xl border bg-background/40 p-4">
                 <div className="text-xs text-muted-foreground">Points earned</div>
-                <div className="mt-1 text-2xl font-semibold">{refStats?.totalPoints ?? (refBusy ? "…" : 0)}</div>
+                <div className="mt-1 text-2xl font-semibold">
+                  {refStats?.totalPoints ?? (refBusy ? "…" : 0)}
+                </div>
               </div>
             </div>
 
@@ -365,9 +397,13 @@ function AccountInner() {
                         <tr key={r.referredUid} className="border-t">
                           <td className="py-2 pr-4">{r.who}</td>
                           <td className="py-2 pr-4 text-xs text-muted-foreground">
-                            {r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "—"}
+                            {r.createdAt
+                              ? new Date(r.createdAt).toLocaleDateString()
+                              : "—"}
                           </td>
-                          <td className="py-2 pr-0 text-right font-medium">{r.pointsAwarded}</td>
+                          <td className="py-2 pr-0 text-right font-medium">
+                            {r.pointsAwarded}
+                          </td>
                         </tr>
                       ))
                     ) : (

@@ -1,33 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   type ConfirmationResult,
 } from "firebase/auth";
-import { getFirebase } from "@/lib/firebase/client";
 import { useAuth } from "@/lib/auth/auth-context";
+import { getFirebase } from "@/lib/firebase/client";
 
 function normalizeUsPhoneToE164(input: string): string {
-  const raw = input.trim();
-  const digits = raw.replace(/\D/g, "");
-
-  // Accept:
-  // - 10 digits: 5551234567 -> +15551234567
-  // - 11 digits starting with 1: 15551234567 -> +15551234567
-  // - E.164 with +1 prefix: +15551234567
-  if (raw.startsWith("+")) {
-    if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-    throw new Error("Enter +1XXXXXXXXXX");
-  }
-
+  const digits = String(input || "").replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-
-  throw new Error("Enter +1XXXXXXXXXX");
+  throw new Error("Enter a 10-digit phone number");
 }
 
 export default function LoginPage() {
@@ -36,20 +25,41 @@ export default function LoginPage() {
 
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
+  const [stage, setStage] = useState<"send" | "verify">("send");
+
   const [busy, setBusy] = useState<"send" | "verify" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   const confirmationRef = useRef<ConfirmationResult | null>(null);
   const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+  const sentDigitsRef = useRef<string>("");
 
   useEffect(() => {
     if (!loading && user) router.replace("/dashboard" as any);
   }, [loading, user, router]);
 
+  const phoneDigits = useMemo(() => phone.replace(/\D/g, ""), [phone]);
+  const canSend = phoneDigits.length === 10;
+
+  // If the user edits the phone after sending a code, force a resend.
+  useEffect(() => {
+    if (stage !== "verify") return;
+    if (!sentDigitsRef.current) return;
+    if (phoneDigits === sentDigitsRef.current) return;
+
+    confirmationRef.current = null;
+    setCode("");
+    setStage("send");
+    setMsg(null);
+  }, [phoneDigits, stage]);
+
   async function sendCode() {
     setErr(null);
     setMsg(null);
+
+    if (!canSend) return;
+
     setBusy("send");
 
     try {
@@ -63,25 +73,24 @@ export default function LoginPage() {
       }
 
       if (!recaptchaRef.current) {
-        console.debug("[login] Initializing RecaptchaVerifier");
         recaptchaRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
           size: "invisible",
         });
       }
 
       const normalizedPhone = normalizeUsPhoneToE164(phone);
-      setPhone(normalizedPhone);
 
-      console.debug("[login] Sending SMS", { phone: normalizedPhone });
       const confirmation = await signInWithPhoneNumber(
         auth,
         normalizedPhone,
         recaptchaRef.current,
       );
+
       confirmationRef.current = confirmation;
+      sentDigitsRef.current = phoneDigits;
+      setStage("verify");
       setMsg("SMS sent. Enter the code to verify.");
     } catch (e: any) {
-      console.error("[login] sendCode error", e);
       try {
         recaptchaRef.current?.clear();
       } catch {
@@ -106,7 +115,6 @@ export default function LoginPage() {
       setCode("");
       router.replace("/dashboard" as any);
     } catch (e: any) {
-      console.error("[login] verifyCode error", e);
       setErr(String(e?.message || e));
     } finally {
       setBusy(null);
@@ -126,84 +134,99 @@ export default function LoginPage() {
 
       <div className="container py-20 md:py-24">
         <div className="mx-auto max-w-lg rounded-2xl border bg-card/80 p-6 shadow-sm backdrop-blur md:p-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Log in</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Sign in with your phone number (SMS verification).
-        </p>
-
-        <div aria-live="polite" aria-atomic="true">
-          {err ? (
-            <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
-              {err}
+          <div className="flex flex-col items-center text-center">
+            <div className="flex size-14 items-center justify-center rounded-2xl border bg-card">
+              <Image
+                src="/icons/logo-main.png"
+                alt="exempliphai logo"
+                width={34}
+                height={34}
+                priority
+              />
             </div>
-          ) : null}
-          {msg ? (
-            <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
-              {msg}
-            </div>
-          ) : null}
-        </div>
+            <div className="mt-3 text-2xl font-black tracking-tight">exempliphai</div>
+          </div>
 
-        <div className="mt-6 grid gap-3">
-          <label className="grid gap-1" htmlFor="login-phone">
-            <span className="text-sm font-medium">Phone (E.164)</span>
-            <input
-              id="login-phone"
-              className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="+15551234567"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              inputMode="tel"
-              autoComplete="tel"
-              disabled={busy !== null}
-            />
-          </label>
+          <p className="mt-2 text-center text-sm text-muted-foreground">
+            Sign in with your phone number.
+          </p>
 
-          <button
-            className="bg-gradient-primary h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-            onClick={sendCode}
-            disabled={!phone.trim() || busy !== null}
-          >
-            {busy === "send" ? "Sending…" : "Send code"}
-          </button>
+          <div aria-live="polite" aria-atomic="true">
+            {err ? (
+              <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
+                {err}
+              </div>
+            ) : null}
+            {msg ? (
+              <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
+                {msg}
+              </div>
+            ) : null}
+          </div>
 
-          <label className="grid gap-1" htmlFor="login-code">
-            <span className="text-sm font-medium">SMS code</span>
-            <input
-              id="login-code"
-              className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-              placeholder="123456"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              disabled={busy !== null}
-            />
-          </label>
+          <div className="mt-6 grid gap-3">
+            <label className="grid gap-1" htmlFor="login-phone">
+              <span className="text-sm font-medium">Phone</span>
+              <input
+                id="login-phone"
+                className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="(555) 123-4567"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                inputMode="tel"
+                autoComplete="tel"
+                disabled={busy !== null}
+              />
+            </label>
 
-          <button
-            className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-            onClick={verifyCode}
-            disabled={!code.trim() || busy !== null}
-          >
-            {busy === "verify" ? "Verifying…" : "Verify"}
-          </button>
-        </div>
+            <button
+              className="bg-gradient-primary h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              onClick={sendCode}
+              disabled={!canSend || busy !== null}
+              type="button"
+            >
+              {busy === "send" ? "Sending…" : "Send code"}
+            </button>
 
-        {/* invisible reCAPTCHA container */}
-        <div id="recaptcha-container" />
+            {stage === "verify" ? (
+              <>
+                <label className="grid gap-1" htmlFor="login-code">
+                  <span className="text-sm font-medium">SMS code</span>
+                  <input
+                    id="login-code"
+                    className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                    placeholder="123456"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    disabled={busy !== null}
+                  />
+                </label>
 
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <Link className="text-sm text-primary underline-offset-4 hover:underline" href="/">
-            Back to home
-          </Link>
-          <Link
-            className="text-sm text-primary underline-offset-4 hover:underline"
-            href={"/account" as any}
-          >
-            Account
-          </Link>
-        </div>
+                <button
+                  className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                  onClick={verifyCode}
+                  disabled={!code.trim() || busy !== null}
+                  type="button"
+                >
+                  {busy === "verify" ? "Verifying…" : "Verify"}
+                </button>
+              </>
+            ) : null}
+          </div>
+
+          {/* invisible reCAPTCHA container */}
+          <div id="recaptcha-container" />
+
+          <div className="mt-6 flex items-center justify-center">
+            <Link
+              className="text-sm text-primary underline-offset-4 hover:underline"
+              href="/"
+            >
+              Back to home
+            </Link>
+          </div>
         </div>
       </div>
     </div>

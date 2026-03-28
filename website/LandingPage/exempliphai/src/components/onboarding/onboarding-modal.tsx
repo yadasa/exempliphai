@@ -2,7 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DatePicker from "react-datepicker";
 import { format as formatDate, parseISO } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -136,12 +136,7 @@ function FieldInput({
     );
   }
 
-  const label =
-    field.key === "location"
-      ? "City, State, ZIP"
-      : field.key === "birthday"
-        ? "Birthday"
-        : field.label;
+  const label = field.key === "birthday" ? "Birthday" : field.label;
 
   if (field.format === "date") {
     const v = String(value ?? "").trim();
@@ -188,9 +183,6 @@ function FieldInput({
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           inputMode={field.type === "number" ? "numeric" : undefined}
-          placeholder={
-            field.key === "location" ? "Austin, TX 78701" : undefined
-          }
         />
       )}
     </label>
@@ -210,12 +202,20 @@ export function OnboardingModal({
 }) {
   const categories = useMemo(() => {
     const cats = ((schema as any).categories as SchemaCategory[]) || [];
-    // Onboarding: keep it short, match the extension's core autofill needs.
-    // Explicitly skip work authorization questions.
-    const ids = ["personal", "location"];
-    const picked = cats.filter((c) => ids.includes(c.id));
 
-    const base = picked.length ? picked : cats.slice(0, 2);
+    // Onboarding: keep it short, match the extension's core autofill needs.
+    const personal = cats.find((c) => c.id === "personal");
+    const base: SchemaCategory[] = personal ? [personal] : cats.slice(0, 1);
+
+    const desiredJobTypeStep: SchemaCategory = {
+      id: "desiredJobType",
+      title: "Desired Job Type",
+      fields: [
+        { key: "desiredJobType.remote", label: "Remote", type: "boolean" },
+        { key: "desiredJobType.hybrid", label: "Hybrid", type: "boolean" },
+        { key: "desiredJobType.inPerson", label: "In Person", type: "boolean" },
+      ],
+    };
 
     // Step 3: require a display name for the website account UI.
     const accountStep: SchemaCategory = {
@@ -224,20 +224,45 @@ export function OnboardingModal({
       fields: [
         {
           key: "account.displayName",
-          label: "Display name",
+          label: "Display Name",
           type: "string",
           required: true,
         },
       ],
     };
 
-    return [...base, accountStep];
+    return [...base, desiredJobTypeStep, accountStep];
   }, []);
 
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [draft, setDraft] = useState<ThemeProfile>(() => ensureObj(initialProfile));
+  const [draft, setDraft] = useState<ThemeProfile>(() => {
+    const base = { ...ensureObj(initialProfile) } as any;
+
+    // Prefill Phone from auth (passed in via initialProfile.account.phoneNumber)
+    // when the profile phone field is missing.
+    const curPhone = String(base?.phone || "").trim();
+    const authPhone = String(getByPath(base, "account.phoneNumber") || "").trim();
+    if (!curPhone && authPhone) base.phone = authPhone;
+
+    return base;
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setStep(0);
+    setErr(null);
+    setDraft(() => {
+      const base = { ...ensureObj(initialProfile) } as any;
+
+      const curPhone = String(base?.phone || "").trim();
+      const authPhone = String(getByPath(base, "account.phoneNumber") || "").trim();
+      if (!curPhone && authPhone) base.phone = authPhone;
+
+      return base;
+    });
+  }, [open, initialProfile]);
 
   const cat = categories[step];
   const stepFields = (cat?.fields || []).filter((f) => f.type !== "array");
@@ -275,7 +300,9 @@ export function OnboardingModal({
 
     const allErrs = validateFields(
       ensured,
-      categories.flatMap((c) => (c.fields || []).filter((f) => f.type !== "array")),
+      categories.flatMap((c) =>
+        (c.fields || []).filter((f) => f.type !== "array"),
+      ),
     );
     if (allErrs.length) {
       setErr(allErrs[0]);
@@ -292,6 +319,8 @@ export function OnboardingModal({
       setBusy(false);
     }
   }
+
+  const displayNameValue = String(getByPath(draft, "account.displayName") || "");
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -343,69 +372,84 @@ export function OnboardingModal({
               </div>
             ) : null}
 
-            {cat?.id === "account" ? (
-              <div className="mt-5 rounded-xl border bg-background/40 p-4 text-sm">
-                <div className="font-semibold">Pick a display name</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  This is what you’ll see on your dashboard and account page.
-                </div>
-                <div className="mt-3">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
+            <div className="mt-5 grid gap-3">
+              {cat?.id === "account" ? (
+                <label className="grid gap-1" htmlFor="onboarding-display-name">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-medium">
+                      Display Name<span className="text-red-400"> *</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="text-xs font-semibold text-primary underline"
+                      onClick={() => {
+                        setDraft((prev) => {
+                          const next = { ...(prev || {}) } as any;
+                          const preferred = String(getByPath(next, "preferred_name") || "").trim();
+                          const first = String(getByPath(next, "first_name") || "").trim();
+                          const last = String(getByPath(next, "last_name") || "").trim();
+                          const gen = (preferred || [first, last].filter(Boolean).join(" ")).trim();
+                          if (gen) setByPath(next, "account.displayName", gen);
+                          return next;
+                        });
+                      }}
+                      disabled={busy}
+                    >
+                      Use my name
+                    </button>
+                  </div>
+                  <input
+                    id="onboarding-display-name"
+                    className="h-11 w-full rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                    value={displayNameValue}
+                    onChange={(e) => {
+                      const val = e.target.value;
                       setDraft((prev) => {
                         const next = { ...(prev || {}) } as any;
-                        const preferred = String(getByPath(next, "preferred_name") || "").trim();
-                        const first = String(getByPath(next, "first_name") || "").trim();
-                        const last = String(getByPath(next, "last_name") || "").trim();
-                        const gen = (preferred || [first, last].filter(Boolean).join(" ")).trim();
-                        if (gen) setByPath(next, "account.displayName", gen);
+                        const s = String(val ?? "").trim();
+                        if (!s) setByPath(next, "account.displayName", null);
+                        else setByPath(next, "account.displayName", s);
                         return next;
                       });
                     }}
                     disabled={busy}
-                  >
-                    Use my name
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="mt-5 grid gap-3">
-              {stepFields.map((f) => (
-                <FieldInput
-                  key={f.key}
-                  field={f}
-                  value={getByPath(draft, f.key)}
-                  onChange={(val) =>
-                    setDraft((prev) => {
-                      const next = { ...(prev || {}) } as any;
-                      if (f.type === "number") {
-                        const n = val === "" || val == null ? null : Number(val);
-                        if (n == null || !Number.isFinite(n)) {
-                          // don't write invalid numbers
+                    placeholder="Jane Doe"
+                  />
+                </label>
+              ) : (
+                stepFields.map((f) => (
+                  <FieldInput
+                    key={f.key}
+                    field={f}
+                    value={getByPath(draft, f.key)}
+                    onChange={(val) =>
+                      setDraft((prev) => {
+                        const next = { ...(prev || {}) } as any;
+                        if (f.type === "number") {
+                          const n = val === "" || val == null ? null : Number(val);
+                          if (n == null || !Number.isFinite(n)) {
+                            // don't write invalid numbers
+                            return next;
+                          }
+                          setByPath(next, f.key, n);
                           return next;
                         }
-                        setByPath(next, f.key, n);
+                        if (f.type === "boolean") {
+                          setByPath(next, f.key, !!val);
+                          return next;
+                        }
+                        const s = String(val ?? "").trim();
+                        if (!s) {
+                          setByPath(next, f.key, null);
+                        } else {
+                          setByPath(next, f.key, s);
+                        }
                         return next;
-                      }
-                      if (f.type === "boolean") {
-                        setByPath(next, f.key, !!val);
-                        return next;
-                      }
-                      const s = String(val ?? "").trim();
-                      if (!s) {
-                        setByPath(next, f.key, null);
-                      } else {
-                        setByPath(next, f.key, s);
-                      }
-                      return next;
-                    })
-                  }
-                />
-              ))}
+                      })
+                    }
+                  />
+                ))
+              )}
             </div>
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3">

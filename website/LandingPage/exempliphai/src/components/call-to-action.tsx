@@ -59,7 +59,7 @@ export function CallToAction() {
           />
           <div className="relative">
             <h2 className="text-center font-medium text-5xl tracking-tighter">
-              Start applying faster with ExempliPhai
+              Start applying faster with exempliphai
             </h2>
             <p className="mt-5 px-4 text-center text-lg text-muted-foreground tracking-tight md:text-xl">
               Auto-search, tailor, apply, and track — with privacy-first defaults and no data selling.

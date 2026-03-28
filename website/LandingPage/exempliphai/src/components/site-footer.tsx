@@ -21,29 +21,28 @@ export default function SiteFooter() {
               <div className="font-semibold text-foreground">exempliphai</div>
             </div>
 
-            <p className="max-w-md">
-              From summarization to strategy, exempliphai helps your team move
-              from information to action — faster.
+            <p className="max-w-md text-base font-semibold text-foreground">
+              exempliphai helps land dream job faster
             </p>
 
             <ul className="flex flex-wrap gap-x-8 gap-y-3">
               <li>
-                <a className="hover:text-primary" href="#features">
+                <a className="hover:text-primary" href="https://exempliph.ai/#features">
                   Features
                 </a>
               </li>
               <li>
-                <a className="hover:text-primary" href="#how-it-works">
+                <a className="hover:text-primary" href="https://exempliph.ai/#how-it-works">
                   How it works
                 </a>
               </li>
               <li>
-                <a className="hover:text-primary" href="#testimonials">
+                <a className="hover:text-primary" href="https://exempliph.ai/#testimonials">
                   Testimonials
                 </a>
               </li>
               <li>
-                <a className="hover:text-primary" href="#waitlist">
+                <a className="hover:text-primary" href="https://exempliph.ai/#waitlist">
                   Join waitlist
                 </a>
               </li>

@@ -1,11 +1,11 @@
-# ExempliPhai Landing Copy (Adapted from competitor structure)
+# exempliphai Landing Copy (Adapted from competitor structure)
 
 ## Hero
 **Eyebrow:** Your job search, on autopilot
 
 **Headline:** Find, tailor, and apply **10× faster**
 
-**Subheadline:** ExempliPhai uses one private profile to auto-search roles, tailor your resume, autofill applications, and track every application end-to-end — without selling your data.
+**Subheadline:** exempliphai uses one private profile to auto-search roles, tailor your resume, autofill applications, and track every application end-to-end — without selling your data.
 
 **Stats:**
 - Millions — Applications prefilled
@@ -49,8 +49,8 @@
 ---
 
 ## FAQ
-**Is ExempliPhai free?**
-ExempliPhai includes a free plan with core job search, tracking, and autofill tools. We may offer optional paid tiers for advanced automation and AI features.
+**Is exempliphai free?**
+exempliphai includes a free plan with core job search, tracking, and autofill tools. We may offer optional paid tiers for advanced automation and AI features.
 
 **Do you sell my data?**
 No. We do not sell personal data. We minimize what we collect, anonymize wherever possible, and you control what information is used for applications.
@@ -61,8 +61,8 @@ Based on your preferences (roles, location/remote, seniority, compensation, keyw
 **What does “resume tailoring” mean here?**
 We generate a job-specific version of your resume that emphasizes the most relevant experience and keywords, while keeping your facts and formatting consistent.
 
-**Can ExempliPhai auto-apply to jobs for me?**
-ExempliPhai can streamline applying with autofill and guided flows. Where full auto-apply is available, you’ll always be able to review before submission.
+**Can exempliphai auto-apply to jobs for me?**
+exempliphai can streamline applying with autofill and guided flows. Where full auto-apply is available, you’ll always be able to review before submission.
 
 **Will employers see my profile?**
 Only if you explicitly choose to share it. By default, your profile is private and used to personalize matches and tailor documents.

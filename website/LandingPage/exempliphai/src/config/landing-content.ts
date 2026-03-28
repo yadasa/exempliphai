@@ -16,7 +16,7 @@ export const landingContent = {
       emphasis: "10× faster",
     },
     subheadline:
-      "ExempliPhai uses one private profile to auto-search roles, tailor your resume, autofill applications, and track every application end-to-end — without selling your data.",
+      "exempliphai uses one private profile to auto-search roles, tailor your resume, autofill applications, and track every application end-to-end — without selling your data.",
     stats: [
       { label: "Applications prefilled", value: "Millions" },
       { label: "Time saved per application", value: "15–30 min" },
@@ -32,7 +32,7 @@ export const landingContent = {
   featureTabs: {
     title: "Everything you need to go from search → offer.",
     subtitle:
-      "Stop juggling job boards, spreadsheets, and copy/paste. ExempliPhai automates the busywork so you can focus on interviews.",
+      "Stop juggling job boards, spreadsheets, and copy/paste. exempliphai automates the busywork so you can focus on interviews.",
     items: [
       {
         icon: Search,
@@ -132,7 +132,7 @@ export const landingContent = {
   testimonials: {
     title: "Real momentum, not just more tabs.",
     subtitle:
-      "Job seekers use ExempliPhai to move faster with less chaos — and keep their data private.",
+      "Job seekers use exempliphai to move faster with less chaos — and keep their data private.",
     items: [
       {
         quote:
@@ -178,8 +178,8 @@ export const landingContent = {
     subtitle: "Quick answers before you get started.",
     items: [
       {
-        q: "Is ExempliPhai free?",
-        a: "ExempliPhai includes a free plan with core job search, tracking, and autofill tools. We may offer optional paid tiers for advanced automation and AI features.",
+        q: "Is exempliphai free?",
+        a: "exempliphai includes a free plan with core job search, tracking, and autofill tools. We may offer optional paid tiers for advanced automation and AI features.",
       },
       {
         q: "Do you sell my data?",
@@ -194,8 +194,8 @@ export const landingContent = {
         a: "We generate a job-specific version of your resume that emphasizes the most relevant experience and keywords, while keeping your facts and formatting consistent.",
       },
       {
-        q: "Can ExempliPhai auto-apply to jobs for me?",
-        a: "ExempliPhai can streamline applying with autofill and guided flows. Where full auto-apply is available, you’ll always be able to review before submission.",
+        q: "Can exempliphai auto-apply to jobs for me?",
+        a: "exempliphai can streamline applying with autofill and guided flows. Where full auto-apply is available, you’ll always be able to review before submission.",
       },
       {
         q: "Will employers see my profile?",

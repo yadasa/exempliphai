@@ -1,8 +1,7 @@
 "use client";
 
-import type { Route } from "next";
 import Image from "next/image";
-import Link, { type LinkProps } from "next/link";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { ActionButton } from "@/components/action-button";
@@ -49,16 +48,16 @@ export default function SiteHeader() {
           <section className="max-md:hidden">
             <nav aria-label="Primary" className="flex items-center gap-8 text-sm">
               {siteConfig.navItems.map((item) => (
-                <Link
-                  href={item.href as Route}
+                <a
+                  href={item.href}
                   className="text-foreground/70 transition hover:text-foreground"
                   key={item.label}
                 >
                   {item.label}
-                </Link>
+                </a>
               ))}
               <Link
-                href={(user ? "/dashboard" : siteConfig.links.loginUrl) as Route}
+                href={user ? ("/dashboard" as any) : (siteConfig.links.loginUrl as any)}
                 className="text-foreground/70 transition hover:text-foreground"
               >
                 {user ? "Account" : "Log in"}
@@ -68,10 +67,15 @@ export default function SiteHeader() {
 
           <section className="flex items-center gap-2 max-md:gap-2.5">
             <ThemeToggle />
-            <Link href={siteConfig.links.waitlistUrl as Route} className="max-md:hidden">
+            <a href={siteConfig.links.waitlistUrl} className="max-md:hidden">
               <ActionButton label="Add to Chrome" />
-            </Link>
-            <MobileNav open={isOpen} setOpen={setIsOpen} authed={!!user} className="flex md:hidden" />
+            </a>
+            <MobileNav
+              open={isOpen}
+              setOpen={setIsOpen}
+              authed={!!user}
+              className="flex md:hidden"
+            />
           </section>
         </div>
       </div>
@@ -146,23 +150,26 @@ function MobileNav({
             <div className="font-medium text-muted-foreground text-sm">Menu</div>
             <div className="flex flex-col gap-3">
               {siteConfig.navItems.map((item) => (
-                <MobileLink
+                <MobileAnchor
                   key={item.label}
-                  href={item.href as Route}
+                  href={item.href}
                   onOpenChange={setOpen}
                 >
                   {item.label}
-                </MobileLink>
+                </MobileAnchor>
               ))}
               <MobileLink
-                href={(authed ? "/dashboard" : siteConfig.links.loginUrl) as Route}
+                href={authed ? "/dashboard" : siteConfig.links.loginUrl}
                 onOpenChange={setOpen}
               >
                 {authed ? "Account" : "Log in"}
               </MobileLink>
-              <MobileLink href={siteConfig.links.waitlistUrl as Route} onOpenChange={setOpen}>
+              <MobileAnchor
+                href={siteConfig.links.waitlistUrl}
+                onOpenChange={setOpen}
+              >
                 Add to Chrome
-              </MobileLink>
+              </MobileAnchor>
             </div>
           </div>
         </div>
@@ -176,8 +183,8 @@ function MobileLink({
   onOpenChange,
   className,
   children,
-  ...props
-}: LinkProps<Route> & {
+}: {
+  href: string;
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
   className?: string;
@@ -185,15 +192,36 @@ function MobileLink({
   const router = useRouter();
   return (
     <Link
-      href={href}
+      href={href as any}
       onClick={() => {
-        router.push(href as Route);
+        router.push(href as any);
         onOpenChange?.(false);
       }}
       className={cn("font-medium text-2xl", className)}
-      {...props}
     >
       {children}
     </Link>
+  );
+}
+
+function MobileAnchor({
+  href,
+  onOpenChange,
+  className,
+  children,
+}: {
+  href: string;
+  onOpenChange?: (open: boolean) => void;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <a
+      href={href}
+      onClick={() => onOpenChange?.(false)}
+      className={cn("font-medium text-2xl", className)}
+    >
+      {children}
+    </a>
   );
 }

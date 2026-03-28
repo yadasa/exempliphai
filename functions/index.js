@@ -83,7 +83,7 @@ exports.mintCustomToken = onCall({ region: REGION, cors: true }, async (req) => 
   return { token };
 });
 
-exports.getOrCreateReferralCode = onCall({ region: REGION, cors: true }, async (req) => {
+exports.getOrCreateReferralCode = onCall({ region: REGION, cors: ["https://exempliph.ai"] }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
 
@@ -174,7 +174,7 @@ exports.createAttribution = onRequest({ region: REGION }, async (req, res) => {
   }
 });
 
-exports.applyAttribution = onCall({ region: REGION }, async (req) => {
+exports.applyAttribution = onCall({ region: REGION, cors: ["https://exempliph.ai"] }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
   const uid = auth.uid;
@@ -311,7 +311,7 @@ exports.applyAttribution = onCall({ region: REGION }, async (req) => {
   return out;
 });
 
-exports.listMyReferrals = onCall({ region: REGION }, async (req) => {
+exports.listMyReferrals = onCall({ region: REGION, cors: ["https://exempliph.ai"] }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
   const uid = auth.uid;

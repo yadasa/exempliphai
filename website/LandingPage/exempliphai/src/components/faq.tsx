@@ -40,7 +40,7 @@ export function FAQ() {
           </div>
 
           <div className="mt-10 rounded-xl border border-muted bg-muted/20 p-5 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">Privacy note:</span> ExempliPhai is built to minimize data exposure. We anonymize wherever possible and do not sell personal data.
+            <span className="font-medium text-foreground">Privacy note:</span> exempliphai is built to minimize data exposure. We anonymize wherever possible and do not sell personal data.
           </div>
         </div>
       </div>
