@@ -1366,7 +1366,14 @@ export function initFirebaseExtensionSync() {
         if (!authState) {
           authState = await getStoredAuth().catch(() => null);
         }
-        console.debug('FirebaseSync: whoami', { authed: !!authState, uid: authState?.uid || null, source: msg?.source || null });
+
+        // If popup asks "whoami" while the user is signed in on the website but
+        // before we got a storage push, proactively poll open Exempliph tabs.
+        if (!authState) {
+          await tryAuthFromAnyExempliphTab('whoami').catch(() => false);
+        }
+
+        dbg('whoami', { authed: !!authState, uid: authState?.uid || null, source: msg?.source || null });
         sendResponse({
           ok: true,
           authed: !!authState,
@@ -1376,6 +1383,13 @@ export function initFirebaseExtensionSync() {
           expiresAtMs: authState?.expiresAtMs || null,
           updatedAtMs: authState?.updatedAtMs || null,
         });
+        return;
+      }
+
+      if (msg.action === 'FIREBASE_POPUP_OPENED') {
+        // Best-effort: wake up and attempt to pull auth from any open Exempliph tab.
+        const ok = await tryAuthFromAnyExempliphTab('popup_opened').catch(() => false);
+        sendResponse({ ok: true, polled: true, authed: !!authState, pulled: ok });
         return;
       }
 
@@ -1413,7 +1427,12 @@ export function initFirebaseExtensionSync() {
         };
 
         authState = next;
-        await setStoredAuth(next);
+        try {
+          await setStoredAuth(next);
+          dbg('stored auth updated', { uid, email: next.email || null, updatedAtMs: next.updatedAtMs });
+        } catch (e) {
+          console.warn('FirebaseSync: setStoredAuth failed', e);
+        }
 
         // Pull latest cloud snapshot to hydrate popup/options immediately
         await pullFromCloudAndPopulateLocal().catch(() => {});

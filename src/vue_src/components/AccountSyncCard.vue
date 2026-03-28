@@ -31,6 +31,14 @@ const connecting = ref(false);
 const err = ref<string | null>(null);
 const msg = ref<string | null>(null);
 
+const ENV = (import.meta as any).env || {};
+const DEBUG_AUTH = String((ENV as any).VITE_DEBUG_AUTH || '') === '1';
+function dbg(...args: any[]) {
+  try {
+    if (DEBUG_AUTH) console.debug('AccountSyncCard[auth]', ...args);
+  } catch (_) {}
+}
+
 const isAuthed = computed(() => !!status.value?.authed && !!status.value?.uid);
 
 const LOGIN_URL = 'https://exempliph.ai/login/';
@@ -58,18 +66,25 @@ function isExempliphUrl(url: string): boolean {
   }
 }
 
-async function sendBg(msg: any): Promise<any> {
+async function sendBg(message: any): Promise<any> {
+  dbg('sendBg →', { action: message?.action || null, message });
   return await new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(msg, (resp) => {
+    chrome.runtime.sendMessage(message, (resp) => {
       const e = chrome?.runtime?.lastError;
-      if (e) reject(new Error(e.message || String(e)));
-      else resolve(resp || {});
+      if (e) {
+        dbg('sendBg lastError', { action: message?.action || null, error: e.message || String(e) });
+        reject(new Error(e.message || String(e)));
+        return;
+      }
+      dbg('sendBg ←', { action: message?.action || null, resp });
+      resolve(resp || {});
     });
   });
 }
 
-async function whoami() {
-  const resp = (await sendBg({ action: 'FIREBASE_WHOAMI' })) as Whoami;
+async function whoami(source = 'AccountSyncCard') {
+  const resp = (await sendBg({ action: 'FIREBASE_WHOAMI', source })) as Whoami;
+  dbg('whoami', resp);
   if (resp?.ok) status.value = resp;
   return resp;
 }
@@ -117,13 +132,15 @@ async function getIdTokenFromTab(tabId: number): Promise<SiteTokenResp> {
 }
 
 async function tryConnectFromTab(tabId: number): Promise<boolean> {
+  dbg('tryConnectFromTab', { tabId });
   const rec = await getIdTokenFromTab(tabId);
   if (!rec || rec.ok !== true || !rec.uid || !rec.idToken) {
-    console.debug('AccountSyncCard: no token from tab', { tabId, rec });
+    dbg('no token from tab', { tabId, rec });
     return false;
   }
+  dbg('token pulled from tab', { tabId, uid: rec.uid, hasIdToken: !!rec.idToken, key: (rec as any)?.key || null });
   await sendToServiceWorker(rec);
-  await whoami().catch(() => {});
+  await whoami('tryConnectFromTab').catch(() => {});
   return true;
 }
 
@@ -176,29 +193,37 @@ function startPolling() {
   stopPolling();
   connecting.value = true;
   stopAtMs = Date.now() + MAX_WAIT_MS;
+  dbg('startPolling', { pollMs: POLL_MS, maxWaitMs: MAX_WAIT_MS });
 
   pollTimer = window.setInterval(() => {
     (async () => {
+      dbg('poll tick');
+
       // If we already became authed (e.g. via siteAuthBridge push), stop.
-      const w = await whoami().catch(() => null);
+      const w = await whoami('poll').catch(() => null);
       if (w?.authed) {
+        dbg('poll: already authed');
         stopPolling();
         setMessage('Connected. Firebase sync is now enabled.');
         return;
       }
 
       if (stopAtMs && Date.now() > stopAtMs) {
+        dbg('poll: timeout');
         stopPolling();
         setError('Timed out waiting for sign-in. Please finish logging in on the website, then try again.');
         return;
       }
 
       const ok = await tryConnectFromAnyExempliphTab().catch(() => false);
+      dbg('poll: tryConnectFromAnyExempliphTab result', { ok });
       if (ok) {
         stopPolling();
         setMessage('Connected. Firebase sync is now enabled.');
       }
-    })().catch(() => {});
+    })().catch((e) => {
+      dbg('poll tick failed', { error: String((e as any)?.message || e) });
+    });
   }, POLL_MS);
 }
 
@@ -253,12 +278,16 @@ function onStorageChanged(changes: any, areaName: string) {
 }
 
 onMounted(() => {
-  whoami().catch(() => {});
+  // Nudge SW to poll tabs for auth on popup open (handles cases where storage isn't set yet).
+  sendBg({ action: 'FIREBASE_POPUP_OPENED', source: 'AccountSyncCard' }).catch(() => {});
+
+  whoami('mounted').catch(() => {});
 
   // If the user already signed in on the website (maybe with the popup closed),
   // try to connect immediately on next popup open.
   tryConnectFromAnyExempliphTab()
     .then((ok) => {
+      dbg('mounted: tryConnectFromAnyExempliphTab', { ok });
       if (ok) setMessage('Connected. Firebase sync is now enabled.');
     })
     .catch(() => {});
