@@ -380,6 +380,16 @@ export default {
           company: String(out?.company || company || ''),
         };
 
+        // Best-effort: count AI usage in cloud stats.
+        try {
+          chrome.runtime.sendMessage({
+            action: 'FIREBASE_INCREMENT_STATS',
+            customAnswersGenerated: 1,
+            setLastCustomAnswer: true,
+            source: 'resume_tailor',
+          });
+        } catch (_) {}
+
         showTailorModal.value = true;
       } catch (e: any) {
         tailorError.value = String(e?.message || e);

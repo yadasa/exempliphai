@@ -232,6 +232,16 @@ async function generateRecommendations() {
       },
       () => {}
     );
+
+    // Best-effort: count AI usage in cloud stats.
+    try {
+      chrome.runtime.sendMessage({
+        action: 'FIREBASE_INCREMENT_STATS',
+        customAnswersGenerated: 1,
+        setLastCustomAnswer: true,
+        source: 'job_search',
+      });
+    } catch (_) {}
   } catch (e: any) {
     errorMsg.value = String(e?.message || e);
   } finally {

@@ -94,7 +94,7 @@
             </p>
 
             <input type="file" ref="csvInput" @change="importCsv" accept=".csv,text/csv" style="display: none" />
-            <button @click="triggerCsvInput" class="action-btn export-btn" :disabled="!listModeEnabled">Upload CSV</button>
+            <button @click="triggerCsvInput" class="action-btn export-btn" :disabled="!listModeEnabled" style="margin-top: 0.5rem;">Upload CSV</button>
 
             <div v-if="queueTotal > 0" class="listmode-status">
                 <div class="status-row"><b>Status:</b> <span>{{ listModePaused ? 'Paused' : 'Running' }}</span></div>
@@ -167,30 +167,7 @@
                 </button>
             </div>
 
-            <div class="action-card">
-                <h3>Export Data</h3>
-                <p>Download a backup of your profile and resume data.</p>
-                <button @click="exportData" class="action-btn export-btn">Export to JSON</button>
-            </div>
-            
-            <div class="action-card">
-                <h3>Cloud Sync (Experimental)</h3>
-                <p>Sync your job history to your Google account. Limited to the most recent 100 jobs.</p>
-                <div class="toggle-container">
-                    <label class="switch">
-                        <input type="checkbox" v-model="cloudSyncEnabled" @change="toggleCloudSync" />
-                        <span class="slider round"></span>
-                    </label>
-                    <span>Enable Cloud Sync</span>
-                </div>
-            </div>
-
-            <div class="action-card">
-                <h3>Import Data</h3>
-                <p>Restore your data from a JSON backup file.</p>
-                <input type="file" ref="fileInput" @change="importData" accept=".json" style="display: none" />
-                <button @click="triggerFileInput" class="action-btn import-btn">Import from JSON</button>
-            </div>
+            <!-- Import/export + legacy cloud sync removed (Firebase sync is in Account & Sync card). -->
         </div>
     </div>
 </template>
@@ -350,10 +327,8 @@ export default {
         AccountSyncCard,
     },
     setup() {
-        const fileInput = ref<HTMLInputElement | null>(null);
         const csvInput = ref<HTMLInputElement | null>(null);
 
-        const cloudSyncEnabled = ref(false);
         const aiMappingEnabled = ref(false);
         const autoSubmitEnabled = ref(false);
         const autoTailorEnabled = ref(false);
@@ -384,8 +359,11 @@ export default {
             aiUsageLog.value.reduce((sum, e) => sum + (Number((e as any)?.costCents) || 0), 0)
         );
 
+        // Display a conservative estimate (we often under-count tokens in edge cases).
+        const AI_USAGE_COST_MULT = 3.33;
         const aiUsageCostCentsDisplay = computed(() => {
-            const c = Number(aiUsageCostCents.value || 0);
+            const raw = Number(aiUsageCostCents.value || 0);
+            const c = raw * AI_USAGE_COST_MULT;
             if (!Number.isFinite(c) || c <= 0) return '0.0000';
             return c < 1 ? c.toFixed(4) : c.toFixed(2);
         });
@@ -453,9 +431,8 @@ export default {
         const loadSettings = async () => {
             if (!chrome?.storage) return;
             chrome.storage.sync.get(
-                ['cloudSyncEnabled', 'aiMappingEnabled', 'autoSubmitEnabled', 'autoTailorEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
+                ['aiMappingEnabled', 'autoSubmitEnabled', 'autoTailorEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
                 (result) => {
-                    cloudSyncEnabled.value = !!(result as any).cloudSyncEnabled;
                     aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
                     autoSubmitEnabled.value = !!(result as any).autoSubmitEnabled;
                     autoTailorEnabled.value = !!(result as any).autoTailorEnabled;
@@ -486,11 +463,7 @@ export default {
             });
         };
 
-        const toggleCloudSync = () => {
-            chrome.storage.sync.set({ cloudSyncEnabled: cloudSyncEnabled.value }, () => {
-                console.log("Cloud sync toggled:", cloudSyncEnabled.value);
-            });
-        };
+        // Legacy cloud sync removed (Firebase sync is handled in AccountSyncCard).
 
         const toggleAiMapping = () => {
             chrome.storage.sync.set({ aiMappingEnabled: aiMappingEnabled.value }, () => {
@@ -542,65 +515,7 @@ export default {
             });
         };
 
-        const exportData = async () => {
-            if (!chrome.storage) return;
-
-            const syncData = (await new Promise((resolve) => chrome.storage.sync.get(null, (res) => resolve(res || {})))) as any;
-            const localData = await new Promise((resolve) => chrome.storage.local.get(null, (res) => resolve(res || {})));
-
-            // Security: Don't export the API Key
-            if (syncData && typeof syncData === 'object') {
-                delete syncData['API Key'];
-            }
-
-            const exportObj = {
-                sync: syncData,
-                local: localData,
-                exportDate: new Date().toISOString(),
-                version: "1.0"
-            };
-
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj, null, 2));
-            const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", "autofill_jobs_backup.json");
-            document.body.appendChild(downloadAnchorNode); // required for firefox
-            downloadAnchorNode.click();
-            downloadAnchorNode.remove();
-        };
-
-        const triggerFileInput = () => {
-            fileInput.value?.click();
-        };
-
-        const importData = (event: Event) => {
-            const file = (event.target as HTMLInputElement).files?.[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const content = e.target?.result as string;
-                    const data = JSON.parse(content);
-
-                    if (data.sync) {
-                        chrome.storage.sync.set(data.sync, () => {
-                            console.log('Sync data imported');
-                        });
-                    }
-                    if (data.local) {
-                        chrome.storage.local.set(data.local, () => {
-                            console.log('Local data imported');
-                            alert('Data imported successfully! Please reload the extension.');
-                        });
-                    }
-                } catch (error) {
-                    console.error('Error importing data:', error);
-                    alert('Failed to import data. Invalid JSON file.');
-                }
-            };
-            reader.readAsText(file);
-        };
+        // Import/export removed.
 
         const triggerCsvInput = () => {
             csvInput.value?.click();
@@ -661,9 +576,7 @@ export default {
 
         const onStorageChanged = (changes: any, areaName: string) => {
             if (areaName === 'sync') {
-                if (changes?.cloudSyncEnabled) {
-                    cloudSyncEnabled.value = !!changes.cloudSyncEnabled.newValue;
-                }
+                // cloudSyncEnabled removed
                 if (changes?.aiMappingEnabled) {
                     aiMappingEnabled.value = !!changes.aiMappingEnabled.newValue;
                 }
@@ -711,12 +624,6 @@ export default {
         });
 
         return {
-            exportData,
-            importData,
-            triggerFileInput,
-            fileInput,
-            cloudSyncEnabled,
-            toggleCloudSync,
             aiMappingEnabled,
             toggleAiMapping,
             autoSubmitEnabled,

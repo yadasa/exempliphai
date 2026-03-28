@@ -538,6 +538,73 @@ async function incrementStats({ autofills = 0, customAnswersGenerated = 0, setLa
   ]);
 }
 
+async function enqueueStatsIncrement({
+  autofills = 0,
+  customAnswersGenerated = 0,
+  setLastAutofill = false,
+  setLastCustomAnswer = false,
+} = {}): Promise<boolean> {
+  if (!authState) return false;
+
+  const uid = authState.uid;
+  const transforms: any[] = [];
+
+  if (autofills) {
+    transforms.push({ fieldPath: 'stats.autofills.total', increment: { integerValue: String(autofills) } });
+    if (setLastAutofill) transforms.push({ fieldPath: 'stats.lastAutofill', setToServerValue: 'REQUEST_TIME' });
+  }
+
+  if (customAnswersGenerated) {
+    transforms.push({
+      fieldPath: 'stats.customAnswersGenerated.total',
+      increment: { integerValue: String(customAnswersGenerated) },
+    });
+    if (setLastCustomAnswer) transforms.push({ fieldPath: 'stats.lastCustomAnswer', setToServerValue: 'REQUEST_TIME' });
+  }
+
+  if (!transforms.length) return false;
+
+  await enqueue({
+    kind: 'firestoreCommit',
+    payload: {
+      writes: [
+        {
+          transform: {
+            document: userDocName(uid),
+            fieldTransforms: transforms,
+          },
+        },
+      ],
+    },
+    createdAtMs: Date.now(),
+  });
+
+  // Local cache for quick UI.
+  try {
+    const got = await chrome.storage.local.get(['cloudStats']);
+    const cur = ((got as any).cloudStats || {}) as any;
+
+    const next: any = { ...cur };
+
+    if (autofills) {
+      next.autofills = { total: Number(cur?.autofills?.total || 0) + Number(autofills || 0) };
+      if (setLastAutofill) next.lastAutofill = nowIso();
+    }
+
+    if (customAnswersGenerated) {
+      next.customAnswersGenerated = {
+        total: Number(cur?.customAnswersGenerated?.total || 0) + Number(customAnswersGenerated || 0),
+      };
+      if (setLastCustomAnswer) next.lastCustomAnswer = nowIso();
+    }
+
+    await chrome.storage.local.set({ cloudStats: next });
+  } catch (_) {}
+
+  scheduleFlushSoon();
+  return true;
+}
+
 async function ensureUserRootDoc() {
   if (!authState) return;
   const uid = authState.uid;
@@ -1448,6 +1515,19 @@ export function initFirebaseExtensionSync() {
       if (msg.action === 'TRACK_CUSTOM_ANSWER') {
         await trackCustomAnswer(msg);
         sendResponse({ ok: true });
+        return;
+      }
+
+      if (msg.action === 'FIREBASE_INCREMENT_STATS') {
+        // Best-effort: allow UIs to count AI usage that doesn't map to autofills/custom answer docs.
+        if (!authState) authState = await getStoredAuth().catch(() => null);
+        const ok = await enqueueStatsIncrement({
+          autofills: Number(msg?.autofills || 0),
+          customAnswersGenerated: Number(msg?.customAnswersGenerated || 0),
+          setLastAutofill: msg?.setLastAutofill === true,
+          setLastCustomAnswer: msg?.setLastCustomAnswer === true,
+        }).catch(() => false);
+        sendResponse({ ok: !!ok });
         return;
       }
 
