@@ -4,8 +4,7 @@
 // and stored in chrome.storage.local.firebaseAuth.
 //
 // Data:
-// - users/{uid} (settings + stats)
-// - users/{uid}/jobFields/current (profile + resumeDetails + localProfile + uploads)
+// - users/{uid} (sync/profile + settings + stats)
 // - users/{uid}/autofills/* (tracking)
 // - users/{uid}/customAnswers/* (tracking)
 // - users/{uid}/appliedJobs/* (tracking)
@@ -688,50 +687,23 @@ async function pushJobFieldsSnapshot() {
     chrome.storage.sync.get(null, (res) => resolve((res as any) || {}));
   })) as any;
 
-  const local = (await chrome.storage.local.get([
-    'Resume_details',
-    'LOCAL_PROFILE',
-    'EXEMPLIPHAI_LOCAL_PROFILE',
-    'Resume_tailored_text',
-    'Resume_tailored_meta',
-    'Resume_tailored_name',
-    'uploads_resume',
-    'uploads_linkedin_pdf',
-    'uploads_tailored_resume',
-  ])) as any;
-
-  const resumeDetails = local.Resume_details || null;
-  const localProfile = local.LOCAL_PROFILE || local.EXEMPLIPHAI_LOCAL_PROFILE || null;
-
-  const jobFieldsDoc: any = {
+  // Legacy schema: write sync/profile directly on the root users/{uid} doc.
+  const patch: any = {
     sync: filterSyncForCloud(syncAll),
-    resumeDetails,
-    localProfile,
-    tailoredResume: {
-      text: typeof local.Resume_tailored_text === 'string' ? local.Resume_tailored_text : '',
-      meta: local.Resume_tailored_meta && typeof local.Resume_tailored_meta === 'object' ? local.Resume_tailored_meta : null,
-      name: typeof local.Resume_tailored_name === 'string' ? local.Resume_tailored_name : '',
-    },
-    uploads: {
-      resume: local.uploads_resume || null,
-      linkedinPdf: local.uploads_linkedin_pdf || null,
-      tailoredResume: local.uploads_tailored_resume || null,
-    },
     updatedAt: new Date(),
   };
 
   try {
-    await firestorePatchDoc(`users/${uid}/jobFields/current`, jobFieldsDoc);
-  } catch (e: any) {
+    await firestorePatchDoc(`users/${uid}`, patch);
+  } catch (_) {
     await enqueue({
       kind: 'firestorePatchDoc',
-      payload: { path: `users/${uid}/jobFields/current`, data: jobFieldsDoc },
+      payload: { path: `users/${uid}`, data: patch },
       createdAtMs: Date.now(),
     });
-    // Continue; settings patch can also be queued.
   }
 
-  // Also keep user.settings loosely mirrored for easy reads from the website.
+  // Keep user.settings loosely mirrored for easy reads from the website.
   const settings: any = {
     ThemeSetting: syncAll.ThemeSetting || 'light',
     PrivacyToggle: syncAll.PrivacyToggle === true,

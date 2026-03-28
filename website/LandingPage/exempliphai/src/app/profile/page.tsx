@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
+  doc,
   limit,
   onSnapshot,
   orderBy,
   query,
+  serverTimestamp,
+  setDoc,
 } from "firebase/firestore";
 import {
   getDownloadURL,
@@ -19,10 +22,6 @@ import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
 import {
-  extensionStateDocRef,
-  jobFieldsDocRef,
-  normalizeExtensionStateToJobFields,
-  patchJobFields,
   type JobFieldsDoc,
   type ResumeDetails,
   type UploadMeta,
@@ -262,8 +261,6 @@ function ProfileInner() {
     if (!user) return;
     const { db } = getFirebase();
 
-    let primaryExists = false;
-
     const apply = (data: JobFieldsDoc | null) => {
       setJobFields(data);
 
@@ -286,22 +283,13 @@ function ProfileInner() {
       setErr(null);
     };
 
-    const unsubPrimary = onSnapshot(jobFieldsDocRef(db, user.uid), (snap) => {
-      primaryExists = snap.exists();
+    // Legacy schema: users/{uid} root doc contains sync fields.
+    const unsub = onSnapshot(doc(db, "users", user.uid), (snap) => {
       if (!snap.exists()) return;
       apply(snap.data() as any);
     });
 
-    const unsubExt = onSnapshot(extensionStateDocRef(db, user.uid), (snap) => {
-      if (primaryExists) return;
-      if (!snap.exists()) return;
-      apply(normalizeExtensionStateToJobFields(snap.data() as any));
-    });
-
-    return () => {
-      unsubPrimary();
-      unsubExt();
-    };
+    return () => unsub();
   }, [user?.uid]);
 
   useEffect(() => {
@@ -351,10 +339,15 @@ function ProfileInner() {
       if (!user) throw new Error("Not signed in");
       const { db } = getFirebase();
 
-      await patchJobFields(db, user.uid, {
-        sync: syncFields,
-        resumeDetails,
-      });
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          sync: syncFields || {},
+          resumeDetails: resumeDetails || null,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
 
       syncLastSavedRef.current = JSON.stringify(syncFields || {});
       resumeLastSavedRef.current = JSON.stringify(resumeDetails || {});
@@ -409,11 +402,16 @@ function ProfileInner() {
         storedAt: new Date().toISOString(),
       };
 
-      await patchJobFields(db, user.uid, {
-        uploads: {
-          [kind === "resume" ? "resume" : "linkedinPdf"]: uploadMeta,
-        } as any,
-      });
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          uploads: {
+            [kind === "resume" ? "resume" : "linkedinPdf"]: uploadMeta,
+          } as any,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
 
       setMsg(`${kind === "resume" ? "Resume" : "LinkedIn PDF"} uploaded.`);
     } finally {
@@ -425,9 +423,7 @@ function ProfileInner() {
   const resumeUpload = uploads?.resume || null;
   const linkedinUpload = uploads?.linkedinPdf || null;
 
-  const pathText = user
-    ? `users/${user.uid}/jobFields/current`
-    : "users/{uid}/jobFields/current";
+  const pathText = user ? `users/${user.uid}` : "users/{uid}";
 
   return (
     <div className="container relative py-14 md:py-16">
