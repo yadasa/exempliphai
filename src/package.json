@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "watch": "watch \"npm run build\" vue_src",
-    "build": "run-p type-check \"build-only {@}\" --",
+    "build": "run-p type-check \"build-only {@}\" -- && npm run copy-content-scripts",
     "preview": "vite preview",
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
+    "copy-content-scripts": "node ./scripts/copyContentScripts.mjs",
     "test": "node --test"
   },
   "dependencies": {
