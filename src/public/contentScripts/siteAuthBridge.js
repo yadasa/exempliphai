@@ -317,7 +317,7 @@
       if (msg?.action === 'EXEMPLIPHAI_DEBUG_DUMP_AUTH') {
         (async () => {
           const rec = await findFirebaseAuthRecord();
-          const dump = { shadow: null as any, keys: [] as any[] };
+          const dump = { shadow: null, keys: [] };
 
           try {
             const rawShadow = localStorage.getItem(SHADOW_AUTH_KEY);
