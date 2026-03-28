@@ -137,39 +137,63 @@ export const landingContent = {
     items: [
       {
         quote:
-          "“I used to spend my evenings on applications. Now I run a 20 minute sprint and I am done for the day.”",
+          "“I used to spend my evenings on applications. Now I run a 20 minute sprint and I’m done for the day.”",
         name: "Maya R.",
-        role: "New Grad, Software Engineering",
+        role: "New Grad, software engineering",
       },
       {
         quote:
-          "“Autofill is the killer feature. Same answers, fewer mistakes, and I can actually apply to more than 10 jobs a day.”",
-        name: "Jordan K.",
-        role: "Career switcher",
+          "“As a data analyst, I can’t afford sloppy copy/paste. Autofill keeps my answers consistent and I apply while the posting is still fresh.”",
+        name: "Riley K.",
+        role: "Data Analyst",
       },
       {
         quote:
-          "“The tailored resume versions helped me stop getting auto rejected. It feels like I finally have leverage.”",
-        name: "Sam T.",
-        role: "Operations",
+          "“The privacy-first approach was the dealbreaker for me. I can tailor fast without worrying my resume is getting resold.”",
+        name: "Casey T.",
+        role: "Cybersecurity Analyst",
       },
       {
         quote:
-          "“List mode is addictive. Queue roles, tailor, apply, repeat. I got replies the first week.”",
-        name: "Elena V.",
-        role: "Marketing",
+          "“List mode turned my job search into a real workflow: shortlist, tailor, submit. I’m getting replies because I’m early now.”",
+        name: "Avery V.",
+        role: "Sales Development Representative",
       },
       {
         quote:
-          "“It filters out junk roles and keeps my dealbreakers. That alone saves me hours.”",
-        name: "Chris P.",
-        role: "Product",
+          "“For product design roles, the tailored versions help me hit the right keywords without rewriting everything from scratch.”",
+        name: "Alex P.",
+        role: "Product Designer",
       },
       {
         quote:
-          "“Privacy first is rare in this space. No creepy ads following me around after I upload my resume.”",
-        name: "Nina S.",
-        role: "Design",
+          "“Marketing applications used to eat my whole weekend. Now I batch 15–20 in one sitting and keep my messaging tight.”",
+        name: "Taylor S.",
+        role: "Marketing Coordinator",
+      },
+      {
+        quote:
+          "“I track postings like I track budgets. Having everything saved and searchable keeps me moving fast without losing details.”",
+        name: "Morgan L.",
+        role: "Financial Analyst",
+      },
+      {
+        quote:
+          "“Supply chain roles move quickly. The minute a job goes live, I can tailor and submit before it’s flooded.”",
+        name: "Quinn D.",
+        role: "Supply Chain Coordinator",
+      },
+      {
+        quote:
+          "“My schedule is chaotic. Being able to apply in short bursts between shifts is the only way I stay consistent.”",
+        name: "Rowan H.",
+        role: "Registered Nurse",
+      },
+      {
+        quote:
+          "“Customer success interviews love specifics. exempliphai helps me keep my story consistent across apps without oversharing.”",
+        name: "Parker J.",
+        role: "Customer Success Manager",
       },
     ],
   },
