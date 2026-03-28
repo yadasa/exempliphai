@@ -64,7 +64,7 @@ Single doc holding most extension state (small/medium sized):
   "jobSearchLastId": "2026_...",
   "fileMeta": {
     "resumes": {"sha256":"...","path":"data/uploads/...","downloadUrl":"..."},
-    "coverLetters": {"sha256":"...","path":"data/uploads/...","downloadUrl":"..."},
+    "linkedinPdfs": {"sha256":"...","path":"data/uploads/...","downloadUrl":"..."},
     "resumesTailored": {"sha256":"...","path":"data/uploads/...","downloadUrl":"..."}
   }
 }
@@ -109,7 +109,7 @@ Metadata for uploaded files (actual bytes stored in Storage):
 
 ```jsonc
 {
-  "kind": "resumes|coverLetters|resumesTailored",
+  "kind": "resumes|linkedinPdfs|resumesTailored",
   "path": "data/uploads/<uid>/resumes/<sha>-resume.pdf",
   "filename": "resume.pdf",
   "sha256": "...",
@@ -122,7 +122,7 @@ Metadata for uploaded files (actual bytes stored in Storage):
 
 - `gs://<bucket>/data/uploads/{uid}/resumes/...`
 - `gs://<bucket>/data/uploads/{uid}/coverLetters/...` (reserved)
-- `gs://<bucket>/data/uploads/{uid}/coverLetters/...`
+- `gs://<bucket>/data/uploads/{uid}/linkedinPdfs/...`
 - `gs://<bucket>/data/uploads/{uid}/resumesTailored/...`
 
 ## Sync behavior

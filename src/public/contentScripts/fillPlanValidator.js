@@ -38,9 +38,7 @@ export const FILL_PLAN_APPLY_MODES = /** @type {const} */ ([
   "select_best_option",
   "click_best_label",
   "upload_resume",
-  "upload_cover_letter",
-  // Back-compat
-  "upload_linkedin_pdf", 
+  "upload_linkedin_pdf",
 ]);
 
 export const FILL_PLAN_SENSITIVE_CATEGORIES = /** @type {const} */ ([

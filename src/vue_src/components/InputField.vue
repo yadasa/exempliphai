@@ -84,7 +84,7 @@ export default {
   props: ['label', 'placeHolder', 'explanation'],
   data() {
     return {
-      files: ['Resume', 'Cover Letter']
+      files: ['Resume', 'LinkedIn PDF']
     };
   },
 
@@ -584,7 +584,7 @@ export default {
       chrome.storage.sync.get([props.label], (data) => {
 
         inputValue.value = data[props.label] || '';  // Default to empty string if no value is found
-        if (inputValue.value == '' && (props.label === "Resume" || props.label === "Cover Letter")) {
+        if (inputValue.value == '' && (props.label === "Resume" || props.label === "LinkedIn PDF")) {
           chrome.storage.local.get([`${props.label + '_name'}`], (localData) => {
 
             inputValue.value = localData[`${props.label + '_name'}`] || 'No file found';  // Default to empty string if no value is found

@@ -123,7 +123,7 @@ A FillPlan is a **structured, validated** set of actions:
 
       // How to apply (executor may override with widget adapters)
       "apply": {
-        "mode": "set_value|select_best_option|click_best_label|upload_resume|upload_cover_letter",
+        "mode": "set_value|select_best_option|click_best_label|upload_resume|upload_linkedin_pdf",
         "allow_overwrite": false
       },
 

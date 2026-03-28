@@ -42,7 +42,7 @@
 │  │   Resume (base64), Resume_name│
 │  │   Resume_details {skills,     │
 │  │     experiences, certs}       │
-│  │   Cover Letter (base64)       │
+│  │   LinkedIn PDF (base64)       │
 │  │   AppliedJobs[]               │
 │  └── sync: API Key, ThemeSetting │
 └──────────┬───────────────────────┘
@@ -123,8 +123,8 @@ All simple text/dropdown InputField values are stored here. The **key** is the `
 |-----|------|-------------|
 | `Resume` | `string` (base64) | PDF binary of uploaded resume, no data-URI prefix |
 | `Resume_name` | `string` | Original filename, e.g. `"JOHN_PORK_SE.pdf"` |
-| `Cover Letter` | `string` (base64) | PDF binary of uploaded LinkedIn profile |
-| `Cover Letter_name` | `string` | Original filename |
+| `LinkedIn PDF` | `string` (base64) | PDF binary of uploaded LinkedIn profile |
+| `LinkedIn PDF_name` | `string` | Original filename |
 | `Resume_details` | `object` | AI-parsed resume structured data (see below) |
 | `AppliedJobs` | `array` | Local job application tracking history |
 | `AppliedJobsSync` | `array` | Cloud-synced subset (≤100 entries, in sync storage) |
@@ -226,7 +226,7 @@ All simple text/dropdown InputField values are stored here. The **key** is the `
 | UI Label | Storage Key (sync) | Storage Key (local) | Type | Input Type |
 |----------|-------------------|---------------------|------|------------|
 | Resume | `Resume_name` (local) | `Resume` (local, base64) | file | file upload |
-| Cover Letter | `Cover Letter_name` (local) | `Cover Letter` (local, base64) | file | file upload |
+| LinkedIn PDF | `LinkedIn PDF_name` (local) | `LinkedIn PDF` (local, base64) | file | file upload |
 
 ### Employment
 

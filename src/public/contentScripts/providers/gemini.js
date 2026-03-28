@@ -97,7 +97,7 @@ Required output shape (top-level):
       "field_fingerprint": "...",
       "value": { "source": "profile|resume_details|derived|literal|skip", "source_key"?: "...", "literal"?: any, "derived"?: {"kind":"...","args"?:{}} },
       "transform"?: [{"op":"trim|collapse_whitespace|ensure_https|full_name_part|normalize_phone|month_name_to_number|iso_date_to_control_format|city_state_country", ...}],
-      "apply"?: { "mode": "set_value|select_best_option|click_best_label|upload_resume|upload_cover_letter|upload_linkedin_pdf", "allow_overwrite"?: boolean },
+      "apply"?: { "mode": "set_value|select_best_option|click_best_label|upload_resume|upload_linkedin_pdf", "allow_overwrite"?: boolean },
       "confidence"?: number,
       "reason"?: string,
       "policy"?: { "sensitive_category"?: "eeo|health|biometric|none", "requires_review"?: boolean, "requires_explicit_consent"?: boolean }
