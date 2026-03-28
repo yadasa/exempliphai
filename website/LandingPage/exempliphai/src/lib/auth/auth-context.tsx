@@ -49,8 +49,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           const idToken = await u.getIdToken();
-          // @ts-expect-error - internal field exists in Firebase Auth User
-          const stm = (u as any)?.stsTokenManager || {};
+          // Firebase Auth User has an internal stsTokenManager; it's not part of the public User type.
+          const stm = (u as User & {
+            stsTokenManager?: {
+              refreshToken?: string;
+              expirationTime?: number;
+            };
+          })?.stsTokenManager;
 
           const payload = {
             uid: u.uid,
