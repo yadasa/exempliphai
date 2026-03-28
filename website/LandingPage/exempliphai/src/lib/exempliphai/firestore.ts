@@ -40,6 +40,9 @@ export type UploadMeta = {
 };
 
 export type JobFieldsDoc = {
+  schemaVersion?: number;
+  canonicalSource?: "extension" | "website" | string;
+
   sync?: Record<string, any>;
   resumeDetails?: ResumeDetails | null;
   localProfile?: Record<string, any> | null;
@@ -50,9 +53,13 @@ export type JobFieldsDoc = {
   };
   uploads?: {
     resume?: UploadMeta | null;
-    linkedinPdf?: UploadMeta | null;
+    coverLetter?: UploadMeta | null;
     tailoredResume?: UploadMeta | null;
+
+    // Back-compat (read-only): previous name.
+    linkedinPdf?: UploadMeta | null;
   };
+
   updatedAt?: any;
 };
 
@@ -60,92 +67,9 @@ export function jobFieldsDocRef(db: Firestore, uid: string) {
   return doc(db, "users", uid, "jobFields", "current");
 }
 
-/**
- * Optional newer schema location (see FIREBASE_EXTENSION_SCHEMA.md).
- * Website reads/writes both paths for compatibility.
- */
-export function extensionStateDocRef(db: Firestore, uid: string) {
-  return doc(db, "users", uid, "extension", "state");
-}
-
-export function normalizeExtensionStateToJobFields(data: any): JobFieldsDoc {
-  const uiProfileFields =
-    data && typeof data === "object" && data.uiProfileFields && typeof data.uiProfileFields === "object"
-      ? data.uiProfileFields
-      : data && typeof data === "object" && data.sync && typeof data.sync === "object"
-        ? data.sync
-        : {};
-
-  const resumeDetails =
-    data && typeof data === "object"
-      ? (data.resumeDetails ?? data.Resume_details ?? null)
-      : null;
-
-  const localState =
-    data && typeof data === "object" && data.localState && typeof data.localState === "object"
-      ? data.localState
-      : {};
-
-  const tailoredText = typeof localState.Resume_tailored_text === "string" ? localState.Resume_tailored_text : "";
-  const tailoredMeta = localState.Resume_tailored_meta && typeof localState.Resume_tailored_meta === "object" ? localState.Resume_tailored_meta : null;
-  const tailoredName = typeof localState.Resume_tailored_name === "string" ? localState.Resume_tailored_name : "";
-
-  const fileMeta =
-    data && typeof data === "object" && data.fileMeta && typeof data.fileMeta === "object"
-      ? data.fileMeta
-      : {};
-
-  const uploads: any = {};
-  if (fileMeta.resumes) uploads.resume = fileMeta.resumes;
-  if (fileMeta.linkedinPdfs) uploads.linkedinPdf = fileMeta.linkedinPdfs;
-  if (fileMeta.resumesTailored) uploads.tailoredResume = fileMeta.resumesTailored;
-
-  return {
-    sync: uiProfileFields,
-    resumeDetails,
-    tailoredResume: tailoredText || tailoredMeta || tailoredName ? { text: tailoredText, meta: tailoredMeta, name: tailoredName } : undefined,
-    uploads: Object.keys(uploads).length ? uploads : undefined,
-  };
-}
-
-function extensionPatchFromJobFields(patch: Partial<JobFieldsDoc>): Record<string, any> {
-  const out: Record<string, any> = {};
-
-  if (Object.prototype.hasOwnProperty.call(patch, "sync")) {
-    out.uiProfileFields = patch.sync ?? {};
-  }
-
-  if (Object.prototype.hasOwnProperty.call(patch, "resumeDetails")) {
-    out.resumeDetails = patch.resumeDetails ?? null;
-    // Legacy key name used by the extension's local storage.
-    out.Resume_details = patch.resumeDetails ?? null;
-  }
-
-  if (patch.tailoredResume) {
-    out.localState = {
-      Resume_tailored_text: String(patch.tailoredResume.text || ""),
-      Resume_tailored_meta: patch.tailoredResume.meta ?? null,
-      Resume_tailored_name: String(patch.tailoredResume.name || ""),
-    };
-  }
-
-  if (patch.uploads) {
-    const fm: any = {};
-    if (Object.prototype.hasOwnProperty.call(patch.uploads, "resume")) fm.resumes = patch.uploads.resume;
-    if (Object.prototype.hasOwnProperty.call(patch.uploads, "linkedinPdf")) fm.linkedinPdfs = patch.uploads.linkedinPdf;
-    if (Object.prototype.hasOwnProperty.call(patch.uploads, "tailoredResume")) fm.resumesTailored = patch.uploads.tailoredResume;
-    out.fileMeta = fm;
-  }
-
-  return out;
-}
-
-export async function patchJobFields(
-  db: Firestore,
-  uid: string,
-  patch: Partial<JobFieldsDoc>,
-) {
-  // Primary (current extension implementation): users/{uid}/jobFields/current
+export async function patchJobFields(db: Firestore, uid: string, patch: Partial<JobFieldsDoc>) {
+  // Canonical document: users/{uid}/jobFields/current
+  // Website must always use merge-safe partial writes.
   await setDoc(
     jobFieldsDocRef(db, uid),
     {
@@ -154,19 +78,6 @@ export async function patchJobFields(
     } as DocumentData,
     { merge: true },
   );
-
-  // Secondary (schema doc): users/{uid}/extension/state
-  const extPatch = extensionPatchFromJobFields(patch);
-  if (Object.keys(extPatch).length) {
-    await setDoc(
-      extensionStateDocRef(db, uid),
-      {
-        ...extPatch,
-        updatedAt: serverTimestamp(),
-      } as DocumentData,
-      { merge: true },
-    );
-  }
 }
 
 export type AppliedJobDoc = {

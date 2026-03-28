@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
 
           const idToken = await u.getIdToken();
-          // @ts-expect-error - internal field exists in Firebase Auth User
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const stm = (u as any)?.stsTokenManager || {};
 
           const payload = {

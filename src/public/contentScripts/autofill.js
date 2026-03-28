@@ -551,10 +551,10 @@ async function _saGenerateAiAnswer(element, opts = {}) {
       return;
     }
 
-    const localData = await getStorageDataLocal(["Resume", "LinkedIn PDF", "Resume_details"]);
+    const localData = await getStorageDataLocal(["Resume", "Cover Letter", "LinkedIn PDF", "Resume_details"]);
     const resumeDetails = localData.Resume_details || {};
     const resumeBase64 = localData.Resume;
-    const linkedinBase64 = localData["LinkedIn PDF"];
+    const coverLetterBase64 = localData["Cover Letter"] || localData["LinkedIn PDF"];
 
     // PRIVACY: do NOT send full sync storage to the model.
     // Build a minimal, relevant subset for common application questions.
@@ -653,7 +653,7 @@ async function _saGenerateAiAnswer(element, opts = {}) {
     };
 
     const resumePdf = sanitizePdfBase64(resumeBase64);
-    const linkedinPdf = sanitizePdfBase64(linkedinBase64);
+    const coverLetterPdf = sanitizePdfBase64(coverLetterBase64);
 
     const buildTextPart = () => ({
       text: `You write concise, professional job-application answers in first person.
@@ -796,9 +796,9 @@ options:
 
     // Default: text-only (most reliable). Attach PDFs only when valid.
     const parts = [buildTextPart()];
-    const hadPdf = !!(resumePdf || linkedinPdf);
+    const hadPdf = !!(resumePdf || coverLetterPdf);
     if (resumePdf) parts.push({ inline_data: { data: resumePdf, mime_type: 'application/pdf' } });
-    if (linkedinPdf) parts.push({ inline_data: { data: linkedinPdf, mime_type: 'application/pdf' } });
+    if (coverLetterPdf) parts.push({ inline_data: { data: coverLetterPdf, mime_type: 'application/pdf' } });
 
     let answer = '';
     try {

@@ -27,6 +27,7 @@ type QueueOp = {
   id?: number;
   kind:
     | 'firestorePatchDoc'
+    | 'firestorePatchDocMasked'
     | 'firestoreCreateDoc'
     | 'firestoreDeleteDoc'
     | 'firestoreCommit'
@@ -109,9 +110,47 @@ function openDb(): Promise<IDBDatabase> {
 
 async function enqueue(op: Omit<QueueOp, 'id' | 'tries'> & { tries?: number }): Promise<number> {
   const db = await openDb();
+  const coalesceKey = String((op as any)?.payload?.coalesceKey || '').trim();
+
   return await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
+
+    // Coalesce queued writes to the same logical target.
+    // This prevents older snapshots from replaying over newer intent.
+    if (coalesceKey) {
+      const cursorReq = store.openCursor();
+      cursorReq.onerror = () => reject(cursorReq.error);
+      cursorReq.onsuccess = () => {
+        const cur = cursorReq.result;
+        if (!cur) {
+          const req = store.add({ ...op, tries: op.tries ?? 0 } satisfies QueueOp);
+          req.onerror = () => reject(req.error);
+          req.onsuccess = () => resolve(req.result as number);
+          return;
+        }
+
+        const v = cur.value as QueueOp;
+        const vKey = String((v as any)?.payload?.coalesceKey || '').trim();
+        if (vKey && vKey === coalesceKey && v.kind === op.kind) {
+          const merged: QueueOp = {
+            ...v,
+            ...op,
+            id: v.id,
+            tries: v.tries,
+          };
+          const putReq = store.put(merged);
+          putReq.onerror = () => reject(putReq.error);
+          putReq.onsuccess = () => resolve(v.id as number);
+          return;
+        }
+
+        cur.continue();
+      };
+
+      return;
+    }
+
     const req = store.add({ ...op, tries: op.tries ?? 0 } satisfies QueueOp);
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve(req.result as number);
@@ -453,6 +492,23 @@ async function firestorePatchDoc(path: string, data: Record<string, any>): Promi
   }
 }
 
+async function firestorePatchDocWithMask(path: string, data: Record<string, any>, fieldPaths: string[]): Promise<void> {
+  const fps = Array.isArray(fieldPaths) ? fieldPaths.filter((x) => typeof x === 'string' && x.trim()) : [];
+  if (!fps.length) {
+    await firestorePatchDoc(path, data);
+    return;
+  }
+
+  const qs = fps.map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`).join('&');
+  const url = `${FIRESTORE_BASE()}/${path}?${qs}`;
+  const body = JSON.stringify(docFields(data));
+  const res = await authedFetch(url, { method: 'PATCH', body });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`firestorePatchDocWithMask ${res.status}: ${t.slice(0, 300)}`);
+  }
+}
+
 async function firestoreDeleteDoc(path: string): Promise<void> {
   const url = `${FIRESTORE_BASE()}/${path}`;
   const res = await authedFetch(url, { method: 'DELETE' });
@@ -611,35 +667,9 @@ async function ensureUserRootDoc() {
 
   const existing = await firestoreGetDoc(`users/${uid}`).catch(() => null);
 
-  const baseSettings = await new Promise<any>((resolve) => {
-    chrome.storage.sync.get(
-      [
-        'ThemeSetting',
-        'PrivacyToggle',
-        'aiMappingEnabled',
-        'autoSubmitEnabled',
-        'autoTailorEnabled',
-        'listModeEnabled',
-        'closePreviousTabs',
-        'autofillDelayMs',
-      ],
-      (res) => resolve(res || {})
-    );
-  });
-
-  const settings = {
-    ThemeSetting: baseSettings.ThemeSetting || 'light',
-    PrivacyToggle: baseSettings.PrivacyToggle === true,
-    aiMappingEnabled: baseSettings.aiMappingEnabled === true,
-    autoSubmitEnabled: baseSettings.autoSubmitEnabled === true,
-    autoTailorEnabled: baseSettings.autoTailorEnabled === true,
-    listModeEnabled: baseSettings.listModeEnabled === true,
-    closePreviousTabs: baseSettings.closePreviousTabs === true,
-    autofillDelayMs: Number.isFinite(baseSettings.autofillDelayMs) ? Number(baseSettings.autofillDelayMs) : 2500,
-  };
+  // users/{uid}.settings mirror removed; settings live in users/{uid}/jobFields/current.sync
 
   const next: any = {
-    settings,
     account: {
       uid,
       email: authState.email || null,
@@ -661,6 +691,62 @@ async function ensureUserRootDoc() {
   await firestorePatchDoc(`users/${uid}`, next);
 }
 
+const SYNC_SCHEMA_KEYS: string[] = [
+  // Profile
+  'First Name',
+  'Middle Name',
+  'Last Name',
+  'Full Name',
+  'Email',
+  'Phone',
+  'Phone Type',
+
+  // Socials
+  'LinkedIn',
+  'Github',
+  'LeetCode',
+  'Medium',
+  'Personal Website',
+  'Other URL',
+
+  // Location
+  'Location (Street)',
+  'Location (City)',
+  'Location (State/Region)',
+  'Location (Country)',
+  'Postal/Zip Code',
+
+  // Additional Information
+  'Legally Authorized to Work',
+  'Requires Sponsorship',
+  'Job Notice Period',
+  'Expected Salary',
+  'Languages',
+  'Willing to Relocate',
+  'Date Available',
+  'Security Clearance',
+
+  // Voluntary Identification
+  'Pronouns',
+  'Gender',
+  'Race',
+  'Hispanic/Latino',
+  'Veteran Status',
+  'Disability Status',
+
+  // Experience / Education
+  'Current Employer',
+  'Years of Experience',
+  'School',
+  'Degree',
+  'Discipline',
+  'Start Date Month',
+  'Start Date Year',
+  'End Date Month',
+  'End Date Year',
+  'GPA',
+];
+
 function filterSyncForCloud(syncAll: Record<string, any>): Record<string, any> {
   const blocked = new Set([
     'API Key',
@@ -669,11 +755,24 @@ function filterSyncForCloud(syncAll: Record<string, any>): Record<string, any> {
     'AppliedJobsSync',
   ]);
 
+  // Requirement: Firestore should show all fields the extension attempts to capture,
+  // even when empty, so the website can visualize blanks.
   const out: Record<string, any> = {};
+
+  // 1) Write full schema keys, defaulting to empty string.
+  for (const k of SYNC_SCHEMA_KEYS) {
+    if (blocked.has(k)) continue;
+    const v = (syncAll || {})[k];
+    out[k] = v == null ? '' : v;
+  }
+
+  // 2) Preserve any additional non-blocked keys that already exist in sync storage.
   for (const [k, v] of Object.entries(syncAll || {})) {
     if (blocked.has(k)) continue;
+    if (Object.prototype.hasOwnProperty.call(out, k)) continue;
     out[k] = v;
   }
+
   return out;
 }
 
@@ -696,6 +795,8 @@ async function pushJobFieldsSnapshot() {
     'Resume_tailored_meta',
     'Resume_tailored_name',
     'uploads_resume',
+    'uploads_cover_letter',
+    // Back-compat
     'uploads_linkedin_pdf',
     'uploads_tailored_resume',
   ])) as any;
@@ -704,54 +805,114 @@ async function pushJobFieldsSnapshot() {
   const localProfile = local.LOCAL_PROFILE || local.EXEMPLIPHAI_LOCAL_PROFILE || null;
 
   const jobFieldsDoc: any = {
+    schemaVersion: 2,
+    canonicalSource: 'extension',
     sync: filterSyncForCloud(syncAll),
-    resumeDetails,
-    localProfile,
-    tailoredResume: {
-      text: typeof local.Resume_tailored_text === 'string' ? local.Resume_tailored_text : '',
-      meta: local.Resume_tailored_meta && typeof local.Resume_tailored_meta === 'object' ? local.Resume_tailored_meta : null,
-      name: typeof local.Resume_tailored_name === 'string' ? local.Resume_tailored_name : '',
-    },
-    uploads: {
-      resume: local.uploads_resume || null,
-      linkedinPdf: local.uploads_linkedin_pdf || null,
-      tailoredResume: local.uploads_tailored_resume || null,
-    },
     updatedAt: new Date(),
   };
+
+  if (resumeDetails != null) jobFieldsDoc.resumeDetails = resumeDetails;
+  if (localProfile != null) jobFieldsDoc.localProfile = localProfile;
+
+  // Only write tailoredResume if we have any meaningful value; avoid overwriting with empty defaults.
+  const tailoredText = typeof local.Resume_tailored_text === 'string' ? local.Resume_tailored_text : '';
+  const tailoredMeta = local.Resume_tailored_meta && typeof local.Resume_tailored_meta === 'object' ? local.Resume_tailored_meta : null;
+  const tailoredName = typeof local.Resume_tailored_name === 'string' ? local.Resume_tailored_name : '';
+  if ((tailoredText && tailoredText.trim()) || tailoredMeta || (tailoredName && tailoredName.trim())) {
+    jobFieldsDoc.tailoredResume = {
+      text: tailoredText,
+      meta: tailoredMeta,
+      name: tailoredName,
+    };
+  }
+
+  // uploads: avoid writing nulls (null would erase cloud siblings)
+  const uploads: any = {};
+  if (local.uploads_resume) uploads.resume = local.uploads_resume;
+  if (local.uploads_cover_letter || local.uploads_linkedin_pdf) uploads.coverLetter = local.uploads_cover_letter || local.uploads_linkedin_pdf;
+  if (local.uploads_tailored_resume) uploads.tailoredResume = local.uploads_tailored_resume;
+  // uploads are patched with deep update masks (uploads.<child>) to avoid sibling deletion.
+  const uploadsToPatch = uploads;
 
   try {
     await firestorePatchDoc(`users/${uid}/jobFields/current`, jobFieldsDoc);
   } catch (e: any) {
     await enqueue({
       kind: 'firestorePatchDoc',
-      payload: { path: `users/${uid}/jobFields/current`, data: jobFieldsDoc },
+      payload: {
+        path: `users/${uid}/jobFields/current`,
+        data: jobFieldsDoc,
+        coalesceKey: `jobFields:base:${uid}`,
+      },
       createdAtMs: Date.now(),
     });
     // Continue; settings patch can also be queued.
   }
 
-  // Also keep user.settings loosely mirrored for easy reads from the website.
-  const settings: any = {
-    ThemeSetting: syncAll.ThemeSetting || 'light',
-    PrivacyToggle: syncAll.PrivacyToggle === true,
-    aiMappingEnabled: syncAll.aiMappingEnabled === true,
-    autoSubmitEnabled: syncAll.autoSubmitEnabled === true,
-    autoTailorEnabled: syncAll.autoTailorEnabled === true,
-    listModeEnabled: syncAll.listModeEnabled === true,
-    closePreviousTabs: syncAll.closePreviousTabs === true,
-    autofillDelayMs: Number.isFinite(syncAll.autofillDelayMs) ? Number(syncAll.autofillDelayMs) : 2500,
-  };
-
+  // Patch uploads with deep masks so one upload cannot erase siblings.
   try {
-    await firestorePatchDoc(`users/${uid}`, { settings, updatedAt: new Date() });
-  } catch (_) {
-    await enqueue({
-      kind: 'firestorePatchDoc',
-      payload: { path: `users/${uid}`, data: { settings, updatedAt: new Date() } },
-      createdAtMs: Date.now(),
-    });
+    if (uploadsToPatch?.resume) {
+      await firestorePatchDocWithMask(
+        `users/${uid}/jobFields/current`,
+        { uploads: { resume: uploadsToPatch.resume } },
+        ['uploads.resume']
+      );
+    }
+
+    if (uploadsToPatch?.coverLetter) {
+      await firestorePatchDocWithMask(
+        `users/${uid}/jobFields/current`,
+        { uploads: { coverLetter: uploadsToPatch.coverLetter } },
+        ['uploads.coverLetter']
+      );
+    }
+
+    if (uploadsToPatch?.tailoredResume) {
+      await firestorePatchDocWithMask(
+        `users/${uid}/jobFields/current`,
+        { uploads: { tailoredResume: uploadsToPatch.tailoredResume } },
+        ['uploads.tailoredResume']
+      );
+    }
+  } catch (e) {
+    // Best-effort: queue masked patches if we fail.
+    if (uploadsToPatch?.resume) {
+      await enqueue({
+        kind: 'firestorePatchDocMasked',
+        payload: {
+          path: `users/${uid}/jobFields/current`,
+          data: { uploads: { resume: uploadsToPatch.resume } },
+          fieldPaths: ['uploads.resume'],
+        },
+        createdAtMs: Date.now(),
+      });
+    }
+    if (uploadsToPatch?.coverLetter) {
+      await enqueue({
+        kind: 'firestorePatchDocMasked',
+        payload: {
+          path: `users/${uid}/jobFields/current`,
+          data: { uploads: { coverLetter: uploadsToPatch.coverLetter } },
+          fieldPaths: ['uploads.coverLetter'],
+        },
+        createdAtMs: Date.now(),
+      });
+    }
+    if (uploadsToPatch?.tailoredResume) {
+      await enqueue({
+        kind: 'firestorePatchDocMasked',
+        payload: {
+          path: `users/${uid}/jobFields/current`,
+          data: { uploads: { tailoredResume: uploadsToPatch.tailoredResume } },
+          fieldPaths: ['uploads.tailoredResume'],
+        },
+        createdAtMs: Date.now(),
+      });
+    }
   }
+
+  // (settings are stored only in jobFields/current.sync; do not mirror to users/{uid}.settings)
+  // settings mirror removed
 }
 
 async function pullFromCloudAndPopulateLocal() {
@@ -773,10 +934,7 @@ async function pullFromCloudAndPopulateLocal() {
       await chrome.storage.sync.set(jfData.sync);
     }
 
-    // settings may also be present under users/{uid}
-    if (userData?.settings && typeof userData.settings === 'object') {
-      await chrome.storage.sync.set(userData.settings);
-    }
+    // users/{uid}.settings mirror removed; jobFields/current.sync is canonical.
 
     // Local storage (resume details, local profile, tailored)
     const localPatch: any = {};
@@ -794,7 +952,10 @@ async function pullFromCloudAndPopulateLocal() {
 
     if (jfData?.uploads && typeof jfData.uploads === 'object') {
       if (jfData.uploads.resume) localPatch.uploads_resume = jfData.uploads.resume;
-      if (jfData.uploads.linkedinPdf) localPatch.uploads_linkedin_pdf = jfData.uploads.linkedinPdf;
+      // Back-compat: migrate linkedinPdf -> coverLetter
+      if (jfData.uploads.coverLetter || jfData.uploads.linkedinPdf) {
+        localPatch.uploads_cover_letter = jfData.uploads.coverLetter || jfData.uploads.linkedinPdf;
+      }
       if (jfData.uploads.tailoredResume) localPatch.uploads_tailored_resume = jfData.uploads.tailoredResume;
     }
 
@@ -898,6 +1059,8 @@ async function flushQueueOnce(limit = 25) {
     try {
       if (op.kind === 'firestorePatchDoc') {
         await firestorePatchDoc(op.payload.path, op.payload.data);
+      } else if (op.kind === 'firestorePatchDocMasked') {
+        await firestorePatchDocWithMask(op.payload.path, op.payload.data, op.payload.fieldPaths || []);
       } else if (op.kind === 'firestoreCreateDoc') {
         await firestoreCreateDoc(op.payload.collectionPath, op.payload.data);
       } else if (op.kind === 'firestoreDeleteDoc') {
@@ -993,7 +1156,7 @@ async function storageUpload({ path, base64, contentType }: { path: string; base
   };
 }
 
-async function maybeUploadChangedPdf(localKey: string, nameKey: string, cloudMetaKey: string, kind: 'resume' | 'linkedinPdf' | 'tailoredResume') {
+async function maybeUploadChangedPdf(localKey: string, nameKey: string, cloudMetaKey: string, kind: 'resume' | 'coverLetter' | 'tailoredResume') {
   if (!authState) return;
   if (!requireFirebaseConfig()) return;
 
@@ -1412,8 +1575,11 @@ export function initFirebaseExtensionSync() {
       if (changes?.Resume || changes?.Resume_name) {
         maybeUploadChangedPdf('Resume', 'Resume_name', 'uploads_resume', 'resume').catch(() => {});
       }
-      if (changes?.['LinkedIn PDF'] || changes?.['LinkedIn PDF_name']) {
-        maybeUploadChangedPdf('LinkedIn PDF', 'LinkedIn PDF_name', 'uploads_linkedin_pdf', 'linkedinPdf').catch(() => {});
+      if (changes?.['Cover Letter'] || changes?.['Cover Letter_name']) {
+        maybeUploadChangedPdf('Cover Letter', 'Cover Letter_name', 'uploads_cover_letter', 'coverLetter').catch(() => {});
+      } else if (changes?.['LinkedIn PDF'] || changes?.['LinkedIn PDF_name']) {
+        // Back-compat: old key
+        maybeUploadChangedPdf('LinkedIn PDF', 'LinkedIn PDF_name', 'uploads_cover_letter', 'coverLetter').catch(() => {});
       }
       if (changes?.Resume_tailored_pdf || changes?.Resume_tailored_name) {
         maybeUploadChangedPdf('Resume_tailored_pdf', 'Resume_tailored_name', 'uploads_tailored_resume', 'tailoredResume').catch(() => {});
