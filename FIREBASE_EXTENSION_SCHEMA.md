@@ -1,133 +1,146 @@
-# Exempliphai Chrome Extension → Firebase data model (proposed)
+# Exempliphai data model (extension + website)
 
-## Collections
+This document describes the **current canonical Firestore schema** used by the Exempliphai Chrome extension + website.
 
-### `/users/{uid}`
-User root (website-owned). Extension writes only within the user’s own tree.
+## Canonical source of truth
 
-### `/users/{uid}/extension/state`
-Single doc holding most extension state (small/medium sized):
+- **Job fields / profile / resume details:** `users/{uid}/jobFields/current`
+- **Job search cache (validated links only):** `users/{uid}/jobSearchResults` (+ `jobSearchRuns`)
+- **Applied job history:** `users/{uid}/appliedJobs`
+
+Non‑negotiable: the UI must never ask a model to invent job links. The website should **read cached validated results** from Firestore.
+
+---
+
+## Firestore paths
+
+### `users/{uid}`
+Website-owned root user doc. Extension writes within the user’s own tree.
+
+### `users/{uid}/jobFields/current`
+Single doc holding sync-safe user inputs.
+
+Shape (high level):
 
 ```jsonc
 {
-  "version": 1,
-  "updatedAt": "<serverTimestamp>",
-  "settings": {
-    "geminiApiKey": "...",
-    "theme": "light|dark",
-    "privacyToggle": true,
+  "schemaVersion": 2,
+  "canonicalSource": "extension" | "website",
 
-    "cloudSyncEnabled": false,
-    "aiMappingEnabled": true,
-    "autoSubmitEnabled": false,
-    "autoTailorEnabled": false,
-    "listModeEnabled": false,
-    "closePreviousTabs": false,
-    "autofillDelayMs": 2500
-  },
-  "uiProfileFields": {
-    "First Name": "Kei",
-    "Last Name": "...",
-    "Phone Type": "Mobile",
-    "Race": "..."
-    // ... all other chrome.storage.sync keys except reserved settings keys
-  },
-  "localProfile": {
-    // LOCAL_PROFILE schema-driven object (Simplify-compatible)
-    "first_name": "...",
-    "experience": [ { "company": "..." } ]
-  },
-  "resumeDetails": {
-    "skills": ["JavaScript"],
-    "experiences": [ {"jobTitle":"","jobEmployer":""} ],
-    "certifications": [ {"name":"","issuer":""} ]
-  },
-  "localState": {
-    "jobQueue": [ {"url":"https://...","status":"pending"} ],
-    "currentIndex": 0,
-    "listModePaused": true,
-    "listModeActiveJob": null,
-    "listModeNextOpenAt": 0,
+  // Mirrors chrome.storage.sync (UI fields + settings)
+  "sync": { "First Name": "...", "API Key": "..." },
 
-    "aiUsageLog": [ {"date":"...","tokensIn":123,"tokensOut":45,"costCents":0.01} ],
+  // Mirrors chrome.storage.local.Resume_details
+  "resumeDetails": { "skills": [], "experiences": [], "certifications": [] },
 
-    "atsConfigOverride": { /* optional */ },
+  // Mirrors LOCAL_PROFILE (Simplify-compatible)
+  "localProfile": { "first_name": "...", "experience": [] },
 
-    "Resume_tailored_text": "...",
-    "Resume_tailored_meta": {"pageUrl":"...","pageKey":"..."}
+  // Tailored resume text + metadata
+  "tailoredResume": { "text": "...", "meta": {}, "name": "resume_tailored.pdf" },
+
+  // Storage metadata only (actual bytes live in Storage)
+  "uploads": {
+    "resume": { "bucket": "...", "path": "...", "downloadUrl": "..." },
+    "coverLetter": { "bucket": "...", "path": "...", "downloadUrl": "..." },
+    "tailoredResume": { "bucket": "...", "path": "...", "downloadUrl": "..." }
   },
-  "jobSearchLast": {
-    "generated_at": "2026-...",
-    "desiredLocation": "NYC",
-    "recommendations": [ {"title":"..."} ]
-  },
-  "jobSearchLastId": "2026_...",
-  "fileMeta": {
-    "resumes": {"sha256":"...","path":"data/uploads/...","downloadUrl":"..."},
-    "coverLetters": {"sha256":"...","path":"data/uploads/...","downloadUrl":"..."},
-    "resumesTailored": {"sha256":"...","path":"data/uploads/...","downloadUrl":"..."}
-  }
+
+  "updatedAt": "<serverTimestamp>"
 }
 ```
 
-### `/users/{uid}/appliedJobs/{jobId}`
-Applied jobs (subcollection; jobId derived from URL):
+### `users/{uid}/appliedJobs/{jobId}`
+Applied jobs history. `jobId` is derived deterministically from the job URL.
 
 ```jsonc
 {
   "url": "https://...",
+  "domain": "boards.greenhouse.io",
+  "title": "Software Engineer",
   "company": "Acme",
-  "role": "Software Engineer",
-  "appliedAt": "<timestamp>",
+  "applied": true,
+  "timestamp": "<serverTimestamp>",
   "updatedAt": "<serverTimestamp>"
 }
 ```
 
-### `/users/{uid}/jobSearches/{searchId}`
-Persist job search results per run:
+### `users/{uid}/jobSearchRuns/{runId}`
+Metadata for a search run (the *event*).
 
 ```jsonc
 {
-  "generatedAt": "<timestamp>",
+  "runId": "...",
   "desiredLocation": "Remote",
-  "recommendations": [
-    {
-      "title": "...",
-      "company": "...",
-      "location": "...",
-      "salary": "...",
-      "why_match": "...",
-      "links": [{"label":"...","url":"https://..."}]
-    }
-  ],
+  "queryFingerprint": "...",
+  "profileFingerprint": "...",
+  "modelName": "gemini-3-flash-preview",
+  "temperature": 0.3,
+  "createdAt": "<serverTimestamp>",
+  "completedAt": "<serverTimestamp>",
+  "totalCandidatesSeen": 120,
+  "totalValidated": 12,
+  "totalRejected": 108,
+  "totalStored": 12,
   "updatedAt": "<serverTimestamp>"
 }
 ```
 
-### `/users/{uid}/files/{kind}`
-Metadata for uploaded files (actual bytes stored in Storage):
+### `users/{uid}/jobSearchResults/{resultId}`
+Reusable validated job posting records (the *cache*). This is what UIs should display by default.
+
+Visibility filter (default):
+
+- `applied == false`
+- `hidden == false`
+- `stale == false`
+- `validationStatus == "validated"`
 
 ```jsonc
 {
-  "kind": "resumes|coverLetters|resumesTailored",
-  "path": "data/uploads/<uid>/resumes/<sha>-resume.pdf",
-  "filename": "resume.pdf",
-  "sha256": "...",
-  "downloadUrl": "https://firebasestorage.googleapis.com/...",
+  "resultId": "...",
+  "runId": "...",
+  "dedupeKey": "hash(company|title|location|directUrl)",
+
+  "title": "...",
+  "company": "...",
+  "location": "...",
+  "salary": "",
+  "whyMatch": "1-2 sentences",
+
+  "directUrl": "https://...",            // must be a direct posting/apply URL
+  "directUrlLabel": "Apply",
+  "linkDomain": "jobs.lever.co",
+
+  "sourceSystem": "openclaw",
+  "confidenceScore": 0.82,
+  "validationStatus": "validated",
+
+  "applied": false,
+  "appliedAt": null,
+
+  "hidden": false,
+  "stale": false,
+
+  "firstSeenAt": "<serverTimestamp>",
+  "lastSeenAt": "<serverTimestamp>",
+  "lastValidatedAt": "<serverTimestamp>",
+  "createdAt": "<serverTimestamp>",
   "updatedAt": "<serverTimestamp>"
 }
 ```
+
+---
 
 ## Storage paths
 
-- `gs://<bucket>/data/uploads/{uid}/resumes/...`
-- `gs://<bucket>/data/uploads/{uid}/coverLetters/...` (reserved)
-- `gs://<bucket>/data/uploads/{uid}/coverLetters/...`
-- `gs://<bucket>/data/uploads/{uid}/resumesTailored/...`
+- `gs://<bucket>/data/uploads/{uid}/resume/...`
+- `gs://<bucket>/data/uploads/{uid}/coverLetter/...`
+- `gs://<bucket>/data/uploads/{uid}/tailoredResume/...`
 
-## Sync behavior
+---
 
-- Source of truth: Firestore/Storage.
-- Extension keeps a local cache in `chrome.storage.local`/`chrome.storage.sync` for fast UI + content script compatibility.
-- Autosave: any storage change schedules a Firestore flush via `chrome.alarms` after 30s (debounced).
-- Offline: flush failures schedule a retry alarm.
+## Notes
+
+- The legacy collection `users/{uid}/jobSearches` is deprecated. New UI reads `jobSearchResults`.
+- Applied jobs must be reflected by setting `jobSearchResults.applied=true` (so they disappear from default lists) and optionally also writing to `appliedJobs` for audit/history.

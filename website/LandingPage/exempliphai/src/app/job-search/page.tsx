@@ -2,16 +2,26 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { collection, limit, onSnapshot, orderBy, query } from "firebase/firestore";
+import {
+  collection,
+  limit,
+  onSnapshot,
+  orderBy,
+  query,
+  where,
+} from "firebase/firestore";
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
 import {
   canonUrlKey,
-  createJobSearch,
+  domainFromUrl,
   jobFieldsDocRef,
   markAppliedJob,
+  markJobSearchResultApplied,
+  upsertJobSearchRunAndResults,
   type JobFieldsDoc,
+  type JobSearchResultDoc,
 } from "@/lib/exempliphai/firestore";
 import {
   filterDirectApplicationLinks,
@@ -19,13 +29,28 @@ import {
   type JobLink,
 } from "@/lib/exempliphai/jobLinks";
 
+type ValidatedCandidate = {
+  title: string;
+  company?: string;
+  location?: string;
+  salary?: string;
+  directUrl: string;
+  directUrlLabel?: string;
+  sourceSystem?: string;
+  confidenceScore?: number;
+};
+
 type JobRec = {
   title: string;
   company?: string;
   location?: string;
   salary?: string;
   why_match?: string;
+  directUrl: string;
+  directUrlLabel?: string;
   links?: JobLink[];
+  resultId?: string;
+  dedupeKey?: string;
 };
 
 function extractFirstJsonObject(text: string): string | null {
@@ -34,62 +59,6 @@ function extractFirstJsonObject(text: string): string | null {
   const last = s.lastIndexOf("}");
   if (first === -1 || last === -1 || last <= first) return null;
   return s.slice(first, last + 1);
-}
-
-function buildJobRecsSystemPrompt(): string {
-  return `You are a job recommendation engine.
-Return ONLY valid JSON.
-Do not include any prose outside JSON.`;
-}
-
-function buildJobRecsUserPrompt({
-  profile = {},
-  resumeDetails = {},
-  desiredLocation = "",
-  countMin = 10,
-  countMax = 15,
-}: {
-  profile?: any;
-  resumeDetails?: any;
-  desiredLocation?: string;
-  countMin?: number;
-  countMax?: number;
-} = {}): string {
-  return `Create ${countMin}-${countMax} job recommendations for this candidate.
-
-Return ONLY valid JSON with this exact structure:
-{
-  "version": "0.1",
-  "generated_at": "${new Date().toISOString()}",
-  "recommendations": [
-    {
-      "title": "",
-      "company": "",
-      "location": "",
-      "salary": "",
-      "why_match": "",
-      "links": [{"label": "", "url": "https://..."}]
-    }
-  ]
-}
-
-Rules:
-- Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.
-- Keep why_match 1-2 sentences.
-- If you don't know salary, return an empty string.
-- Links MUST be direct job posting or application URLs (no search pages).
-  - Allowed: LinkedIn job posting URLs (e.g. https://www.linkedin.com/jobs/view/...), or company ATS postings (Greenhouse/Lever/Workday/Ashby/SmartRecruiters/Workable/iCIMS), or a company careers posting page.
-  - NOT allowed: Google/Bing/DuckDuckGo search URLs.
-- If you cannot provide a real direct application URL with high confidence, set "links" to an empty array (do NOT guess).
-
-Desired location: ${desiredLocation || "(none)"}
-
-Profile:
-${JSON.stringify(profile || {}, null, 2)}
-
-Resume details:
-${JSON.stringify(resumeDetails || {}, null, 2)}
-`;
 }
 
 async function geminiGenerateJson({
@@ -128,6 +97,101 @@ async function geminiGenerateJson({
   return JSON.parse(jsonText);
 }
 
+function buildGeminiRankingPrompt({
+  profile,
+  resumeDetails,
+  desiredLocation,
+  candidates,
+}: {
+  profile: any;
+  resumeDetails: any;
+  desiredLocation: string;
+  candidates: ValidatedCandidate[];
+}): string {
+  return `Return ONLY valid JSON with this exact structure:
+{
+  "version": "0.2",
+  "generated_at": "${new Date().toISOString()}",
+  "recommendations": [
+    {
+      "title": "",
+      "company": "",
+      "location": "",
+      "salary": "",
+      "why_match": "",
+      "links": [{"label": "", "url": "https://..."}]
+    }
+  ]
+}
+
+Hard rules:
+- Use only jobs provided in VALIDATED_CANDIDATES.
+- Do not invent or modify titles, companies, locations, or URLs.
+- Do not output any URL that is not present verbatim in VALIDATED_CANDIDATES.
+- Return fewer results if fewer candidates are strong.
+- Keep why_match to 1-2 sentences.
+- If salary is unknown, return an empty string.
+- Exclude any candidate whose direct-link confidence is not high.
+
+VALIDATED_CANDIDATES:
+${JSON.stringify(candidates, null, 2)}
+
+Desired location:
+${desiredLocation || "(none)"}
+
+Profile:
+${JSON.stringify(profile || {}, null, 2)}
+
+Resume details:
+${JSON.stringify(resumeDetails || {}, null, 2)}
+`;
+}
+
+function parseValidatedCandidates(text: string): ValidatedCandidate[] {
+  const raw = String(text || "").trim();
+  if (!raw) return [];
+
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw new Error("Validated candidates must be a JSON array.");
+
+  const out: ValidatedCandidate[] = [];
+  for (const item of parsed) {
+    const title = String(item?.title || "").trim();
+    const company = String(item?.company || "").trim();
+    const location = String(item?.location || "").trim();
+    const salary = String(item?.salary || "").trim();
+    const directUrl = String(item?.directUrl || item?.url || "").trim();
+
+    if (!title || !directUrl) continue;
+    if (!isDirectApplicationUrl(directUrl)) continue;
+
+    out.push({
+      title,
+      company,
+      location,
+      salary,
+      directUrl,
+      directUrlLabel: item?.directUrlLabel ? String(item.directUrlLabel) : "",
+      sourceSystem: item?.sourceSystem ? String(item.sourceSystem) : "",
+      confidenceScore: Number.isFinite(item?.confidenceScore)
+        ? Number(item.confidenceScore)
+        : undefined,
+    });
+  }
+
+  // De-dupe by directUrl+title+company.
+  const seen = new Set<string>();
+  const deduped: ValidatedCandidate[] = [];
+  for (const c of out) {
+    const k = `${canonUrlKey(c.directUrl)}|${c.title.toLowerCase()}|${(c.company || "").toLowerCase()}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    deduped.push(c);
+  }
+
+  return deduped;
+}
+
 export default function JobSearchPage() {
   return (
     <RequireAuth>
@@ -142,41 +206,51 @@ function JobSearchInner() {
   const [jobFields, setJobFields] = useState<JobFieldsDoc | null>(null);
 
   const [desiredLocation, setDesiredLocation] = useState("");
+  const [validatedCandidatesText, setValidatedCandidatesText] = useState("");
+
+  const [apiKey, setApiKey] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const [searchDocs, setSearchDocs] = useState<Array<{ id: string; data: any }>>([]);
-  const [activeId, setActiveId] = useState<string>("");
-
-  const active = useMemo(() => {
-    const found = searchDocs.find((d) => d.id === activeId);
-    return found || searchDocs[0] || null;
-  }, [searchDocs, activeId]);
+  const [results, setResults] = useState<Array<{ id: string; data: JobSearchResultDoc }>>([]);
 
   const recs: JobRec[] = useMemo(() => {
-    const data = active?.data || {};
-    const arr = Array.isArray(data.generatedJobs) ? data.generatedJobs : [];
-    return arr
-      .filter((r: any) => r && typeof r.title === "string" && r.title.trim())
-      .slice(0, 15)
-      .map((r: any) => ({
-        title: String(r.title).trim(),
-        company: r.company ? String(r.company).trim() : "",
-        location: r.location ? String(r.location).trim() : "",
-        salary: r.salary ? String(r.salary).trim() : "",
-        why_match: r.why_match ? String(r.why_match).trim() : "",
-        links: filterDirectApplicationLinks(r.links).slice(0, 4),
-      }));
-  }, [active]);
+    return results
+      .map(({ id, data }) => {
+        const directUrl = String((data as any)?.directUrl || "").trim();
+        const links = directUrl
+          ? filterDirectApplicationLinks([
+              {
+                label: String((data as any)?.directUrlLabel || "Apply"),
+                url: directUrl,
+              },
+            ])
+          : [];
+
+        return {
+          title: String((data as any)?.title || "").trim(),
+          company: String((data as any)?.company || "").trim(),
+          location: String((data as any)?.location || "").trim(),
+          salary: String((data as any)?.salary || "").trim(),
+          why_match: String((data as any)?.whyMatch || "").trim(),
+          directUrl,
+          directUrlLabel: String((data as any)?.directUrlLabel || "Apply"),
+          links: links.slice(0, 4),
+          resultId: String((data as any)?.resultId || id),
+          dedupeKey: String((data as any)?.dedupeKey || ""),
+        };
+      })
+      .filter((r) => r.title && r.directUrl);
+  }, [results]);
 
   const [appliedKeys, setAppliedKeys] = useState<Set<string>>(new Set());
-
-  const [apiKey, setApiKey] = useState<string>("");
 
   useEffect(() => {
     try {
       const v = localStorage.getItem("exempliphai_gemini_api_key") || "";
       setApiKey(v);
+      const cand = localStorage.getItem("exempliphai_validated_candidates") || "";
+      setValidatedCandidatesText(cand);
     } catch {
       // ignore
     }
@@ -189,6 +263,17 @@ function JobSearchInner() {
       // ignore
     }
   }, [apiKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "exempliphai_validated_candidates",
+        validatedCandidatesText || "",
+      );
+    } catch {
+      // ignore
+    }
+  }, [validatedCandidatesText]);
 
   useEffect(() => {
     if (!user) return;
@@ -208,23 +293,24 @@ function JobSearchInner() {
     if (!user) return;
     const { db } = getFirebase();
 
+    // Default visible results:
+    // applied=false, hidden=false, validationStatus='validated', stale=false.
     const q = query(
-      collection(db, "users", user.uid, "jobSearches"),
-      orderBy("timestamp", "desc"),
-      limit(25),
+      collection(db, "users", user.uid, "jobSearchResults"),
+      where("applied", "==", false),
+      where("hidden", "==", false),
+      where("stale", "==", false),
+      where("validationStatus", "==", "validated"),
+      orderBy("updatedAt", "desc"),
+      limit(50),
     );
 
     const unsub = onSnapshot(q, (snap) => {
       const next = snap.docs.map((d) => ({ id: d.id, data: d.data() as any }));
-      setSearchDocs(next);
-      if (!activeId && next[0]?.id) setActiveId(next[0].id);
-
-      const loc = next[0]?.data?.searchOptions?.desiredLocation;
-      if (!desiredLocation && typeof loc === "string") setDesiredLocation(loc);
+      setResults(next);
     });
 
     return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid]);
 
   useEffect(() => {
@@ -252,67 +338,147 @@ function JobSearchInner() {
   }, [user?.uid]);
 
   function isRecApplied(rec: JobRec) {
-    const links = Array.isArray(rec?.links) ? rec.links : [];
-    return links.some((l) => {
-      const k = canonUrlKey(String(l?.url || ""));
-      return k && appliedKeys.has(k);
-    });
+    const k = canonUrlKey(String(rec.directUrl || ""));
+    return k && appliedKeys.has(k);
   }
 
   async function markApplied(rec: JobRec) {
     if (!user) return;
 
     const links = Array.isArray(rec?.links) ? rec.links : [];
-    const first = links.find((l) => l && typeof l.url === "string" && isDirectApplicationUrl(l.url));
-    if (!first?.url) throw new Error("No direct application link for this recommendation.");
+    const first = links.find(
+      (l) => l && typeof l.url === "string" && isDirectApplicationUrl(l.url),
+    );
+    if (!first?.url)
+      throw new Error("No direct application link for this recommendation.");
 
     const { db } = getFirebase();
+
+    // Keep appliedJobs tracking (history)
     await markAppliedJob(db, user.uid, {
       url: first.url,
       company: rec.company || "Unknown",
       role: rec.title || "Unknown",
       title: rec.title || "",
     });
+
+    // Also flip applied=true on the cached jobSearchResults doc so it disappears
+    // from the default visible list.
+    await markJobSearchResultApplied(db, user.uid, {
+      resultId: rec.resultId,
+      dedupeKey: rec.dedupeKey,
+    });
   }
 
-  async function generateRecommendations() {
+  async function rankAndPersist() {
     setErrorMsg("");
     setLoading(true);
 
     try {
       if (!user) throw new Error("Not signed in");
-      if (!apiKey.trim()) throw new Error("Missing Gemini API key (saved only in this browser). ");
+      if (!apiKey.trim())
+        throw new Error("Missing Gemini API key (stored only in this browser).");
 
       const profile = (jobFields?.sync || {}) as Record<string, any>;
       const resumeDetails = (jobFields?.resumeDetails || {}) as any;
 
-      const promptText = `${buildJobRecsSystemPrompt()}\n\n---\n\n${buildJobRecsUserPrompt({
+      const candidates = parseValidatedCandidates(validatedCandidatesText);
+      if (!candidates.length) {
+        throw new Error(
+          "No validated candidates found. Paste a JSON array with directUrl fields (direct posting/apply links).",
+        );
+      }
+
+      const promptText = buildGeminiRankingPrompt({
         profile,
         resumeDetails,
         desiredLocation,
-      })}`;
+        candidates,
+      });
 
-      const out = (await geminiGenerateJson({ apiKey: apiKey.trim(), promptText })) as any;
+      const out = (await geminiGenerateJson({
+        apiKey: apiKey.trim(),
+        promptText,
+      })) as any;
+
       const list = Array.isArray(out?.recommendations) ? out.recommendations : [];
 
-      const filtered: JobRec[] = list
-        .filter((r: any) => r && typeof r.title === "string" && r.title.trim())
-        .slice(0, 15)
-        .map((r: any) => ({
-          title: String(r.title).trim(),
-          company: r.company ? String(r.company).trim() : "",
-          location: r.location ? String(r.location).trim() : "",
-          salary: r.salary ? String(r.salary).trim() : "",
-          why_match: r.why_match ? String(r.why_match).trim() : "",
-          links: filterDirectApplicationLinks(r.links).slice(0, 4),
-        }));
+      const urlAllow = new Set<string>(candidates.map((c) => String(c.directUrl)));
+
+      const ranked: Array<
+        Pick<
+          JobSearchResultDoc,
+          | "resultId"
+          | "runId"
+          | "dedupeKey"
+          | "title"
+          | "company"
+          | "location"
+          | "salary"
+          | "whyMatch"
+          | "directUrl"
+          | "directUrlLabel"
+          | "linkDomain"
+          | "sourceSystem"
+          | "confidenceScore"
+        >
+      > = [];
+
+      for (const r of list) {
+        const links = filterDirectApplicationLinks((r as any)?.links).slice(0, 4);
+        const first = links[0];
+        const url = String(first?.url || "").trim();
+        if (!url) continue;
+        if (!urlAllow.has(url)) continue; // strict membership check
+
+        const title = String((r as any)?.title || "").trim();
+        if (!title) continue;
+
+        const cand = candidates.find((c) => String(c.directUrl) === url) || null;
+
+        ranked.push({
+          // ids filled in helper
+          resultId: "",
+          runId: "",
+          dedupeKey: "",
+          title,
+          company: String((r as any)?.company || cand?.company || "").trim(),
+          location: String((r as any)?.location || cand?.location || "").trim(),
+          salary: String((r as any)?.salary || cand?.salary || "").trim(),
+          whyMatch: String((r as any)?.why_match || "").trim(),
+          directUrl: url,
+          directUrlLabel: String(first?.label || cand?.directUrlLabel || "Apply").trim(),
+          linkDomain: domainFromUrl(url),
+          sourceSystem: String(cand?.sourceSystem || "openclaw"),
+          confidenceScore: Number.isFinite(cand?.confidenceScore)
+            ? Number(cand?.confidenceScore)
+            : null,
+        });
+
+        if (ranked.length >= 15) break;
+      }
 
       const { db } = getFirebase();
-      await createJobSearch(db, user.uid, {
-        searchOptions: { desiredLocation: String(desiredLocation || "") },
-        generatedJobs: filtered as any,
-        version: String(out?.version || "0.1"),
-        generated_at: String(out?.generated_at || new Date().toISOString()),
+      const runId = globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : `run_${Date.now()}`;
+
+      await upsertJobSearchRunAndResults(db, user.uid, {
+        run: {
+          runId,
+          desiredLocation: String(desiredLocation || ""),
+          modelName: "gemini-3-flash-preview",
+          temperature: 0.3,
+          totalCandidatesSeen: candidates.length,
+          totalValidated: ranked.length,
+          totalRejected: Math.max(0, candidates.length - ranked.length),
+          totalStored: ranked.length,
+        },
+        results: ranked.map((r) => ({
+          ...r,
+          runId,
+          // dedupeKey/resultId are computed by helper if blank
+        })),
       });
     } catch (e: any) {
       setErrorMsg(String(e?.message || e));
@@ -336,23 +502,24 @@ function JobSearchInner() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Job Search</h1>
           <div className="flex gap-3">
-            <Link className="text-sm text-primary underline" href={"/profile" as any}>
+            <Link className="text-sm text-primary underline" href={("/profile" as any)}>
               Profile
             </Link>
-            <Link className="text-sm text-primary underline" href={"/dashboard" as any}>
+            <Link className="text-sm text-primary underline" href={("/dashboard" as any)}>
               Dashboard
             </Link>
           </div>
         </div>
 
         <p className="mt-2 text-sm text-muted-foreground">
-          Loads/saves from <span className="font-mono">users/{user?.uid}/jobSearches</span>.
+          Source of truth: <span className="font-mono">users/{user?.uid}/jobSearchResults</span>
+          . This page never asks the model to invent job URLs.
         </p>
 
         <div className="mt-6 grid gap-4">
           <div className="rounded-xl border bg-card p-4">
             <p className="m-0 text-sm text-muted-foreground">
-              Generate 10–15 job recommendations based on your saved resume details.
+              Paste a JSON array of <b>validated candidates</b> (each with a direct posting/apply URL), then rank and persist.
             </p>
 
             <div className="mt-3 flex flex-col gap-2 md:flex-row md:items-center">
@@ -365,10 +532,10 @@ function JobSearchInner() {
               <button
                 type="button"
                 className="bg-gradient-primary h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                onClick={() => void generateRecommendations()}
+                onClick={() => void rankAndPersist()}
                 disabled={loading}
               >
-                {loading ? "Generating…" : "Generate"}
+                {loading ? "Ranking…" : "Rank + Save"}
               </button>
             </div>
 
@@ -385,6 +552,18 @@ function JobSearchInner() {
                 />
               </label>
 
+              <label className="grid gap-1">
+                <span className="text-xs font-semibold text-muted-foreground">
+                  VALIDATED_CANDIDATES (JSON array)
+                </span>
+                <textarea
+                  className="min-h-[140px] w-full rounded-md border bg-background p-3 font-mono text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                  value={validatedCandidatesText}
+                  onChange={(e) => setValidatedCandidatesText(e.target.value)}
+                  placeholder='[{"title":"...","company":"...","directUrl":"https://..."}]'
+                />
+              </label>
+
               {errorMsg ? (
                 <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
                   {errorMsg}
@@ -394,33 +573,7 @@ function JobSearchInner() {
           </div>
 
           <div className="rounded-xl border bg-card p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm font-semibold">History</div>
-              <select
-                className="h-10 rounded-md border bg-background px-3 text-sm outline-none"
-                value={active?.id || ""}
-                onChange={(e) => setActiveId(e.target.value)}
-              >
-                {searchDocs.length ? (
-                  searchDocs.map((d) => {
-                    const ts = (d.data as any)?.timestamp?.toDate?.()?.toISOString?.() || null;
-                    const genAt = String((d.data as any)?.generated_at || "");
-                    const label = ts
-                      ? new Date(ts).toLocaleString()
-                      : genAt
-                        ? new Date(genAt).toLocaleString()
-                        : d.id;
-                    return (
-                      <option key={d.id} value={d.id}>
-                        {label}
-                      </option>
-                    );
-                  })
-                ) : (
-                  <option value="">No searches yet</option>
-                )}
-              </select>
-            </div>
+            <div className="text-sm font-semibold">Active recommendations</div>
 
             {recs.length === 0 ? (
               <div className="mt-3 text-sm text-muted-foreground">No recommendations yet.</div>
