@@ -10,35 +10,36 @@ import {
 
 export const landingContent = {
   hero: {
-    eyebrow: "Your unfair advantage in a crowded job market",
+    eyebrow: "Chrome extension. One profile. Applications on autopilot.",
     headline: {
-      line1: "Find, tailor, and apply",
-      emphasis: "10× faster",
+      line1: "Land more interviews",
+      emphasis: "by applying 10× faster",
     },
     subheadline:
-      "exempliphai uses one private profile to auto-search roles, tailor your resume, autofill applications, and track every application end-to-end — without selling your data.",
+      "exempliphai finds roles that match you, tailors your resume, autofills every field, and can submit applications for you. You stay in control. We do the busywork.",
     stats: [
-      { label: "Applications prefilled", value: "Millions" },
-      { label: "Time saved per application", value: "15–30 min" },
-      { label: "Privacy-first", value: "No data selling" },
+      { label: "Setup time", value: "5 min" },
+      { label: "Applications per hour", value: "10–50" },
+      { label: "Privacy-first", value: "Never sold" },
     ],
     ctas: {
-      primary: { label: "Start applying free", href: "/login" },
-      secondary: { label: "See it in action (60 seconds)", href: "#how-it-works" },
+      primary: { label: "Install free and start applying", href: "/login" },
+      secondary: { label: "Watch the 60s demo", href: "#how-it-works" },
     },
-    privacyNote: "Full anonymization. You stay in control of what gets shared.",
+    privacyNote:
+      "Private by default. We never sell your data. You choose what gets submitted.",
   },
 
   featureTabs: {
-    title: "Everything you need to go from search → offer.",
+    title: "Your fastest path from search to interview.",
     subtitle:
-      "Stop juggling job boards, spreadsheets, and copy/paste. exempliphai automates the busywork so you can focus on interviews.",
+      "Stop spending nights copy and pasting. exempliphai automates the boring parts so you can apply early, apply more, and show up sharper in interviews.",
     items: [
       {
         icon: Search,
-        title: "Auto-search & smart matches",
+        title: "Instant matches that respect your dealbreakers",
         description:
-          "Tell us your target roles, location, and dealbreakers. We continuously surface relevant jobs and filter out noise.",
+          "Tell us role, location, and hard nos. exempliphai hunts continuously and shows only jobs worth your time.",
         isNew: false,
         backgroundPositionX: 0,
         backgroundPositionY: 0,
@@ -46,9 +47,9 @@ export const landingContent = {
       },
       {
         icon: Sparkles,
-        title: "Resume tailoring in one click",
+        title: "Tailored resume in seconds",
         description:
-          "Generate a job-specific resume version, highlight missing keywords, and keep your core story consistent.",
+          "Create a job specific version, surface missing keywords, and keep your story consistent across applications.",
         isNew: false,
         backgroundPositionX: 96,
         backgroundPositionY: 100,
@@ -56,9 +57,9 @@ export const landingContent = {
       },
       {
         icon: Zap,
-        title: "Autofill + auto-apply flows",
+        title: "Autofill everything, then apply in bulk",
         description:
-          "Autofill repetitive questions, reuse verified answers, and speed through forms with fewer errors.",
+          "One profile powers every form. Reuse verified answers, avoid typos, and submit faster with fewer clicks.",
         isNew: false,
         backgroundPositionX: 18,
         backgroundPositionY: 60,
@@ -66,9 +67,9 @@ export const landingContent = {
       },
       {
         icon: ClipboardList,
-        title: "List mode for batch apply",
+        title: "List mode for apply sprints",
         description:
-          "Queue jobs, batch-tailor resumes, and knock out applications in focused sprints.",
+          "Queue roles, tailor once per posting, then run a clean apply sprint. No tabs. No chaos.",
         isNew: true,
         backgroundPositionX: 100,
         backgroundPositionY: 25,
@@ -76,9 +77,9 @@ export const landingContent = {
       },
       {
         icon: FileText,
-        title: "Job tracking that doesn’t drift",
+        title: "Tracking that keeps you moving",
         description:
-          "Bookmark roles from multiple boards, track status, deadlines, notes, and follow-ups in one place.",
+          "Everything in one place: status, deadlines, notes, follow ups, and what you sent. Never lose a lead again.",
         isNew: false,
         backgroundPositionX: 62,
         backgroundPositionY: 35,
@@ -86,9 +87,9 @@ export const landingContent = {
       },
       {
         icon: Bot,
-        title: "AI Q&A for every posting",
+        title: "Smarter answers that sound like you",
         description:
-          "Ask: “Why am I a fit?”, “What should I emphasize?”, “What gaps should I address?” — and get actionable answers.",
+          "Get posting specific talking points and answers for common questions so you stay consistent and credible.",
         isNew: false,
         backgroundPositionX: 45,
         backgroundPositionY: 75,
@@ -100,73 +101,73 @@ export const landingContent = {
   howItWorks: {
     title: "How it works",
     subtitle:
-      "A simple, repeatable workflow you can run every day — without burnout.",
+      "Set it up once, then run daily apply sprints in minutes. Be early. Be consistent. Stop burning out.",
     steps: [
       {
-        title: "Create one private profile",
+        title: "Build your private profile once",
         description:
-          "Import your resume once. Add your target roles, preferences, and dealbreakers — we’ll keep it up to date.",
+          "Import your resume and set your targets. exempliphai saves your answers so every future application is faster.",
         icon: BadgeCheck,
       },
       {
-        title: "Auto-search and shortlist",
+        title: "Find roles, fast",
         description:
-          "We continuously find roles that match your criteria and present them in a clean list for quick decisions.",
+          "Get a clean shortlist of roles that match your criteria. Apply early before the pile up.",
         icon: Search,
       },
       {
-        title: "Auto-tailor + prep your story",
+        title: "Tailor, then lock in your story",
         description:
-          "Tailor your resume to each job and use AI Q&A to craft strong, consistent answers for applications and interviews.",
+          "Generate a tailored resume and get clear talking points for the questions recruiters actually ask.",
         icon: Sparkles,
       },
       {
-        title: "Apply fast and track everything",
+        title: "Apply in minutes and track automatically",
         description:
-          "Autofill forms, reduce retyping, and automatically track what you applied to — so follow-ups are easy.",
+          "Autofill forms, reuse saved answers, and keep a clean tracker so follow ups are automatic, not forgotten.",
         icon: ClipboardList,
       },
     ],
   },
 
   testimonials: {
-    title: "Real momentum, not just more tabs.",
+    title: "More applications. More replies. Less mental load.",
     subtitle:
-      "Job seekers use exempliphai to move faster with less chaos — and keep their data private.",
+      "exempliphai users apply earlier and at higher volume without turning job search into a second full time job.",
     items: [
       {
         quote:
-          "“I stopped losing opportunities to missed deadlines. The tracker + batch apply flow is a game changer.”",
+          "“I used to spend my evenings on applications. Now I run a 20 minute sprint and I am done for the day.”",
         name: "Maya R.",
         role: "New Grad, Software Engineering",
       },
       {
         quote:
-          "“The resume tailoring is fast, but what surprised me most was the Q&A — it helped me explain my experience clearly.”",
+          "“Autofill is the killer feature. Same answers, fewer mistakes, and I can actually apply to more than 10 jobs a day.”",
         name: "Jordan K.",
         role: "Career switcher",
       },
       {
         quote:
-          "“I used to spend 25 minutes per application. Now it’s closer to 5–10 with autofill and saved answers.”",
+          "“The tailored resume versions helped me stop getting auto rejected. It feels like I finally have leverage.”",
         name: "Sam T.",
         role: "Operations",
       },
       {
         quote:
-          "“List mode makes it feel like a workout set. Pick 10 roles, tailor, apply, done.”",
+          "“List mode is addictive. Queue roles, tailor, apply, repeat. I got replies the first week.”",
         name: "Elena V.",
         role: "Marketing",
       },
       {
         quote:
-          "“Auto-search brought me roles I wouldn’t have found. It’s like having an assistant that actually listens to my dealbreakers.”",
+          "“It filters out junk roles and keeps my dealbreakers. That alone saves me hours.”",
         name: "Chris P.",
         role: "Product",
       },
       {
         quote:
-          "“Finally a job tool that’s privacy-first. No creepy retargeting, no data selling.”",
+          "“Privacy first is rare in this space. No creepy ads following me around after I upload my resume.”",
         name: "Nina S.",
         role: "Design",
       },
@@ -174,32 +175,32 @@ export const landingContent = {
   },
 
   faq: {
-    title: "Got questions?",
-    subtitle: "Quick answers before you get started.",
+    title: "FAQ",
+    subtitle: "The honest answers before you install.",
     items: [
       {
         q: "Is exempliphai free?",
-        a: "exempliphai includes a free plan with core job search, tracking, and autofill tools. We may offer optional paid tiers for advanced automation and AI features.",
+        a: "Yes. You can start free. We may introduce optional paid plans for advanced automation, higher volume, or premium AI features.",
       },
       {
         q: "Do you sell my data?",
-        a: "No. We do not sell personal data. We minimize what we collect, anonymize wherever possible, and you control what information is used for applications.",
+        a: "No. We do not sell your personal data. Your profile is private by default, and you control what gets submitted on your behalf.",
       },
       {
-        q: "How does auto-search work?",
-        a: "Based on your preferences (roles, location/remote, seniority, compensation, keywords, exclusions), we continuously scan supported sources and surface matches in a shortlist you can review.",
+        q: "Will it apply without me watching?",
+        a: "When auto apply is available, exempliphai can submit for you. You can always review and keep it in assisted mode if you prefer.",
       },
       {
-        q: "What does “resume tailoring” mean here?",
-        a: "We generate a job-specific version of your resume that emphasizes the most relevant experience and keywords, while keeping your facts and formatting consistent.",
+        q: "How is this different from other autofill tools?",
+        a: "Most tools stop at form fill. exempliphai goes end to end: match, tailor, answer, apply, then track so you can follow up.",
       },
       {
-        q: "Can exempliphai auto-apply to jobs for me?",
-        a: "exempliphai can streamline applying with autofill and guided flows. Where full auto-apply is available, you’ll always be able to review before submission.",
+        q: "Will my applications look spammy?",
+        a: "No. You provide the source profile and answers. Tailoring keeps your experience accurate and relevant, not generic.",
       },
       {
-        q: "Will employers see my profile?",
-        a: "Only if you explicitly choose to share it. By default, your profile is private and used to personalize matches and tailor documents.",
+        q: "What do I need to get started?",
+        a: "Your resume and 5 minutes. Import once, set your targets, then run your first apply sprint.",
       },
     ],
   },

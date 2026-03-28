@@ -59,14 +59,14 @@ export function CallToAction() {
           />
           <div className="relative">
             <h2 className="text-center font-medium text-5xl tracking-tighter">
-              Start applying faster with exempliphai
+              Install. Apply. Get replies.
             </h2>
             <p className="mt-5 px-4 text-center text-lg text-muted-foreground tracking-tight md:text-xl">
-              Auto-search, tailor, apply, and track — with privacy-first defaults and no data selling.
+              Turn job search into a daily 20 minute sprint. exempliphai finds matches, tailors, autofills, and helps you apply at scale.
             </p>
             <div className="mt-8 flex justify-center">
               <Link href="/login">
-                <ActionButton label="Get started free" />
+                <ActionButton label="Install free" />
               </Link>
             </div>
           </div>

@@ -29,7 +29,7 @@ export function LogoTicker() {
       <div className="container">
         <div className="flex items-center gap-5">
           <div className="flex-1 md:flex-none">
-            <h2>Built for job seekers who apply early and win</h2>
+            <h2>Built for job seekers who apply first</h2>
           </div>
           <div className="mask-[linear-gradient(to_right,transparent,black_20%,black_80%,transparent)] flex-1 overflow-hidden">
             <motion.div

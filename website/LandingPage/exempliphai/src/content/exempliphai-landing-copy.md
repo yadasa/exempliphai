@@ -1,68 +1,100 @@
-# exempliphai Landing Copy (Adapted from competitor structure)
+# exempliphai Landing Copy (High CVR rewrite)
 
 ## Hero
-**Eyebrow:** Your job search, on autopilot
+**Eyebrow:** Chrome extension. One profile. Applications on autopilot.
 
-**Headline:** Find, tailor, and apply **10× faster**
+**Headline:** Land more interviews **by applying 10× faster**
 
-**Subheadline:** exempliphai uses one private profile to auto-search roles, tailor your resume, autofill applications, and track every application end-to-end — without selling your data.
+**Subheadline:** exempliphai finds roles that match you, tailors your resume, autofills every field, and can submit applications for you. You stay in control. We do the busywork.
 
 **Stats:**
-- Millions — Applications prefilled
-- 15–30 min — Time saved per application
-- No data selling — Privacy-first
+- 5 min  Setup time
+- 10–50  Applications per hour
+- Never sold  Privacy-first
 
-**Primary CTA:** Get started free
+**Primary CTA:** Install free and start applying
 
-**Secondary CTA:** See how it works
+**Secondary CTA:** Watch the 60s demo
 
-**Privacy note:** Full anonymization. You stay in control of what gets shared.
+**Privacy note:** Private by default. We never sell your data. You choose what gets submitted.
+
+---
+
+## Logo ticker heading
+Built for job seekers who apply first
 
 ---
 
 ## Features (tabs/cards)
-1) **Auto-search & smart matches** — Tell us your target roles, location, and dealbreakers. We continuously surface relevant jobs and filter out noise.
-2) **Resume tailoring in one click** — Generate a job-specific resume version, highlight missing keywords, and keep your core story consistent.
-3) **Autofill + auto-apply flows** — Autofill repetitive questions, reuse verified answers, and speed through forms with fewer errors.
-4) **List mode for batch apply (New)** — Queue jobs, batch-tailor resumes, and knock out applications in focused sprints.
-5) **Job tracking that doesn’t drift** — Bookmark roles from multiple boards, track status, deadlines, notes, and follow-ups in one place.
-6) **AI Q&A for every posting** — Ask: “Why am I a fit?”, “What should I emphasize?”, “What gaps should I address?” — and get actionable answers.
+**Title:** Your fastest path from search to interview.
+
+**Subtitle:** Stop spending nights copy and pasting. exempliphai automates the boring parts so you can apply early, apply more, and show up sharper in interviews.
+
+1) **Instant matches that respect your dealbreakers**  Tell us role, location, and hard nos. exempliphai hunts continuously and shows only jobs worth your time.
+2) **Tailored resume in seconds**  Create a job specific version, surface missing keywords, and keep your story consistent across applications.
+3) **Autofill everything, then apply in bulk**  One profile powers every form. Reuse verified answers, avoid typos, and submit faster with fewer clicks.
+4) **List mode for apply sprints (New)**  Queue roles, tailor once per posting, then run a clean apply sprint. No tabs. No chaos.
+5) **Tracking that keeps you moving**  Everything in one place: status, deadlines, notes, follow ups, and what you sent. Never lose a lead again.
+6) **Smarter answers that sound like you**  Get posting specific talking points and answers for common questions so you stay consistent and credible.
+
+**Tip:** Start with **10 roles** in List mode. Tailor, apply, then follow up from the tracker tomorrow.
 
 ---
 
 ## How it works
-1) **Create one private profile** — Import your resume once. Add your target roles, preferences, and dealbreakers — we’ll keep it up to date.
-2) **Auto-search and shortlist** — We continuously find roles that match your criteria and present them in a clean list for quick decisions.
-3) **Auto-tailor + prep your story** — Tailor your resume to each job and use AI Q&A to craft strong, consistent answers for applications and interviews.
-4) **Apply fast and track everything** — Autofill forms, reduce retyping, and automatically track what you applied to — so follow-ups are easy.
+**Title:** How it works
+
+**Subtitle:** Set it up once, then run daily apply sprints in minutes. Be early. Be consistent. Stop burning out.
+
+1) **Build your private profile once**  Import your resume and set your targets. exempliphai saves your answers so every future application is faster.
+2) **Find roles, fast**  Get a clean shortlist of roles that match your criteria. Apply early before the pile up.
+3) **Tailor, then lock in your story**  Generate a tailored resume and get clear talking points for the questions recruiters actually ask.
+4) **Apply in minutes and track automatically**  Autofill forms, reuse saved answers, and keep a clean tracker so follow ups are automatic, not forgotten.
 
 ---
 
-## Testimonials (sample)
-- “I stopped losing opportunities to missed deadlines. The tracker + batch apply flow is a game changer.” — Maya R., New Grad, Software Engineering
-- “The resume tailoring is fast, but what surprised me most was the Q&A — it helped me explain my experience clearly.” — Jordan K., Career switcher
-- “I used to spend 25 minutes per application. Now it’s closer to 5–10 with autofill and saved answers.” — Sam T., Operations
-- “List mode makes it feel like a workout set. Pick 10 roles, tailor, apply, done.” — Elena V., Marketing
-- “Auto-search brought me roles I wouldn’t have found. It’s like having an assistant that actually listens to my dealbreakers.” — Chris P., Product
-- “Finally a job tool that’s privacy-first. No creepy retargeting, no data selling.” — Nina S., Design
+## Testimonials
+**Title:** More applications. More replies. Less mental load.
+
+**Subtitle:** exempliphai users apply earlier and at higher volume without turning job search into a second full time job.
+
+- “I used to spend my evenings on applications. Now I run a 20 minute sprint and I am done for the day.”  Maya R., New Grad, Software Engineering
+- “Autofill is the killer feature. Same answers, fewer mistakes, and I can actually apply to more than 10 jobs a day.”  Jordan K., Career switcher
+- “The tailored resume versions helped me stop getting auto rejected. It feels like I finally have leverage.”  Sam T., Operations
+- “List mode is addictive. Queue roles, tailor, apply, repeat. I got replies the first week.”  Elena V., Marketing
+- “It filters out junk roles and keeps my dealbreakers. That alone saves me hours.”  Chris P., Product
+- “Privacy first is rare in this space. No creepy ads following me around after I upload my resume.”  Nina S., Design
 
 ---
 
 ## FAQ
+**Title:** FAQ
+
+**Subtitle:** The honest answers before you install.
+
 **Is exempliphai free?**
-exempliphai includes a free plan with core job search, tracking, and autofill tools. We may offer optional paid tiers for advanced automation and AI features.
+Yes. You can start free. We may introduce optional paid plans for advanced automation, higher volume, or premium AI features.
 
 **Do you sell my data?**
-No. We do not sell personal data. We minimize what we collect, anonymize wherever possible, and you control what information is used for applications.
+No. We do not sell your personal data. Your profile is private by default, and you control what gets submitted on your behalf.
 
-**How does auto-search work?**
-Based on your preferences (roles, location/remote, seniority, compensation, keywords, exclusions), we continuously scan supported sources and surface matches in a shortlist you can review.
+**Will it apply without me watching?**
+When auto apply is available, exempliphai can submit for you. You can always review and keep it in assisted mode if you prefer.
 
-**What does “resume tailoring” mean here?**
-We generate a job-specific version of your resume that emphasizes the most relevant experience and keywords, while keeping your facts and formatting consistent.
+**How is this different from other autofill tools?**
+Most tools stop at form fill. exempliphai goes end to end: match, tailor, answer, apply, then track so you can follow up.
 
-**Can exempliphai auto-apply to jobs for me?**
-exempliphai can streamline applying with autofill and guided flows. Where full auto-apply is available, you’ll always be able to review before submission.
+**Will my applications look spammy?**
+No. You provide the source profile and answers. Tailoring keeps your experience accurate and relevant, not generic.
 
-**Will employers see my profile?**
-Only if you explicitly choose to share it. By default, your profile is private and used to personalize matches and tailor documents.
+**What do I need to get started?**
+Your resume and 5 minutes. Import once, set your targets, then run your first apply sprint.
+
+---
+
+## Final CTA section
+**Headline:** Install. Apply. Get replies.
+
+**Body:** Turn job search into a daily 20 minute sprint. exempliphai finds matches, tailors, autofills, and helps you apply at scale.
+
+**Button:** Install free

@@ -151,7 +151,7 @@ export function Features() {
         </motion.div>
 
         <div className="mx-auto mt-5 max-w-3xl rounded-xl border border-muted bg-card p-4 text-sm text-muted-foreground">
-          Tip: Use <span className="font-medium text-foreground">List mode</span> to batch-tailor and apply, then let the tracker handle follow-ups.
+          Tip: Start with <span className="font-medium text-foreground">10 roles</span> in List mode. Tailor, apply, then follow up from the tracker tomorrow.
         </div>
       </div>
     </section>
