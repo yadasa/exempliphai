@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
+import { Calendar, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import DatePicker from "react-datepicker";
 import { format as formatDate, parseISO } from "date-fns";
@@ -95,7 +95,24 @@ function FieldInput({
   onChange: (val: any) => void;
 }) {
   const common =
-    "w-full rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring";
+    "w-full rounded-xl border bg-background px-3 text-sm outline-none transition shadow-sm hover:shadow-md focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:border-blue-500";
+
+  const hasValue = value != null && String(value).trim().length > 0;
+  const isInvalid = (() => {
+    if (!hasValue) return false;
+    const s = String(value).trim();
+    if (field.format === "email") return !isValidEmail(s);
+    if (field.format === "date") return !/^\d{4}-\d{2}-\d{2}$/.test(s);
+    return false;
+  })();
+
+  const isValid = hasValue && !isInvalid;
+
+  const stateClass = isInvalid
+    ? "border-red-500/70 focus-visible:border-red-500 focus-visible:ring-red-400/30"
+    : isValid
+      ? "border-emerald-500/50 focus-visible:border-emerald-500 focus-visible:ring-emerald-400/30"
+      : "border-input/60 hover:border-primary/50";
 
   // Prefer explicit dropdowns when schema provides options.
   if (Array.isArray(field.options) && field.options.length) {
@@ -106,7 +123,7 @@ function FieldInput({
           {field.required ? <span className="text-red-400"> *</span> : null}
         </span>
         <select
-          className={cn(common, "h-11")}
+          className={cn(common, stateClass, "h-11")}
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
         >
@@ -141,26 +158,37 @@ function FieldInput({
   if (field.format === "date") {
     const v = String(value ?? "").trim();
     const selected = v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? parseISO(v) : null;
+
     return (
-      <label className="grid gap-1">
+      <label className="grid gap-1" aria-invalid={isInvalid}>
         <span className="text-sm font-medium">
           {label}
           {field.required ? <span className="text-red-400"> *</span> : null}
         </span>
-        <DatePicker
-          selected={selected}
-          onChange={(d: Date | null) => {
-            if (!d) onChange("");
-            else onChange(formatDate(d, "yyyy-MM-dd"));
-          }}
-          dateFormat="yyyy-MM-dd"
-          showMonthDropdown
-          showYearDropdown
-          dropdownMode="select"
-          maxDate={new Date()}
-          placeholderText="YYYY-MM-DD"
-          className={cn(common, "h-11")}
-        />
+
+        <div className="relative w-full">
+          <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <DatePicker
+            selected={selected}
+            onChange={(d: Date | null) => {
+              if (!d) onChange("");
+              else onChange(formatDate(d, "yyyy-MM-dd"));
+            }}
+            dateFormat="yyyy-MM-dd"
+            showMonthDropdown
+            showYearDropdown
+            dropdownMode="select"
+            maxDate={new Date()}
+            placeholderText="YYYY-MM-DD"
+            className={cn(
+              common,
+              stateClass,
+              "h-11 pl-10",
+              "bg-background/80 backdrop-blur-sm",
+            )}
+            wrapperClassName="w-full"
+          />
+        </div>
       </label>
     );
   }
@@ -173,13 +201,13 @@ function FieldInput({
       </span>
       {field.multiline ? (
         <textarea
-          className={cn(common, "min-h-24 py-2")}
+          className={cn(common, stateClass, "min-h-24 py-2")}
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
         <input
-          className={cn(common, "h-11")}
+          className={cn(common, stateClass, "h-11")}
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
           inputMode={field.type === "number" ? "numeric" : undefined}
