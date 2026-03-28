@@ -39,6 +39,13 @@ type QueueOp = {
 
 const ENV = (import.meta as any).env || {};
 
+const DEBUG_AUTH = String((ENV as any).VITE_DEBUG_AUTH || '') === '1';
+function dbg(...args: any[]) {
+  try {
+    if (DEBUG_AUTH) console.debug('FirebaseSync[auth]', ...args);
+  } catch (_) {}
+}
+
 const FIREBASE = {
   apiKey: String(ENV.VITE_FIREBASE_API_KEY || ''),
   projectId: String(ENV.VITE_FIREBASE_PROJECT_ID || ''),
@@ -213,10 +220,15 @@ async function getIdTokenFromTab(tabId: number): Promise<any> {
     try {
       chrome.tabs.sendMessage(tabId, { action: 'EXEMPLIPHAI_GET_ID_TOKEN' }, (resp) => {
         const e = chrome?.runtime?.lastError;
-        if (e) resolve({ ok: false, error: e.message || String(e) });
-        else resolve(resp || { ok: false });
+        if (e) {
+          dbg('tabs.sendMessage(EXEMPLIPHAI_GET_ID_TOKEN) failed', { tabId, error: e.message || String(e) });
+          resolve({ ok: false, error: e.message || String(e) });
+        } else {
+          resolve(resp || { ok: false });
+        }
       });
     } catch (e: any) {
+      dbg('tabs.sendMessage threw', { tabId, error: String(e?.message || e) });
       resolve({ ok: false, error: String(e?.message || e) });
     }
   });
@@ -240,12 +252,14 @@ async function tryAuthFromAnyExempliphTab(reason: string): Promise<boolean> {
       ],
     });
 
+    dbg('auth poll', { reason, candidateTabs: (tabs || []).map((t) => ({ id: t?.id || null, url: t?.url || '' })) });
+
     for (const t of tabs || []) {
       if (!t?.id) continue;
       if (t.url && !isExempliphUrl(String(t.url))) continue;
       const rec = await getIdTokenFromTab(t.id);
       if (rec?.ok === true && rec?.uid && rec?.idToken) {
-        console.debug('FirebaseSync: auth pull succeeded from tab', { reason, tabId: t.id, source: rec?.key || rec?.source });
+        dbg('auth pull succeeded from tab', { reason, tabId: t.id, source: rec?.key || rec?.source || null });
         const jwt = parseJwt(String(rec.idToken || ''));
         const uid = String(rec.uid || jwt?.user_id || jwt?.sub || '').trim();
         const email = String(rec.email || jwt?.email || '').trim();
@@ -1218,9 +1232,16 @@ function scheduleFlushSoon() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function initFirebaseExtensionSync() {
+  dbg('initFirebaseExtensionSync', { hasConfig: requireFirebaseConfig() });
+
   // Alarms
-  chrome.alarms.create(FLUSH_ALARM_PERIODIC, { periodInMinutes: 1 });
-  chrome.alarms.create(AUTH_POLL_ALARM, { periodInMinutes: AUTH_POLL_ALARM_PERIOD_MIN });
+  try {
+    chrome.alarms.create(FLUSH_ALARM_PERIODIC, { periodInMinutes: 1 });
+    chrome.alarms.create(AUTH_POLL_ALARM, { periodInMinutes: AUTH_POLL_ALARM_PERIOD_MIN });
+  } catch (e) {
+    // Shouldn't happen (permissions), but helps diagnose "nothing is happening" reports.
+    console.warn('FirebaseSync: failed to create alarms', e);
+  }
 
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm?.name === AUTOSAVE_ALARM) {

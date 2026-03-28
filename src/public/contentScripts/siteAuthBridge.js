@@ -32,30 +32,76 @@
   }
 
   function safeParseJson(raw) {
-    try { return JSON.parse(raw); } catch (_) { return null; }
+    try {
+      if (typeof raw !== 'string') return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function normalizeMaybeWrappedAuthObj(obj) {
+    // Some Firebase/localStorage adapters wrap values.
+    // Common shapes:
+    //   { value: "{...}" }
+    //   { value: { ... } }
+    //   { currentUser: { ... } }
+    //   { auth: { ... } }
+    try {
+      let cur = obj;
+      for (let i = 0; i < 4; i++) {
+        if (!cur || typeof cur !== 'object') break;
+        if (cur.currentUser && typeof cur.currentUser === 'object') { cur = cur.currentUser; continue; }
+        if (cur.auth && typeof cur.auth === 'object') { cur = cur.auth; continue; }
+        if (Object.prototype.hasOwnProperty.call(cur, 'value')) {
+          const v = cur.value;
+          if (typeof v === 'string') {
+            const p = safeParseJson(v);
+            if (p && typeof p === 'object') { cur = p; continue; }
+          }
+          if (v && typeof v === 'object') { cur = v; continue; }
+        }
+        break;
+      }
+      return cur;
+    } catch (_) {
+      return obj;
+    }
   }
 
   function extractFirebaseAuthRecord(obj, keyHint) {
     try {
+      obj = normalizeMaybeWrappedAuthObj(obj);
       if (!obj || typeof obj !== 'object') return null;
 
-      const stm = obj.stsTokenManager || obj.sts_token_manager || {};
-      const idToken = stm.accessToken || stm.access_token || '';
-      const refreshToken = stm.refreshToken || stm.refresh_token || '';
-      const expirationTime = stm.expirationTime || stm.expiration_time || 0;
+      let stm = obj.stsTokenManager || obj.sts_token_manager || obj.tokenManager || obj.token_manager || {};
+      if (typeof stm === 'string') {
+        const p = safeParseJson(stm);
+        if (p && typeof p === 'object') stm = p;
+      }
 
-      if (idToken && obj.uid) {
+      const idToken = stm.accessToken || stm.access_token || stm.idToken || stm.id_token || '';
+      const refreshToken = stm.refreshToken || stm.refresh_token || '';
+      const expirationTime = stm.expirationTime || stm.expiration_time || stm.expiresAt || stm.expires_at || 0;
+
+      const uid = obj.uid || obj.userId || obj.user_id || obj.localId || '';
+
+      if (idToken && uid) {
         return {
-          uid: String(obj.uid || ''),
+          uid: String(uid || ''),
           email: obj.email ? String(obj.email) : '',
-          providerId: obj?.providerData?.[0]?.providerId ? String(obj.providerData[0].providerId) : '',
+          providerId: obj?.providerData?.[0]?.providerId ? String(obj.providerData[0].providerId) : (obj.providerId ? String(obj.providerId) : ''),
           idToken: String(idToken),
           refreshToken: refreshToken ? String(refreshToken) : '',
           expiresAtMs: Number(expirationTime) || 0,
           key: String(keyHint || ''),
         };
       }
-    } catch (_) {}
+
+      debug('extractFirebaseAuthRecord: missing token/uid', { keyHint, hasUid: !!uid, hasToken: !!idToken, stmType: typeof stm });
+    } catch (e) {
+      debug('extractFirebaseAuthRecord: error', { keyHint, error: String(e?.message || e) });
+    }
 
     return null;
   }
@@ -66,11 +112,17 @@
       try {
         const rawShadow = localStorage.getItem(SHADOW_AUTH_KEY);
         if (rawShadow) {
+          debug('shadow key present');
           const shadowObj = safeParseJson(rawShadow);
           const rec = extractFirebaseAuthRecord(shadowObj, SHADOW_AUTH_KEY);
           if (rec) return rec;
+          debug('shadow key parse failed', { len: String(rawShadow || '').length });
+        } else {
+          debug('shadow key missing');
         }
-      } catch (_) {}
+      } catch (e) {
+        debug('shadow key read error', String(e?.message || e));
+      }
 
       // 2) Otherwise fall back to scanning Firebase authUser keys
       const stores = [];
@@ -86,11 +138,18 @@
           if (!raw) continue;
 
           const obj = safeParseJson(raw);
+          if (!obj) {
+            debug('authUser key JSON parse failed', { key: k, len: String(raw || '').length });
+            continue;
+          }
+
           const rec = extractFirebaseAuthRecord(obj, k);
           if (rec) return rec;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debug('findFirebaseAuthRecordInWebStorage error', String(e?.message || e));
+    }
 
     return null;
   }
@@ -179,7 +238,10 @@
         debug('no auth found');
         if (lastSent !== 'CLEARED') {
           lastSent = 'CLEARED';
-          chrome.runtime.sendMessage({ action: 'FIREBASE_AUTH_CLEAR' });
+          chrome.runtime.sendMessage({ action: 'FIREBASE_AUTH_CLEAR', source: 'siteAuthBridge' }, () => {
+            const e = chrome?.runtime?.lastError;
+            if (e) debug('sendMessage FIREBASE_AUTH_CLEAR failed', String(e.message || e));
+          });
         }
         return;
       }
@@ -190,17 +252,25 @@
 
       debug('auth changed → FIREBASE_AUTH_UPDATE', { uid: rec.uid, email: rec.email, providerId: rec.providerId, expiresAtMs: rec.expiresAtMs, key: rec.key });
 
-      chrome.runtime.sendMessage({
-        action: 'FIREBASE_AUTH_UPDATE',
-        uid: rec.uid,
-        email: rec.email,
-        providerId: rec.providerId,
-        idToken: rec.idToken,
-        refreshToken: rec.refreshToken,
-        expiresAtMs: rec.expiresAtMs,
-        source: 'siteAuthBridge',
-      });
-    } catch (_) {}
+      chrome.runtime.sendMessage(
+        {
+          action: 'FIREBASE_AUTH_UPDATE',
+          uid: rec.uid,
+          email: rec.email,
+          providerId: rec.providerId,
+          idToken: rec.idToken,
+          refreshToken: rec.refreshToken,
+          expiresAtMs: rec.expiresAtMs,
+          source: 'siteAuthBridge',
+        },
+        () => {
+          const e = chrome?.runtime?.lastError;
+          if (e) debug('sendMessage FIREBASE_AUTH_UPDATE failed', String(e.message || e));
+        }
+      );
+    } catch (e) {
+      debug('notifyBackgroundIfChanged error', String(e?.message || e));
+    }
   }
 
   // Proactive polling.
@@ -240,6 +310,32 @@
         })().catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
 
         // indicate async response
+        return true;
+      }
+
+      // Debug helper: quick visibility into what the bridge can see.
+      if (msg?.action === 'EXEMPLIPHAI_DEBUG_DUMP_AUTH') {
+        (async () => {
+          const rec = await findFirebaseAuthRecord();
+          const dump = { shadow: null as any, keys: [] as any[] };
+
+          try {
+            const rawShadow = localStorage.getItem(SHADOW_AUTH_KEY);
+            dump.shadow = rawShadow ? safeParseJson(rawShadow) : null;
+          } catch (_) {}
+
+          try {
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i);
+              if (!k || !String(k).startsWith(KEY_PREFIX)) continue;
+              const raw = localStorage.getItem(k);
+              dump.keys.push({ key: k, ok: !!safeParseJson(raw || '') });
+            }
+          } catch (_) {}
+
+          sendResponse({ ok: true, rec: rec || null, dump });
+        })().catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+
         return true;
       }
 
