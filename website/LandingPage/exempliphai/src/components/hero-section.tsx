@@ -25,7 +25,7 @@ export function HeroSection() {
         repeat: Number.POSITIVE_INFINITY,
         ease: "linear",
       }}
-      className="relative flex h-[520px] items-center overflow-hidden md:h-[820px]"
+      className="relative flex min-h-[560px] items-center overflow-hidden py-20 md:min-h-[820px] md:py-28"
       style={{
         backgroundImage: `url(${BackgroundStars})`,
         backgroundPositionY,
@@ -61,7 +61,7 @@ export function HeroSection() {
       />
 
       {/* Content */}
-      <div className="container relative mt-16">
+      <div className="container relative">
         <div className="flex justify-center">
           <div className="inline-flex items-center gap-2 rounded-full border bg-background/60 px-4 py-2 text-xs text-foreground/80 backdrop-blur">
             <span className="inline-flex size-1.5 rounded-full bg-primary" />
@@ -69,7 +69,7 @@ export function HeroSection() {
           </div>
         </div>
 
-        <h1 className="mt-6 text-center font-semibold text-5xl tracking-tighter md:text-[92px] md:leading-none">
+        <h1 className="mt-6 px-2 text-center font-semibold text-4xl leading-tight tracking-tighter sm:text-5xl md:text-[88px] md:leading-[0.95]">
           {landingContent.hero.headline.line1}
           <span className="block bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400">
             {landingContent.hero.headline.emphasis}

@@ -55,7 +55,7 @@ const FeatureTab = (props: FeatureTabProps) => {
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: <div> required for animation hit-target
     <div
-      className="relative flex cursor-pointer items-center gap-2.5 rounded-xl border border-muted p-2.5 hover:bg-muted/30"
+      className="relative flex cursor-pointer items-center gap-3 rounded-xl border border-muted p-3 hover:bg-muted/30"
       ref={tabRef}
       onClick={props.onClick}
     >
@@ -65,17 +65,17 @@ const FeatureTab = (props: FeatureTabProps) => {
           className="-m-px absolute inset-0 rounded-xl border border-[#A369FF]"
         />
       )}
-      <div className="inline-flex size-12 items-center justify-center rounded-lg border border-muted">
+      <div className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg border border-muted sm:size-12">
         <props.icon className="size-5" />
       </div>
-      <div className="min-w-0">
-        <div className="truncate font-medium">{props.title}</div>
-        <div className="line-clamp-1 text-xs text-muted-foreground">
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium leading-snug">{props.title}</div>
+        <div className="mt-0.5 line-clamp-2 text-xs leading-snug text-muted-foreground">
           {props.description}
         </div>
       </div>
       {props.isNew && (
-        <div className="ml-auto rounded-full bg-primary px-2 py-0.5 font-semibold text-primary-foreground text-xs">
+        <div className="ml-auto shrink-0 rounded-full bg-primary px-2 py-0.5 font-semibold text-primary-foreground text-xs">
           New
         </div>
       )}

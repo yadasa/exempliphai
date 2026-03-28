@@ -37,9 +37,9 @@ export const landingContent = {
     items: [
       {
         icon: Search,
-        title: "Instant matches that respect your dealbreakers",
+        title: "Instant matches",
         description:
-          "Tell us role, location, and hard nos. exempliphai hunts continuously and shows only jobs worth your time.",
+          "Set role, location, and dealbreakers. exempliphai continuously surfaces only jobs worth applying to.",
         isNew: false,
         backgroundPositionX: 0,
         backgroundPositionY: 0,
@@ -47,9 +47,9 @@ export const landingContent = {
       },
       {
         icon: Sparkles,
-        title: "Tailored resume in seconds",
+        title: "Tailor your resume",
         description:
-          "Create a job specific version, surface missing keywords, and keep your story consistent across applications.",
+          "Generate a job-specific version, catch missing keywords, and keep your story consistent across applications.",
         isNew: false,
         backgroundPositionX: 96,
         backgroundPositionY: 100,
@@ -57,9 +57,9 @@ export const landingContent = {
       },
       {
         icon: Zap,
-        title: "Autofill everything, then apply in bulk",
+        title: "Autofill + bulk apply",
         description:
-          "One profile powers every form. Reuse verified answers, avoid typos, and submit faster with fewer clicks.",
+          "One profile powers every form. Reuse verified answers, avoid typos, and submit in fewer clicks.",
         isNew: false,
         backgroundPositionX: 18,
         backgroundPositionY: 60,
@@ -67,7 +67,7 @@ export const landingContent = {
       },
       {
         icon: ClipboardList,
-        title: "List mode for apply sprints",
+        title: "List mode sprints",
         description:
           "Queue roles, tailor once per posting, then run a clean apply sprint. No tabs. No chaos.",
         isNew: true,
@@ -77,9 +77,9 @@ export const landingContent = {
       },
       {
         icon: FileText,
-        title: "Tracking that keeps you moving",
+        title: "Built-in tracking",
         description:
-          "Everything in one place: status, deadlines, notes, follow ups, and what you sent. Never lose a lead again.",
+          "Status, deadlines, notes, follow-ups, and what you sent — all in one place. Never lose a lead.",
         isNew: false,
         backgroundPositionX: 62,
         backgroundPositionY: 35,
@@ -87,9 +87,9 @@ export const landingContent = {
       },
       {
         icon: Bot,
-        title: "Smarter answers that sound like you",
+        title: "Smarter answers",
         description:
-          "Get posting specific talking points and answers for common questions so you stay consistent and credible.",
+          "Get posting-specific talking points and strong answers to common questions — in your voice.",
         isNew: false,
         backgroundPositionX: 45,
         backgroundPositionY: 75,
