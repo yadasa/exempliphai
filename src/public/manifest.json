@@ -47,7 +47,11 @@
         "https://exempliph.ai/*",
         "https://www.exempliph.ai/*",
         "https://exempliphai.com/*",
-        "https://www.exempliphai.com/*"
+        "https://www.exempliphai.com/*",
+        "http://exempliph.ai/*",
+        "http://www.exempliph.ai/*",
+        "http://exempliphai.com/*",
+        "http://www.exempliphai.com/*"
       ],
       "world": "ISOLATED",
       "run_at": "document_end",

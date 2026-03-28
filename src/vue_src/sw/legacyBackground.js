@@ -592,7 +592,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       return;
     }
 
-    sendResponse({ ok: false, reason: 'unknown_action' });
+    // NOTE: Do not respond to unknown actions from legacy responder.
+    // This prevents this listener from "stealing" FIREBASE_* messages handled by the MV3 SW.
+    // sendResponse({ ok: false, reason: 'unknown_action' });
+    return;
   })().catch((e) => {
     sendResponse({ ok: false, error: String(e?.message || e) });
   });

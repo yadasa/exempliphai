@@ -85,7 +85,13 @@ async function sendBg(message: any): Promise<any> {
 async function whoami(source = 'AccountSyncCard') {
   const resp = (await sendBg({ action: 'FIREBASE_WHOAMI', source })) as Whoami;
   dbg('whoami', resp);
-  if (resp?.ok) status.value = resp;
+  if (resp?.ok) {
+    status.value = resp;
+  } else if (connecting.value) {
+    // Surface SW errors in the popup during the sign-in/connect flow.
+    err.value = (resp as any)?.error || (resp as any)?.reason || 'Failed to read auth status';
+    msg.value = null;
+  }
   return resp;
 }
 
