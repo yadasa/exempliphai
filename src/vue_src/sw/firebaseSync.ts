@@ -992,68 +992,24 @@ async function pullFromCloudAndPopulateLocal() {
       localPatch.AppliedJobs = jobs;
     } catch (_) {}
 
-    // Pull active cached job search results to restore the Job Search tab quickly.
-    // Primary source of truth is users/{uid}/jobSearchResults (validated + not applied).
+    // Pull most recent job search to restore the Job Search tab quickly.
     try {
-      // Get last run metadata (desiredLocation, fingerprints, etc.) if present.
-      let desiredLoc = '';
-      try {
-        const runs = await firestoreRunQuery(`users/${uid}`, {
-          from: [{ collectionId: 'jobSearchRuns' }],
-          orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }],
-          limit: 1,
-        });
-        const r0 = runs?.[0];
-        const rData = r0?.fields ? fromFirestoreValue({ mapValue: { fields: r0.fields } }) : null;
-        if (rData) desiredLoc = String(rData?.desiredLocation || '');
-      } catch (_) {}
-
       const docs = await firestoreRunQuery(`users/${uid}`, {
-        from: [{ collectionId: 'jobSearchResults' }],
-        where: {
-          compositeFilter: {
-            op: 'AND',
-            filters: [
-              { fieldFilter: { field: { fieldPath: 'applied' }, op: 'EQUAL', value: { booleanValue: false } } },
-              { fieldFilter: { field: { fieldPath: 'hidden' }, op: 'EQUAL', value: { booleanValue: false } } },
-              { fieldFilter: { field: { fieldPath: 'stale' }, op: 'EQUAL', value: { booleanValue: false } } },
-              { fieldFilter: { field: { fieldPath: 'validationStatus' }, op: 'EQUAL', value: { stringValue: 'validated' } } },
-            ],
-          },
-        },
-        orderBy: [{ field: { fieldPath: 'createdAt' }, direction: 'DESCENDING' }],
-        limit: 50,
+        from: [{ collectionId: 'jobSearches' }],
+        orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
+        limit: 1,
       });
 
-      const results = (docs || [])
-        .map((d: any) => {
-          const data = d?.fields ? fromFirestoreValue({ mapValue: { fields: d.fields } }) : {};
-          const directUrl = String(data?.directUrl || '');
-          return {
-            title: String(data?.title || ''),
-            company: String(data?.company || ''),
-            location: String(data?.location || ''),
-            salary: String(data?.salary || ''),
-            why_match: String(data?.whyMatch || ''),
-            directUrl,
-            directUrlLabel: String(data?.directUrlLabel || 'Apply'),
-            links: directUrl ? [{ label: String(data?.directUrlLabel || 'Apply'), url: directUrl }] : [],
-            dedupeKey: String(data?.dedupeKey || ''),
-            resultId: String(data?.resultId || ''),
-            runId: String(data?.runId || ''),
-          };
-        })
-        .filter((r: any) => r.directUrl);
-
-      localPatch.jobSearchActive = {
-        version: '0.2',
-        generated_at: nowIso(),
-        desiredLocation: desiredLoc,
-        recommendations: results,
-      };
-
-      // Back-compat for older UIs that still read jobSearchLast
-      localPatch.jobSearchLast = localPatch.jobSearchActive;
+      const d0 = docs?.[0];
+      const data = d0?.fields ? fromFirestoreValue({ mapValue: { fields: d0.fields } }) : null;
+      if (data) {
+        localPatch.jobSearchLast = {
+          version: String(data.version || '0.1'),
+          generated_at: String(data.generated_at || data.timestamp || nowIso()),
+          desiredLocation: String(data?.searchOptions?.desiredLocation || ''),
+          recommendations: Array.isArray(data.generatedJobs) ? data.generatedJobs : [],
+        };
+      }
     } catch (_) {}
 
     if (Object.keys(localPatch).length) {
@@ -1427,25 +1383,6 @@ async function trackAppliedJob(job: any) {
   const id = appliedJobIdFromUrl(url);
 
   await enqueue({ kind: 'firestorePatchDoc', payload: { path: `users/${uid}/appliedJobs/${id}`, data: doc }, createdAtMs: Date.now() });
-
-  // Also mark the cached recommendation (jobSearchResults) as applied if we have an id.
-  // This ensures applied=true results disappear from the default recommendation list.
-  try {
-    const resultId = String(job?.resultId || '').trim();
-    const dedupeKey = String(job?.dedupeKey || '').trim();
-    const targetId = resultId || (dedupeKey ? appliedJobIdFromUrl(dedupeKey) : '');
-    if (targetId) {
-      await enqueue({
-        kind: 'firestorePatchDoc',
-        payload: {
-          path: `users/${uid}/jobSearchResults/${targetId}`,
-          data: { applied: true, appliedAt: new Date(), updatedAt: new Date() },
-        },
-        createdAtMs: Date.now(),
-      });
-    }
-  } catch (_) {}
-
   scheduleFlushSoon();
 }
 
@@ -1502,77 +1439,17 @@ async function trackJobSearch(last: any) {
   if (!authState) return;
   const uid = authState.uid;
 
-  const desiredLocation = String(last?.desiredLocation || '');
-  const recs = Array.isArray(last?.recommendations) ? last.recommendations.slice(0, 15) : [];
-
-  // New schema:
-  // - users/{uid}/jobSearchRuns/{runId}
-  // - users/{uid}/jobSearchResults/{resultId}
-  const runId = String(last?.runId || '').trim() || (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `run_${Date.now()}_${Math.random().toString(16).slice(2)}`);
-  const now = new Date();
-
-  const runDoc: any = {
-    runId,
-    desiredLocation,
-    createdAt: now,
-    completedAt: now,
-    totalCandidatesSeen: Number.isFinite(last?.totalCandidatesSeen) ? Number(last.totalCandidatesSeen) : recs.length,
-    totalValidated: recs.length,
-    totalRejected: Number.isFinite(last?.totalRejected) ? Number(last.totalRejected) : 0,
-    totalStored: recs.length,
-    modelName: String(last?.modelName || 'gemini-3-flash-preview'),
-    temperature: Number.isFinite(last?.temperature) ? Number(last.temperature) : 0.3,
-    queryFingerprint: String(last?.queryFingerprint || ''),
-    profileFingerprint: String(last?.profileFingerprint || ''),
-    updatedAt: now,
+  const doc: any = {
+    timestamp: new Date(),
+    searchOptions: {
+      desiredLocation: String(last?.desiredLocation || ''),
+    },
+    generatedJobs: Array.isArray(last?.recommendations) ? last.recommendations.slice(0, 15) : [],
+    version: String(last?.version || '0.1'),
+    generated_at: String(last?.generated_at || nowIso()),
   };
 
-  // Write run metadata (id-stable path so the website can reference it later)
-  await enqueue({ kind: 'firestorePatchDoc', payload: { path: `users/${uid}/jobSearchRuns/${runId}`, data: runDoc }, createdAtMs: Date.now() });
-
-  // Upsert individual results with applied=false (explicit) so the UI can filter by equality.
-  for (const r of recs) {
-    const title = String(r?.title || '').trim();
-    const company = String(r?.company || '').trim();
-    const location = String(r?.location || '').trim();
-    const salary = String(r?.salary || '').trim();
-
-    const directUrl = String(r?.directUrl || r?.url || r?.links?.[0]?.url || '').trim();
-    if (!title || !directUrl) continue;
-
-    const directUrlLabel = String(r?.directUrlLabel || r?.links?.[0]?.label || 'Apply').trim();
-    const dedupeKey = String(r?.dedupeKey || '').trim() || `${company}|${title}|${location}|${directUrl}`;
-    const resultId = String(r?.resultId || '').trim() || appliedJobIdFromUrl(dedupeKey);
-
-    const doc: any = {
-      resultId,
-      runId,
-      dedupeKey,
-      title,
-      company,
-      location,
-      salary,
-      whyMatch: String(r?.why_match || r?.whyMatch || '').trim(),
-      directUrl,
-      directUrlLabel,
-      linkDomain: domainFromUrl(directUrl),
-      sourceSystem: String(r?.sourceSystem || 'openclaw'),
-      confidenceScore: Number.isFinite(r?.confidenceScore) ? Number(r.confidenceScore) : null,
-      validationStatus: 'validated',
-      applied: false,
-      appliedAt: null,
-      hidden: false,
-      stale: false,
-      firstSeenAt: now,
-      lastSeenAt: now,
-      lastValidatedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await enqueue({ kind: 'firestorePatchDoc', payload: { path: `users/${uid}/jobSearchResults/${resultId}`, data: doc }, createdAtMs: Date.now() });
-  }
-
+  await enqueue({ kind: 'firestoreCreateDoc', payload: { collectionPath: `users/${uid}/jobSearches`, data: doc }, createdAtMs: Date.now() });
   scheduleFlushSoon();
 }
 
