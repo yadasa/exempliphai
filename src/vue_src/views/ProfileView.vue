@@ -1,9 +1,49 @@
 <script setup lang="ts">
 import InputField from '@/components/InputField.vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
+
+const syncStatus = ref<string>('');
+
+async function refreshStatus() {
+  try {
+    const got = await chrome.storage.local.get(['firebaseSync_status']);
+    syncStatus.value = String((got as any)?.firebaseSync_status || '');
+  } catch (_) {
+    syncStatus.value = '';
+  }
+}
+
+function prettyStatus(s: string) {
+  if (s === 'saving') return 'Saving…';
+  if (s === 'synced') return 'Synced';
+  if (s === 'offline') return 'Offline (queued)';
+  return '';
+}
+
+const onChanged = (changes: any, area: string) => {
+  if (area !== 'local') return;
+  if (changes?.firebaseSync_status) refreshStatus();
+};
+
+onMounted(() => {
+  refreshStatus();
+  try {
+    chrome.storage.onChanged.addListener(onChanged as any);
+  } catch (_) {}
+});
+
+onBeforeUnmount(() => {
+  try {
+    chrome.storage.onChanged.removeListener(onChanged as any);
+  } catch (_) {}
+});
 </script>
 
 <template>
   <div>
+    <div v-if="prettyStatus(syncStatus)" style="margin-bottom: 10px; font-size: 12px; opacity: 0.8">
+      {{ prettyStatus(syncStatus) }}
+    </div>
     <InputField label="First Name" placeHolder="John" />
     <InputField label="Middle Name" placeHolder="Quincy" />
     <InputField label="Last Name" placeHolder="Pork" />

@@ -22,6 +22,7 @@ import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
 import {
+  profileDocRef,
   type JobFieldsDoc,
   type ResumeDetails,
   type UploadMeta,
@@ -254,7 +255,7 @@ function ProfileInner() {
   const resumeLastSavedRef = useRef<string>("");
   const saveTimerRef = useRef<any>(null);
 
-  const [uploadBusy, setUploadBusy] = useState<null | "resume" | "linkedinPdf">(null);
+  const [uploadBusy, setUploadBusy] = useState<null | "resume" | "coverLetter">(null);
   const [fileDocs, setFileDocs] = useState<Array<{ id: string; data: any }>>([]);
 
   useEffect(() => {
@@ -283,8 +284,7 @@ function ProfileInner() {
       setErr(null);
     };
 
-    // Legacy schema: users/{uid} root doc contains sync fields.
-    const unsub = onSnapshot(doc(db, "users", user.uid), (snap) => {
+    const unsub = onSnapshot(profileDocRef(db, user.uid), (snap) => {
       if (!snap.exists()) return;
       apply(snap.data() as any);
     });
@@ -340,7 +340,7 @@ function ProfileInner() {
       const { db } = getFirebase();
 
       await setDoc(
-        doc(db, "users", user.uid),
+        profileDocRef(db, user.uid),
         {
           sync: syncFields || {},
           resumeDetails: resumeDetails || null,
@@ -371,7 +371,7 @@ function ProfileInner() {
     setResumeDetails((prev) => ({ ...ensureResumeDetails(prev), ...patch }));
   }
 
-  async function uploadPdf(kind: "resume" | "linkedinPdf", file: File) {
+  async function uploadPdf(kind: "resume" | "coverLetter", file: File) {
     if (!user) throw new Error("Not signed in");
     if (!file) return;
 
@@ -403,17 +403,17 @@ function ProfileInner() {
       };
 
       await setDoc(
-        doc(db, "users", user.uid),
+        profileDocRef(db, user.uid),
         {
           uploads: {
-            [kind === "resume" ? "resume" : "linkedinPdf"]: uploadMeta,
+            [kind]: uploadMeta,
           } as any,
           updatedAt: serverTimestamp(),
         },
         { merge: true },
       );
 
-      setMsg(`${kind === "resume" ? "Resume" : "LinkedIn PDF"} uploaded.`);
+      setMsg(`${kind === "resume" ? "Resume" : "Cover Letter"} uploaded.`);
     } finally {
       setUploadBusy(null);
     }
@@ -421,9 +421,9 @@ function ProfileInner() {
 
   const uploads = jobFields?.uploads || {};
   const resumeUpload = uploads?.resume || null;
-  const linkedinUpload = uploads?.linkedinPdf || null;
+  const coverLetterUpload = uploads?.coverLetter || null;
 
-  const pathText = user ? `users/${user.uid}` : "users/{uid}";
+  const pathText = user ? `users/${user.uid}/profile/current` : "users/{uid}/profile/current";
 
   return (
     <div className="container relative py-14 md:py-16">
@@ -576,10 +576,10 @@ function ProfileInner() {
                     onUpload={(file) => void uploadPdf("resume", file)}
                   />
                   <UploadCard
-                    title="LinkedIn PDF"
-                    busy={uploadBusy === "linkedinPdf"}
-                    meta={linkedinUpload}
-                    onUpload={(file) => void uploadPdf("linkedinPdf", file)}
+                    title="Cover Letter"
+                    busy={uploadBusy === "coverLetter"}
+                    meta={coverLetterUpload}
+                    onUpload={(file) => void uploadPdf("coverLetter", file)}
                   />
                 </div>
 

@@ -6,7 +6,7 @@ import GridDataField from '@/components/GridDataField.vue';
 <template>
   <div>
     <InputField label="Resume" placeHolder="No file found" />
-    <InputField label="LinkedIn PDF" placeHolder="No file found" />
+    <InputField label="Cover Letter" placeHolder="No file found" />
 
     <h2 class="subheading">Work Experience</h2>
     <InputField label="Current Employer" placeHolder="Apple" />

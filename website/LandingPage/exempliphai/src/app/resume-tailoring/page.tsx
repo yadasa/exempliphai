@@ -13,9 +13,7 @@ import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
 import {
-  extensionStateDocRef,
   jobFieldsDocRef,
-  normalizeExtensionStateToJobFields,
   patchJobFields,
   type JobFieldsDoc,
   type UploadMeta,
@@ -145,8 +143,6 @@ function Inner() {
     if (!user) return;
     const { db } = getFirebase();
 
-    let primaryExists = false;
-
     const apply = (data: JobFieldsDoc | null) => {
       setJobFields(data);
 
@@ -156,21 +152,13 @@ function Inner() {
       setTailoredMeta((prev: any) => (prev ? prev : m));
     };
 
-    const unsubPrimary = onSnapshot(jobFieldsDocRef(db, user.uid), (snap) => {
-      primaryExists = snap.exists();
+    const unsub = onSnapshot(jobFieldsDocRef(db, user.uid), (snap) => {
       if (!snap.exists()) return;
       apply(snap.data() as any);
     });
 
-    const unsubExt = onSnapshot(extensionStateDocRef(db, user.uid), (snap) => {
-      if (primaryExists) return;
-      if (!snap.exists()) return;
-      apply(normalizeExtensionStateToJobFields(snap.data() as any));
-    });
-
     return () => {
-      unsubPrimary();
-      unsubExt();
+      unsub();
     };
   }, [user?.uid]);
 
@@ -338,7 +326,7 @@ function Inner() {
 
         <p className="mt-2 text-sm text-muted-foreground">
           Uses your uploaded resume from Storage and saves results to{" "}
-          <span className="font-mono">users/{user?.uid}/jobFields/current</span>.
+          <span className="font-mono">users/{user?.uid}/profile/current</span>.
         </p>
 
         {err ? (

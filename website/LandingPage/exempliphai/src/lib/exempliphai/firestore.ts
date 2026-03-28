@@ -50,22 +50,19 @@ export type JobFieldsDoc = {
   };
   uploads?: {
     resume?: UploadMeta | null;
-    linkedinPdf?: UploadMeta | null;
+    coverLetter?: UploadMeta | null;
     tailoredResume?: UploadMeta | null;
   };
   updatedAt?: any;
 };
 
-export function jobFieldsDocRef(db: Firestore, uid: string) {
-  return doc(db, "users", uid, "jobFields", "current");
+export function profileDocRef(db: Firestore, uid: string) {
+  return doc(db, "users", uid, "profile", "current");
 }
 
-/**
- * Optional newer schema location (see FIREBASE_EXTENSION_SCHEMA.md).
- * Website reads/writes both paths for compatibility.
- */
-export function extensionStateDocRef(db: Firestore, uid: string) {
-  return doc(db, "users", uid, "extension", "state");
+// Back-compat name (legacy callers). Prefer profileDocRef().
+export function jobFieldsDocRef(db: Firestore, uid: string) {
+  return profileDocRef(db, uid);
 }
 
 export function normalizeExtensionStateToJobFields(data: any): JobFieldsDoc {
@@ -97,7 +94,7 @@ export function normalizeExtensionStateToJobFields(data: any): JobFieldsDoc {
 
   const uploads: any = {};
   if (fileMeta.resumes) uploads.resume = fileMeta.resumes;
-  if (fileMeta.linkedinPdfs) uploads.linkedinPdf = fileMeta.linkedinPdfs;
+  if (fileMeta.coverLetters || fileMeta.linkedinPdfs) uploads.coverLetter = fileMeta.coverLetters || fileMeta.linkedinPdfs;
   if (fileMeta.resumesTailored) uploads.tailoredResume = fileMeta.resumesTailored;
 
   return {
@@ -132,7 +129,7 @@ function extensionPatchFromJobFields(patch: Partial<JobFieldsDoc>): Record<strin
   if (patch.uploads) {
     const fm: any = {};
     if (Object.prototype.hasOwnProperty.call(patch.uploads, "resume")) fm.resumes = patch.uploads.resume;
-    if (Object.prototype.hasOwnProperty.call(patch.uploads, "linkedinPdf")) fm.linkedinPdfs = patch.uploads.linkedinPdf;
+    if (Object.prototype.hasOwnProperty.call(patch.uploads, "coverLetter")) fm.coverLetters = patch.uploads.coverLetter;
     if (Object.prototype.hasOwnProperty.call(patch.uploads, "tailoredResume")) fm.resumesTailored = patch.uploads.tailoredResume;
     out.fileMeta = fm;
   }
@@ -145,28 +142,15 @@ export async function patchJobFields(
   uid: string,
   patch: Partial<JobFieldsDoc>,
 ) {
-  // Primary (current extension implementation): users/{uid}/jobFields/current
+  // Canonical (extension-first): users/{uid}/profile/current
   await setDoc(
-    jobFieldsDocRef(db, uid),
+    profileDocRef(db, uid),
     {
       ...patch,
       updatedAt: serverTimestamp(),
     } as DocumentData,
     { merge: true },
   );
-
-  // Secondary (schema doc): users/{uid}/extension/state
-  const extPatch = extensionPatchFromJobFields(patch);
-  if (Object.keys(extPatch).length) {
-    await setDoc(
-      extensionStateDocRef(db, uid),
-      {
-        ...extPatch,
-        updatedAt: serverTimestamp(),
-      } as DocumentData,
-      { merge: true },
-    );
-  }
 }
 
 export type AppliedJobDoc = {

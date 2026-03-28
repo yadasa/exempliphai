@@ -26,6 +26,7 @@ type QueueOp = {
   id?: number;
   kind:
     | 'firestorePatchDoc'
+    | 'firestoreUpdateDoc'
     | 'firestoreCreateDoc'
     | 'firestoreDeleteDoc'
     | 'firestoreCommit'
@@ -90,7 +91,9 @@ let immediateJobFieldsPushInFlight = false;
 let immediateJobFieldsPushQueued = false;
 let immediateJobFieldsPushTimer: any = null;
 let immediateJobFieldsPushLastAt = 0;
-const IMMEDIATE_JOBFIELDS_PUSH_THROTTLE_MS = 250;
+// Debounce writes so rapid typing collapses into a single Firestore update.
+// Acceptance target: visible in Firestore within ~5s of last edit.
+const IMMEDIATE_JOBFIELDS_PUSH_THROTTLE_MS = 5000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IndexedDB queue
@@ -119,9 +122,43 @@ async function enqueue(op: Omit<QueueOp, 'id' | 'tries'> & { tries?: number }): 
   return await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
-    const req = store.add({ ...op, tries: op.tries ?? 0 } satisfies QueueOp);
-    req.onerror = () => reject(req.error);
-    req.onsuccess = () => resolve(req.result as number);
+
+    const next = { ...op, tries: op.tries ?? 0 } satisfies QueueOp;
+
+    // Coalesce: if we already have a pending write for the same document path,
+    // drop the older one and keep only the most recent.
+    const shouldCoalesce = next.kind === 'firestorePatchDoc' || next.kind === 'firestoreUpdateDoc';
+    const nextPath = shouldCoalesce ? String(next?.payload?.path || '') : '';
+
+    const addNext = () => {
+      const req = store.add(next);
+      req.onerror = () => reject(req.error);
+      req.onsuccess = () => resolve(req.result as number);
+    };
+
+    if (!shouldCoalesce || !nextPath) {
+      addNext();
+      return;
+    }
+
+    const cursorReq = store.openCursor();
+    cursorReq.onerror = () => reject(cursorReq.error);
+    cursorReq.onsuccess = () => {
+      const cur = cursorReq.result;
+      if (!cur) {
+        addNext();
+        return;
+      }
+
+      try {
+        const v = cur.value as QueueOp;
+        if ((v.kind === 'firestorePatchDoc' || v.kind === 'firestoreUpdateDoc') && String(v?.payload?.path || '') === nextPath) {
+          cur.delete();
+        }
+      } catch (_) {}
+
+      cur.continue();
+    };
   });
 }
 
@@ -460,6 +497,54 @@ async function firestorePatchDoc(path: string, data: Record<string, any>): Promi
   }
 }
 
+// Field-level update with a custom updateMask (including nested field paths).
+// NOTE: field paths may include backticks to escape spaces, e.g. "sync.`Full Name`".
+async function firestoreUpdateDoc(path: string, data: Record<string, any>, fieldPaths: string[]): Promise<void> {
+  const fps = Array.from(new Set((fieldPaths || []).filter(Boolean)));
+  if (!fps.length) return;
+  const qs = fps.map((p) => `updateMask.fieldPaths=${encodeURIComponent(p)}`).join('&');
+  const url = `${FIRESTORE_BASE()}/${path}?${qs}`;
+  const body = JSON.stringify(docFields(data));
+  const res = await authedFetch(url, { method: 'PATCH', body });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`firestoreUpdateDoc ${res.status}: ${t.slice(0, 300)}`);
+  }
+}
+
+function parseFirestoreFieldPath(path: string): string[] {
+  const s = String(path || '');
+  const out: string[] = [];
+  let cur = '';
+  let inTick = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === '`') {
+      inTick = !inTick;
+      continue;
+    }
+    if (!inTick && ch === '.') {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out.filter((x) => x.length > 0);
+}
+
+function setNestedValue(obj: any, segments: string[], value: any) {
+  if (!segments.length) return;
+  let cur = obj;
+  for (let i = 0; i < segments.length - 1; i++) {
+    const k = segments[i];
+    if (!cur[k] || typeof cur[k] !== 'object') cur[k] = {};
+    cur = cur[k];
+  }
+  cur[segments[segments.length - 1]] = value;
+}
+
 async function firestoreDeleteDoc(path: string): Promise<void> {
   const url = `${FIRESTORE_BASE()}/${path}`;
   const res = await authedFetch(url, { method: 'DELETE' });
@@ -684,57 +769,56 @@ function filterSyncForCloud(syncAll: Record<string, any>): Record<string, any> {
   return out;
 }
 
-async function pushJobFieldsSnapshot() {
+const FIREBASE_SYNC_STATUS_KEY = 'firebaseSync_status';
+const FIREBASE_SYNC_DIRTY_KEY = 'firebaseSync_dirty';
+
+let lastCloudSyncSnapshot: Record<string, any> | null = null;
+let lastLocalProfileSnapshot: any | null = null;
+let lastLocalUploadsSnapshot: any | null = null;
+let lastTailoredResumeSnapshot: any | null = null;
+
+async function setSyncStatus(status: 'saving' | 'synced' | 'offline') {
+  try {
+    await chrome.storage.local.set({ [FIREBASE_SYNC_STATUS_KEY]: status });
+  } catch (_) {}
+}
+
+async function setDirty(dirty: boolean) {
+  try {
+    await chrome.storage.local.set({ [FIREBASE_SYNC_DIRTY_KEY]: dirty });
+  } catch (_) {}
+}
+
+function isEqualJson(a: any, b: any) {
+  try {
+    return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  } catch {
+    return false;
+  }
+}
+
+function escapeFieldPathSegment(seg: string) {
+  // Backtick-escape any segment containing spaces or punctuation.
+  // Firestore field paths support backticks (also used in the SDK).
+  return /^[A-Za-z0-9_]+$/.test(seg) ? seg : `\`${seg.replace(/`/g, '\\`')}\``;
+}
+
+async function pushProfileUpdates() {
   if (!authState) return;
   if (!requireFirebaseConfig()) return;
 
+  // Ensure root user doc exists for account/stats, but do NOT write profile fields here.
   await ensureUserRootDoc().catch(() => {});
 
   const uid = authState.uid;
+  const profileDocPath = `users/${uid}/profile/current`;
+
+  // Collect current state.
   const syncAll = (await new Promise<Record<string, any>>((resolve) => {
     chrome.storage.sync.get(null, (res) => resolve((res as any) || {}));
   })) as any;
+  const sync = filterSyncForCloud(syncAll);
 
-  // Legacy schema: write sync/profile directly on the root users/{uid} doc.
-  const patch: any = {
-    sync: filterSyncForCloud(syncAll),
-    updatedAt: new Date(),
-  };
-
-  try {
-    await firestorePatchDoc(`users/${uid}`, patch);
-  } catch (_) {
-    await enqueue({
-      kind: 'firestorePatchDoc',
-      payload: { path: `users/${uid}`, data: patch },
-      createdAtMs: Date.now(),
-    });
-  }
-
-  // Keep user.settings loosely mirrored for easy reads from the website.
-  const settings: any = {
-    ThemeSetting: syncAll.ThemeSetting || 'light',
-    PrivacyToggle: syncAll.PrivacyToggle === true,
-    aiMappingEnabled: syncAll.aiMappingEnabled === true,
-    autoSubmitEnabled: syncAll.autoSubmitEnabled === true,
-    autoTailorEnabled: syncAll.autoTailorEnabled === true,
-    listModeEnabled: syncAll.listModeEnabled === true,
-    closePreviousTabs: syncAll.closePreviousTabs === true,
-    autofillDelayMs: Number.isFinite(syncAll.autofillDelayMs) ? Number(syncAll.autofillDelayMs) : 2500,
-  };
-
-  try {
-    await firestorePatchDoc(`users/${uid}`, { settings, updatedAt: new Date() });
-  } catch (_) {
-    await enqueue({
-      kind: 'firestorePatchDoc',
-      payload: { path: `users/${uid}`, data: { settings, updatedAt: new Date() } },
-      createdAtMs: Date.now(),
-    });
-  }
-
-  // jobFields/current: local-only state we still want synced to the cloud.
-  // NOTE: do NOT include raw PDF base64 blobs; those are uploaded to Storage.
   const local = (await chrome.storage.local.get([
     'Resume_details',
     'LOCAL_PROFILE',
@@ -742,44 +826,154 @@ async function pushJobFieldsSnapshot() {
     'Resume_tailored_text',
     'Resume_tailored_meta',
     'Resume_tailored_name',
+    // Upload metadata (NOT base64 blobs)
     'uploads_resume',
-    'uploads_linkedin_pdf',
+    'uploads_coverLetter',
     'uploads_tailored_resume',
   ]).catch(() => ({} as any))) as any;
 
-  const jfPatch: any = {
-    updatedAt: new Date(),
-  };
+  const resumeDetails = local?.Resume_details ?? null;
 
-  if (local?.Resume_details != null) jfPatch.resumeDetails = local.Resume_details;
-
-  // LOCAL_PROFILE is the canonical key; EXEMPLIPHAI_LOCAL_PROFILE is a legacy alias.
-  if (local?.LOCAL_PROFILE != null) jfPatch.localProfile = local.LOCAL_PROFILE;
-  else if (local?.EXEMPLIPHAI_LOCAL_PROFILE != null) jfPatch.localProfile = local.EXEMPLIPHAI_LOCAL_PROFILE;
+  const localProfile =
+    local?.LOCAL_PROFILE != null
+      ? local.LOCAL_PROFILE
+      : local?.EXEMPLIPHAI_LOCAL_PROFILE != null
+        ? local.EXEMPLIPHAI_LOCAL_PROFILE
+        : null;
 
   const tailoredResume: any = {};
   if (typeof local?.Resume_tailored_text === 'string') tailoredResume.text = local.Resume_tailored_text;
   if (local?.Resume_tailored_meta && typeof local.Resume_tailored_meta === 'object') tailoredResume.meta = local.Resume_tailored_meta;
   if (typeof local?.Resume_tailored_name === 'string') tailoredResume.name = local.Resume_tailored_name;
-  if (Object.keys(tailoredResume).length) jfPatch.tailoredResume = tailoredResume;
+  const tailoredResumeFinal = Object.keys(tailoredResume).length ? tailoredResume : null;
 
   const uploads: any = {};
   if (local?.uploads_resume && typeof local.uploads_resume === 'object') uploads.resume = local.uploads_resume;
-  if (local?.uploads_linkedin_pdf && typeof local.uploads_linkedin_pdf === 'object') uploads.linkedinPdf = local.uploads_linkedin_pdf;
+  if (local?.uploads_coverLetter && typeof local.uploads_coverLetter === 'object') uploads.coverLetter = local.uploads_coverLetter;
   if (local?.uploads_tailored_resume && typeof local.uploads_tailored_resume === 'object') uploads.tailoredResume = local.uploads_tailored_resume;
-  if (Object.keys(uploads).length) jfPatch.uploads = uploads;
+  const uploadsFinal = Object.keys(uploads).length ? uploads : null;
 
-  // Only patch if we have something besides updatedAt.
-  if (Object.keys(jfPatch).length > 1) {
-    try {
-      await firestorePatchDoc(`users/${uid}/jobFields/current`, jfPatch);
-    } catch (_) {
-      await enqueue({
-        kind: 'firestorePatchDoc',
-        payload: { path: `users/${uid}/jobFields/current`, data: jfPatch },
-        createdAtMs: Date.now(),
-      });
+  // Compute diffs (field-level where possible).
+  const updatesByFieldPath: Record<string, any> = {};
+  const updateMask: string[] = [];
+
+  // Always bump updatedAt when anything changes.
+  let anyChange = false;
+
+  // sync.* (granular)
+  if (!lastCloudSyncSnapshot) {
+    // First push: write all sync keys as individual updates.
+    for (const [k, v] of Object.entries(sync || {})) {
+      const fp = `sync.${escapeFieldPathSegment(k)}`;
+      updatesByFieldPath[fp] = v;
+      updateMask.push(fp);
+      anyChange = true;
     }
+  } else {
+    const prev = lastCloudSyncSnapshot || {};
+    const next = sync || {};
+    const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+    for (const k of keys) {
+      if (isEqualJson(prev[k], next[k])) continue;
+      const fp = `sync.${escapeFieldPathSegment(k)}`;
+      updatesByFieldPath[fp] = next[k] ?? null;
+      updateMask.push(fp);
+      anyChange = true;
+    }
+  }
+
+  // resumeDetails (whole object)
+  if (!lastLocalProfileSnapshot || !isEqualJson(lastLocalProfileSnapshot.resumeDetails, resumeDetails)) {
+    updatesByFieldPath['resumeDetails'] = resumeDetails;
+    updateMask.push('resumeDetails');
+    updatesByFieldPath['resumeDetailsUpdatedAt'] = new Date();
+    updateMask.push('resumeDetailsUpdatedAt');
+    anyChange = true;
+  }
+
+  // localProfile (whole object)
+  if (!lastLocalProfileSnapshot || !isEqualJson(lastLocalProfileSnapshot.localProfile, localProfile)) {
+    updatesByFieldPath['localProfile'] = localProfile;
+    updateMask.push('localProfile');
+    updatesByFieldPath['localProfileUpdatedAt'] = new Date();
+    updateMask.push('localProfileUpdatedAt');
+    anyChange = true;
+  }
+
+  // tailoredResume (whole object)
+  if (!lastTailoredResumeSnapshot || !isEqualJson(lastTailoredResumeSnapshot, tailoredResumeFinal)) {
+    updatesByFieldPath['tailoredResume'] = tailoredResumeFinal;
+    updateMask.push('tailoredResume');
+    updatesByFieldPath['tailoredResumeUpdatedAt'] = new Date();
+    updateMask.push('tailoredResumeUpdatedAt');
+    anyChange = true;
+  }
+
+  // uploads.* (granular where possible)
+  if (!lastLocalUploadsSnapshot) {
+    if (uploadsFinal && typeof uploadsFinal === 'object') {
+      for (const [k, v] of Object.entries(uploadsFinal)) {
+        const fp = `uploads.${escapeFieldPathSegment(k)}`;
+        updatesByFieldPath[fp] = v;
+        updateMask.push(fp);
+        anyChange = true;
+      }
+    }
+  } else {
+    const prev = lastLocalUploadsSnapshot || {};
+    const next = uploadsFinal || {};
+    const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+    for (const k of keys) {
+      if (isEqualJson(prev[k], next[k])) continue;
+      const fp = `uploads.${escapeFieldPathSegment(k)}`;
+      updatesByFieldPath[fp] = (next as any)[k] ?? null;
+      updateMask.push(fp);
+      anyChange = true;
+    }
+  }
+  if (updateMask.some((p) => p.startsWith('uploads.'))) {
+    updatesByFieldPath['uploadsUpdatedAt'] = new Date();
+    updateMask.push('uploadsUpdatedAt');
+  }
+
+  if (!anyChange) return;
+
+  // Materialize nested document body for the updateMask.
+  const bodyObj: any = {};
+  for (const [fp, v] of Object.entries(updatesByFieldPath)) {
+    setNestedValue(bodyObj, parseFirestoreFieldPath(fp), v);
+  }
+  // Always update updatedAt for visibility.
+  bodyObj.updatedAt = new Date();
+  updateMask.push('updatedAt');
+
+  await setDirty(true);
+  await setSyncStatus(navigator.onLine ? 'saving' : 'offline');
+
+  try {
+    await firestoreUpdateDoc(profileDocPath, bodyObj, updateMask);
+
+    // Receipt: indicates the last confirmed write.
+    await firestorePatchDoc(`users/${uid}/sync/profile`, {
+      lastSyncedAt: new Date(),
+      updatedAt: new Date(),
+    }).catch(() => {});
+
+    lastCloudSyncSnapshot = sync;
+    lastLocalProfileSnapshot = { resumeDetails, localProfile };
+    lastTailoredResumeSnapshot = tailoredResumeFinal;
+    lastLocalUploadsSnapshot = uploadsFinal || {};
+
+    await setDirty(false);
+    await setSyncStatus('synced');
+  } catch (_) {
+    // Offline/network/auth: enqueue for later flush.
+    await enqueue({
+      kind: 'firestoreUpdateDoc',
+      payload: { path: profileDocPath, data: bodyObj, fieldPaths: updateMask },
+      createdAtMs: Date.now(),
+    });
+    await setSyncStatus('offline');
   }
 }
 
@@ -798,9 +992,9 @@ function scheduleImmediateJobFieldsPush(reason: string) {
 
     immediateJobFieldsPushInFlight = true;
     try {
-      await pushJobFieldsSnapshot();
+      await pushProfileUpdates();
     } catch (_) {
-      // pushJobFieldsSnapshot already enqueues on failures.
+      // pushProfileUpdates already enqueues on failures.
     } finally {
       immediateJobFieldsPushInFlight = false;
       immediateJobFieldsPushLastAt = Date.now();
@@ -835,7 +1029,7 @@ async function pullFromCloudAndPopulateLocal() {
   const uid = authState.uid;
 
   const userDoc = await firestoreGetDoc(`users/${uid}`).catch(() => null);
-  const jfDoc = await firestoreGetDoc(`users/${uid}/jobFields/current`).catch(() => null);
+  const jfDoc = await firestoreGetDoc(`users/${uid}/profile/current`).catch(() => null);
 
   const userData = userDoc?.fields ? fromFirestoreValue({ mapValue: { fields: userDoc.fields } }) : null;
   const jfData = jfDoc?.fields ? fromFirestoreValue({ mapValue: { fields: jfDoc.fields } }) : null;
@@ -868,7 +1062,7 @@ async function pullFromCloudAndPopulateLocal() {
 
     if (jfData?.uploads && typeof jfData.uploads === 'object') {
       if (jfData.uploads.resume) localPatch.uploads_resume = jfData.uploads.resume;
-      if (jfData.uploads.linkedinPdf) localPatch.uploads_linkedin_pdf = jfData.uploads.linkedinPdf;
+      if (jfData.uploads.coverLetter) localPatch.uploads_coverLetter = jfData.uploads.coverLetter;
       if (jfData.uploads.tailoredResume) localPatch.uploads_tailored_resume = jfData.uploads.tailoredResume;
     }
 
@@ -972,6 +1166,8 @@ async function flushQueueOnce(limit = 25) {
     try {
       if (op.kind === 'firestorePatchDoc') {
         await firestorePatchDoc(op.payload.path, op.payload.data);
+      } else if (op.kind === 'firestoreUpdateDoc') {
+        await firestoreUpdateDoc(op.payload.path, op.payload.data, op.payload.fieldPaths);
       } else if (op.kind === 'firestoreCreateDoc') {
         await firestoreCreateDoc(op.payload.collectionPath, op.payload.data);
       } else if (op.kind === 'firestoreDeleteDoc') {
@@ -1067,7 +1263,7 @@ async function storageUpload({ path, base64, contentType }: { path: string; base
   };
 }
 
-async function maybeUploadChangedPdf(localKey: string, nameKey: string, cloudMetaKey: string, kind: 'resume' | 'linkedinPdf' | 'tailoredResume') {
+async function maybeUploadChangedPdf(localKey: string, nameKey: string, cloudMetaKey: string, kind: 'resume' | 'coverLetter' | 'tailoredResume') {
   if (!authState) return;
   if (!requireFirebaseConfig()) return;
 
@@ -1387,7 +1583,7 @@ export function initFirebaseExtensionSync() {
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm?.name === AUTOSAVE_ALARM) {
       if (Date.now() + 50 < autosaveScheduledAt) return;
-      pushJobFieldsSnapshot().catch(() => {});
+      pushProfileUpdates().catch(() => {});
       return;
     }
 
@@ -1461,7 +1657,7 @@ export function initFirebaseExtensionSync() {
         'Resume_tailored_name',
         // Upload metadata (NOT base64 blobs)
         'uploads_resume',
-        'uploads_linkedin_pdf',
+        'uploads_coverLetter',
         'uploads_tailored_resume',
       ]);
 
@@ -1517,12 +1713,12 @@ export function initFirebaseExtensionSync() {
         } catch (_) {}
       }
 
-      // PDF uploads: base64 changes trigger Storage uploads; metadata is synced via jobFields/current immediately.
+      // PDF uploads: base64 changes trigger Storage uploads; metadata is synced via profile/current immediately.
       if (changes?.Resume || changes?.Resume_name) {
         maybeUploadChangedPdf('Resume', 'Resume_name', 'uploads_resume', 'resume').catch(() => {});
       }
-      if (changes?.['LinkedIn PDF'] || changes?.['LinkedIn PDF_name']) {
-        maybeUploadChangedPdf('LinkedIn PDF', 'LinkedIn PDF_name', 'uploads_linkedin_pdf', 'linkedinPdf').catch(() => {});
+      if (changes?.['Cover Letter'] || changes?.['Cover Letter_name']) {
+        maybeUploadChangedPdf('Cover Letter', 'Cover Letter_name', 'uploads_coverLetter', 'coverLetter').catch(() => {});
       }
       if (changes?.Resume_tailored_pdf || changes?.Resume_tailored_name) {
         maybeUploadChangedPdf('Resume_tailored_pdf', 'Resume_tailored_name', 'uploads_tailored_resume', 'tailoredResume').catch(() => {});
@@ -1647,7 +1843,7 @@ export function initFirebaseExtensionSync() {
       }
 
       if (msg.action === 'SYNC_NOW') {
-        await pushJobFieldsSnapshot().catch(() => {});
+        await pushProfileUpdates().catch(() => {});
         await flushQueue().catch(() => {});
         sendResponse({ ok: true });
         return;

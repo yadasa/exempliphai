@@ -9,10 +9,8 @@ import { getFirebase } from "@/lib/firebase/client";
 import {
   canonUrlKey,
   createJobSearch,
-  extensionStateDocRef,
   jobFieldsDocRef,
   markAppliedJob,
-  normalizeExtensionStateToJobFields,
   type JobFieldsDoc,
 } from "@/lib/exempliphai/firestore";
 import {
@@ -196,23 +194,13 @@ function JobSearchInner() {
     if (!user) return;
     const { db } = getFirebase();
 
-    let primaryExists = false;
-
-    const unsubPrimary = onSnapshot(jobFieldsDocRef(db, user.uid), (snap) => {
-      primaryExists = snap.exists();
+    const unsub = onSnapshot(jobFieldsDocRef(db, user.uid), (snap) => {
       if (!snap.exists()) return;
       setJobFields(snap.data() as any);
     });
 
-    const unsubExt = onSnapshot(extensionStateDocRef(db, user.uid), (snap) => {
-      if (primaryExists) return;
-      if (!snap.exists()) return;
-      setJobFields(normalizeExtensionStateToJobFields(snap.data() as any));
-    });
-
     return () => {
-      unsubPrimary();
-      unsubExt();
+      unsub();
     };
   }, [user?.uid]);
 
