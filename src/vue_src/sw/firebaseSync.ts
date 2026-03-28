@@ -84,6 +84,14 @@ let authPollTimer: any = null;
 let authPollInFlight = false;
 let lastAuthPollAt = 0;
 
+// Immediate jobFields sync: push a snapshot as soon as relevant storage keys change.
+// We keep the 30s alarm-based autosave as a fallback, but the primary path is instant.
+let immediateJobFieldsPushInFlight = false;
+let immediateJobFieldsPushQueued = false;
+let immediateJobFieldsPushTimer: any = null;
+let immediateJobFieldsPushLastAt = 0;
+const IMMEDIATE_JOBFIELDS_PUSH_THROTTLE_MS = 250;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // IndexedDB queue
 // ─────────────────────────────────────────────────────────────────────────────
@@ -276,7 +284,7 @@ async function tryAuthFromAnyExempliphTab(reason: string): Promise<boolean> {
         authState = next;
         await setStoredAuth(next);
         await pullFromCloudAndPopulateLocal().catch(() => {});
-        scheduleAutosave('jobFields');
+        // scheduleAutosave('jobFields'); // removed: jobFields now sync immediately on storage changes
         scheduleFlushSoon();
 
         return true;
@@ -724,6 +732,100 @@ async function pushJobFieldsSnapshot() {
       createdAtMs: Date.now(),
     });
   }
+
+  // jobFields/current: local-only state we still want synced to the cloud.
+  // NOTE: do NOT include raw PDF base64 blobs; those are uploaded to Storage.
+  const local = (await chrome.storage.local.get([
+    'Resume_details',
+    'LOCAL_PROFILE',
+    'EXEMPLIPHAI_LOCAL_PROFILE',
+    'Resume_tailored_text',
+    'Resume_tailored_meta',
+    'Resume_tailored_name',
+    'uploads_resume',
+    'uploads_linkedin_pdf',
+    'uploads_tailored_resume',
+  ]).catch(() => ({} as any))) as any;
+
+  const jfPatch: any = {
+    updatedAt: new Date(),
+  };
+
+  if (local?.Resume_details != null) jfPatch.resumeDetails = local.Resume_details;
+
+  // LOCAL_PROFILE is the canonical key; EXEMPLIPHAI_LOCAL_PROFILE is a legacy alias.
+  if (local?.LOCAL_PROFILE != null) jfPatch.localProfile = local.LOCAL_PROFILE;
+  else if (local?.EXEMPLIPHAI_LOCAL_PROFILE != null) jfPatch.localProfile = local.EXEMPLIPHAI_LOCAL_PROFILE;
+
+  const tailoredResume: any = {};
+  if (typeof local?.Resume_tailored_text === 'string') tailoredResume.text = local.Resume_tailored_text;
+  if (local?.Resume_tailored_meta && typeof local.Resume_tailored_meta === 'object') tailoredResume.meta = local.Resume_tailored_meta;
+  if (typeof local?.Resume_tailored_name === 'string') tailoredResume.name = local.Resume_tailored_name;
+  if (Object.keys(tailoredResume).length) jfPatch.tailoredResume = tailoredResume;
+
+  const uploads: any = {};
+  if (local?.uploads_resume && typeof local.uploads_resume === 'object') uploads.resume = local.uploads_resume;
+  if (local?.uploads_linkedin_pdf && typeof local.uploads_linkedin_pdf === 'object') uploads.linkedinPdf = local.uploads_linkedin_pdf;
+  if (local?.uploads_tailored_resume && typeof local.uploads_tailored_resume === 'object') uploads.tailoredResume = local.uploads_tailored_resume;
+  if (Object.keys(uploads).length) jfPatch.uploads = uploads;
+
+  // Only patch if we have something besides updatedAt.
+  if (Object.keys(jfPatch).length > 1) {
+    try {
+      await firestorePatchDoc(`users/${uid}/jobFields/current`, jfPatch);
+    } catch (_) {
+      await enqueue({
+        kind: 'firestorePatchDoc',
+        payload: { path: `users/${uid}/jobFields/current`, data: jfPatch },
+        createdAtMs: Date.now(),
+      });
+    }
+  }
+}
+
+function scheduleImmediateJobFieldsPush(reason: string) {
+  // Avoid infinite loops when we're applying remote state into local storage.
+  if (applyingRemote) return;
+
+  // Throttle slightly to collapse rapid key-by-key writes into a single Firestore patch.
+  const run = async () => {
+    immediateJobFieldsPushTimer = null;
+
+    if (immediateJobFieldsPushInFlight) {
+      immediateJobFieldsPushQueued = true;
+      return;
+    }
+
+    immediateJobFieldsPushInFlight = true;
+    try {
+      await pushJobFieldsSnapshot();
+    } catch (_) {
+      // pushJobFieldsSnapshot already enqueues on failures.
+    } finally {
+      immediateJobFieldsPushInFlight = false;
+      immediateJobFieldsPushLastAt = Date.now();
+
+      if (immediateJobFieldsPushQueued) {
+        immediateJobFieldsPushQueued = false;
+        scheduleImmediateJobFieldsPush('queued');
+      }
+    }
+
+    // If anything was enqueued, make sure we flush quickly.
+    scheduleFlushSoon();
+  };
+
+  const now = Date.now();
+  const since = now - Number(immediateJobFieldsPushLastAt || 0);
+
+  if (since < IMMEDIATE_JOBFIELDS_PUSH_THROTTLE_MS) {
+    if (!immediateJobFieldsPushTimer) {
+      immediateJobFieldsPushTimer = setTimeout(() => run().catch(() => {}), IMMEDIATE_JOBFIELDS_PUSH_THROTTLE_MS);
+    }
+    return;
+  }
+
+  run().catch(() => {});
 }
 
 async function pullFromCloudAndPopulateLocal() {
@@ -891,7 +993,7 @@ async function flushQueueOnce(limit = 25) {
               storedAt: nowIso(),
             };
             await chrome.storage.local.set(patch);
-            scheduleAutosave('jobFields');
+            scheduleImmediateJobFieldsPush('queue.storageUploadMeta');
           }
         } catch (_) {}
       }
@@ -1013,8 +1115,8 @@ async function maybeUploadChangedPdf(localKey: string, nameKey: string, cloudMet
 
   await chrome.storage.local.set(patch);
 
-  // The jobFields autosave snapshot will persist the uploads{} metadata (merged).
-  scheduleAutosave('jobFields');
+  // Persist the uploads{} metadata (merged) immediately.
+  scheduleImmediateJobFieldsPush('uploads.meta');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1314,7 +1416,7 @@ export function initFirebaseExtensionSync() {
       if (st) {
         authState = st;
         await pullFromCloudAndPopulateLocal().catch(() => {});
-        scheduleAutosave('jobFields');
+        // scheduleAutosave('jobFields'); // removed: jobFields now sync immediately on storage changes
         scheduleFlushSoon();
       }
     })
@@ -1331,13 +1433,47 @@ export function initFirebaseExtensionSync() {
     }
   } catch (_) {}
 
-  // Storage listeners → autosave
+  // Storage listeners → immediate Firestore sync
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (applyingRemote) return;
 
+    const hasRelevantSyncChange = () => {
+      if (!changes || typeof changes !== 'object') return false;
+
+      // Keep consistent with filterSyncForCloud(). If ONLY these keys change, skip the push.
+      const blocked = new Set(['API Key', 'cloudSyncEnabled', 'AppliedJobsSync']);
+
+      for (const k of Object.keys(changes)) {
+        if (blocked.has(k)) continue;
+        return true;
+      }
+      return false;
+    };
+
+    const hasRelevantLocalJobFieldsChange = () => {
+      if (!changes || typeof changes !== 'object') return false;
+      const keys = new Set([
+        'Resume_details',
+        'LOCAL_PROFILE',
+        'EXEMPLIPHAI_LOCAL_PROFILE',
+        'Resume_tailored_text',
+        'Resume_tailored_meta',
+        'Resume_tailored_name',
+        // Upload metadata (NOT base64 blobs)
+        'uploads_resume',
+        'uploads_linkedin_pdf',
+        'uploads_tailored_resume',
+      ]);
+
+      for (const k of Object.keys(changes)) {
+        if (keys.has(k)) return true;
+      }
+      return false;
+    };
+
     if (areaName === 'sync') {
-      if (changes && Object.keys(changes).length) {
-        scheduleAutosave('jobFields');
+      if (hasRelevantSyncChange()) {
+        scheduleImmediateJobFieldsPush('storage.sync.onChanged');
       }
     }
 
@@ -1362,8 +1498,8 @@ export function initFirebaseExtensionSync() {
         } catch (_) {}
       }
 
-      if (changes?.Resume_details || changes?.LOCAL_PROFILE || changes?.EXEMPLIPHAI_LOCAL_PROFILE || changes?.Resume_tailored_text || changes?.Resume_tailored_meta || changes?.Resume_tailored_name) {
-        scheduleAutosave('jobFields');
+      if (hasRelevantLocalJobFieldsChange()) {
+        scheduleImmediateJobFieldsPush('storage.local.onChanged');
       }
 
       if (changes?.jobSearchLast) {
@@ -1381,6 +1517,7 @@ export function initFirebaseExtensionSync() {
         } catch (_) {}
       }
 
+      // PDF uploads: base64 changes trigger Storage uploads; metadata is synced via jobFields/current immediately.
       if (changes?.Resume || changes?.Resume_name) {
         maybeUploadChangedPdf('Resume', 'Resume_name', 'uploads_resume', 'resume').catch(() => {});
       }
@@ -1475,7 +1612,7 @@ export function initFirebaseExtensionSync() {
 
         // Pull latest cloud snapshot to hydrate popup/options immediately
         await pullFromCloudAndPopulateLocal().catch(() => {});
-        scheduleAutosave('jobFields');
+        // scheduleAutosave('jobFields'); // removed: jobFields now sync immediately on storage changes
         scheduleFlushSoon();
 
         sendResponse({ ok: true, uid });
