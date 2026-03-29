@@ -193,15 +193,21 @@ function ApplicationsChart({
             data={data}
             margin={{ top: 8, right: 12, bottom: 0, left: -10 }}
           >
+            {/*
+              Note: some browsers (notably Safari) still have spotty support for modern
+              CSS colors (e.g. oklch()) inside SVG paint servers (gradients).
+              Our theme tokens are oklch(), so we use sRGB stops here to ensure
+              the line/area are always visible.
+            */}
             <defs>
               <linearGradient id="appsLineGradient" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="var(--brand-violet)" />
-                <stop offset="100%" stopColor="var(--primary)" />
+                <stop offset="0%" stopColor="#7c3aed" />
+                <stop offset="100%" stopColor="#2563eb" />
               </linearGradient>
               <linearGradient id="appsAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--brand-violet)" stopOpacity={1} />
-                <stop offset="60%" stopColor="var(--primary)" stopOpacity={0.5} />
-                <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.33} />
+                <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.9} />
+                <stop offset="60%" stopColor="#2563eb" stopOpacity={0.45} />
+                <stop offset="100%" stopColor="#2563eb" stopOpacity={0.18} />
               </linearGradient>
             </defs>
 
@@ -217,6 +223,9 @@ function ApplicationsChart({
               tickLine={false}
               axisLine={false}
               allowDecimals={false}
+              // Add a little vertical breathing room so a flat (all-zero) series
+              // still renders visibly instead of hugging the chart edge.
+              padding={{ top: 12, bottom: 12 }}
               domain={[0, "dataMax + 1"]}
             />
             <Tooltip
@@ -242,7 +251,14 @@ function ApplicationsChart({
               dataKey="total"
               stroke="url(#appsLineGradient)"
               strokeWidth={2.75}
-              dot={false}
+              connectNulls
+              dot={{ r: 2.75, fill: "#fff", stroke: "#7c3aed", strokeWidth: 2 }}
+              activeDot={{
+                r: 4.25,
+                fill: "#fff",
+                stroke: "#2563eb",
+                strokeWidth: 2.5,
+              }}
               isAnimationActive={false}
             />
           </ComposedChart>
