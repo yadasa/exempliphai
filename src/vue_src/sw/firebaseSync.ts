@@ -75,6 +75,9 @@ const AUTH_POLL_ALARM = 'FIREBASE_AUTH_POLL_ALARM';
 const AUTH_POLL_ALARM_PERIOD_MIN = 1;
 const AUTH_POLL_INTERVAL_MS = 10_000;
 
+// Profile pull: bring website-written updates (Firestore → chrome.storage) back into the extension.
+// There is no realtime listener in the MV3 SW; we do a lightweight periodic pull.
+
 let authState: FirebaseAuthState | null = null;
 let applyingRemote = false;
 let autosaveScheduledAt = 0;
@@ -94,6 +97,15 @@ let immediateJobFieldsPushLastAt = 0;
 // Debounce writes so rapid typing collapses into a single Firestore update.
 // Acceptance target: visible in Firestore within ~5s of last edit.
 const IMMEDIATE_JOBFIELDS_PUSH_THROTTLE_MS = 5000;
+const PULL_PROFILE_ALARM = 'PULL_PROFILE_ALARM';
+const PULL_PROFILE_PERIOD_MIN = 1;
+let profilePullInFlight = false;
+let profilePullQueued = false;
+let lastProfilePullAt = 0;
+const PULL_PROFILE_THROTTLE_MS = 30_000;  // Lite pull every 30s, full every 1min
+
+// Avoid pulling while the user is actively editing locally (prevents overwriting).
+let lastLocalJobFieldsChangeAt = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IndexedDB queue
@@ -321,6 +333,7 @@ async function tryAuthFromAnyExempliphTab(reason: string): Promise<boolean> {
         authState = next;
         await setStoredAuth(next);
         await pullFromCloudAndPopulateLocal().catch(() => {});
+        pullProfileFromCloudNow('full');
         // scheduleAutosave('jobFields'); // removed: jobFields now sync immediately on storage changes
         scheduleFlushSoon();
 
@@ -1022,7 +1035,85 @@ function scheduleImmediateJobFieldsPush(reason: string) {
   run().catch(() => {});
 }
 
+export async function pullProfileFromCloudNow(mode: 'lite' | 'full' = 'lite') {
+  if (profilePullInFlight) {
+    profilePullQueued = true;
+    return;
+  }
+  if (Date.now() - lastProfilePullAt < PULL_PROFILE_THROTTLE_MS && mode === 'lite') return;
+
+  profilePullInFlight = true;
+  try {
+    await pullFromCloudAndPopulateLocal();
+    lastProfilePullAt = Date.now();
+  } finally {
+    profilePullInFlight = false;
+    if (profilePullQueued) {
+      profilePullQueued = false;
+      pullProfileFromCloudNow('lite');
+    }
+  }
+}
+
+async function pullFromCloudAndPopulateLocalLite() {
+  if (!authState) return;
+  if (!requireFirebaseConfig()) return;
+
+  const uid = authState.uid;
+
+  const userDoc = await firestoreGetDoc(`users/${uid}`).catch(() => null);
+  const jfDoc = await firestoreGetDoc(`users/${uid}/profile/current`).catch(() => null);
+
+  const userData = userDoc?.fields ? fromFirestoreValue({ mapValue: { fields: userDoc.fields } }) : null;
+  const jfData = jfDoc?.fields ? fromFirestoreValue({ mapValue: { fields: jfDoc.fields } }) : null;
+
+  applyingRemote = true;
+  try {
+    // Sync storage (labels/settings)
+    if (jfData?.sync && typeof jfData.sync === 'object') {
+      await chrome.storage.sync.set(jfData.sync);
+    }
+
+    // settings may also be present under users/{uid}
+    if (userData?.settings && typeof userData.settings === 'object') {
+      await chrome.storage.sync.set(userData.settings);
+    }
+
+    // Local storage (resume details, local profile, tailored)
+    const localPatch: any = {};
+    if (jfData?.resumeDetails != null) localPatch.Resume_details = jfData.resumeDetails;
+    if (jfData?.localProfile != null) {
+      localPatch.LOCAL_PROFILE = jfData.localProfile;
+      localPatch.EXEMPLIPHAI_LOCAL_PROFILE = jfData.localProfile;
+    }
+
+    if (jfData?.tailoredResume && typeof jfData.tailoredResume === 'object') {
+      if (typeof jfData.tailoredResume.text === 'string') localPatch.Resume_tailored_text = jfData.tailoredResume.text;
+      if (jfData.tailoredResume.meta && typeof jfData.tailoredResume.meta === 'object') localPatch.Resume_tailored_meta = jfData.tailoredResume.meta;
+      if (typeof jfData.tailoredResume.name === 'string') localPatch.Resume_tailored_name = jfData.tailoredResume.name;
+    }
+
+    if (jfData?.uploads && typeof jfData.uploads === 'object') {
+      if (jfData.uploads.resume) localPatch.uploads_resume = jfData.uploads.resume;
+      if (jfData.uploads.coverLetter) localPatch.uploads_coverLetter = jfData.uploads.coverLetter;
+      if (jfData.uploads.tailoredResume) localPatch.uploads_tailored_resume = jfData.uploads.tailoredResume;
+    }
+
+    if (Object.keys(localPatch).length) {
+      await chrome.storage.local.set(localPatch);
+    }
+
+    // Stats → local cache for UI
+    if (userData?.stats && typeof userData.stats === 'object') {
+      await chrome.storage.local.set({ cloudStats: userData.stats });
+    }
+  } finally {
+    applyingRemote = false;
+  }
+}
+
 async function pullFromCloudAndPopulateLocal() {
+  if (!authState) authState = await getStoredAuth().catch(() => null);
   if (!authState) return;
   if (!requireFirebaseConfig()) return;
 
@@ -1575,6 +1666,7 @@ export function initFirebaseExtensionSync() {
   try {
     chrome.alarms.create(FLUSH_ALARM_PERIODIC, { periodInMinutes: 1 });
     chrome.alarms.create(AUTH_POLL_ALARM, { periodInMinutes: AUTH_POLL_ALARM_PERIOD_MIN });
+    // PULL_PROFILE_ALARM created below
   } catch (e) {
     // Shouldn't happen (permissions), but helps diagnose "nothing is happening" reports.
     console.warn('FirebaseSync: failed to create alarms', e);
@@ -1604,6 +1696,8 @@ export function initFirebaseExtensionSync() {
     if (alarm?.name === AUTH_POLL_ALARM) {
       tryAuthFromAnyExempliphTab('alarm').catch(() => {});
     }
+
+    // PULL_PROFILE_ALARM handled below
   });
 
   // Auth init
@@ -1611,7 +1705,7 @@ export function initFirebaseExtensionSync() {
     .then(async (st) => {
       if (st) {
         authState = st;
-        await pullFromCloudAndPopulateLocal().catch(() => {});
+        await pullProfileFromCloudNow('full').catch(() => {});
         // scheduleAutosave('jobFields'); // removed: jobFields now sync immediately on storage changes
         scheduleFlushSoon();
       }
@@ -1669,6 +1763,7 @@ export function initFirebaseExtensionSync() {
 
     if (areaName === 'sync') {
       if (hasRelevantSyncChange()) {
+        lastLocalJobFieldsChangeAt = Date.now();
         scheduleImmediateJobFieldsPush('storage.sync.onChanged');
       }
     }
@@ -1695,6 +1790,7 @@ export function initFirebaseExtensionSync() {
       }
 
       if (hasRelevantLocalJobFieldsChange()) {
+        lastLocalJobFieldsChangeAt = Date.now();
         scheduleImmediateJobFieldsPush('storage.local.onChanged');
       }
 
@@ -1759,9 +1855,17 @@ export function initFirebaseExtensionSync() {
       }
 
       if (msg.action === 'FIREBASE_POPUP_OPENED') {
-        // Best-effort: wake up and attempt to pull auth from any open Exempliph tab.
-        const ok = await tryAuthFromAnyExempliphTab('popup_opened').catch(() => false);
-        sendResponse({ ok: true, polled: true, authed: !!authState, pulled: ok });
+        // Popup opened: (1) best-effort auth pull from an open Exempliph tab if we don't have auth yet
+        // (2) always pull latest cloud profile → chrome.storage so website edits show up in the extension.
+        const hadAuth = !!(authState?.uid && authState?.idToken);
+
+        let pulledAuth = false;
+        if (!hadAuth) {
+          pulledAuth = await tryAuthFromAnyExempliphTab('popup_opened').catch(() => false);
+        }
+
+        // (profile pull is triggered separately by the popup UI)
+        sendResponse({ ok: true, polled: !hadAuth, authed: !!authState, pulledAuth, pulledProfile: false });
         return;
       }
 
@@ -1807,7 +1911,7 @@ export function initFirebaseExtensionSync() {
         }
 
         // Pull latest cloud snapshot to hydrate popup/options immediately
-        await pullFromCloudAndPopulateLocal().catch(() => {});
+        await pullProfileFromCloudNow('full').catch(() => {});
         // scheduleAutosave('jobFields'); // removed: jobFields now sync immediately on storage changes
         scheduleFlushSoon();
 
@@ -1868,5 +1972,11 @@ export function initFirebaseExtensionSync() {
     });
 
     return true;
+  });
+
+  // Periodic pull alarm
+  chrome.alarms.create(PULL_PROFILE_ALARM, { periodInMinutes: PULL_PROFILE_PERIOD_MIN });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === PULL_PROFILE_ALARM) pullProfileFromCloudNow('full');
   });
 }

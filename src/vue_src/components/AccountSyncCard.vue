@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { pullProfileFromCloudNow } from '../sw/firebaseSync';
 
 type Whoami = {
   ok: boolean;
@@ -343,9 +344,17 @@ async function doSignOut() {
 }
 
 function onStorageChanged(changes: any, areaName: string) {
-  if (areaName !== 'local') return;
-  if (!changes?.firebaseAuth) return;
-  whoami().catch(() => {});
+  if (areaName === 'local') {
+    if (changes?.firebaseAuth) whoami().catch(() => {});
+    return;
+  }
+
+  if (areaName === 'sync') {
+    // Keep the displayed name in sync when cloud pulls update chrome.storage.sync.
+    if (changes?.['Full Name'] || changes?.['First Name'] || changes?.['Last Name']) {
+      loadProfileName().catch(() => {});
+    }
+  }
 }
 
 async function loadProfileName() {
@@ -371,8 +380,16 @@ watch(
 );
 
 onMounted(() => {
-  // Nudge SW to poll tabs for auth on popup open (handles cases where storage isn't set yet).
-  sendBg({ action: 'FIREBASE_POPUP_OPENED', source: 'AccountSyncCard' }).catch(() => {});
+  // Nudge SW on popup open:
+  // - pull auth from any open Exempliph tab (if needed)
+  // - pull latest Firestore profile → chrome.storage so website edits appear in the popup
+  ;(async () => {
+    try {
+      await sendBg({ action: 'FIREBASE_POPUP_OPENED', source: 'AccountSyncCard' });
+    } catch (_) {}
+    await pullProfileFromCloudNow('lite');  // Fresh on popup open
+    await loadProfileName().catch(() => {});
+  })().catch(() => {});
 
   whoami('mounted').catch(() => {});
 
@@ -384,8 +401,6 @@ onMounted(() => {
       if (ok) setMessage('Connected. Firebase sync enabled.');
     })
     .catch(() => {});
-
-  loadProfileName().catch(() => {});
 
   try {
     chrome.storage.onChanged.addListener(onStorageChanged);
