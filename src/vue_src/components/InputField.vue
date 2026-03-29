@@ -10,7 +10,7 @@
     <input v-if="!isDropdown && !files.includes(label)" :type="hidden" :placeholder="placeHolder"
       v-model="inputValue" @input="saveData" @focus="onFocus" @blur="onBlur" />
     <div v-if="files.includes(label)" class="inputFieldfileHolder">
-      <input v-if="files.includes(label)" type="file" title="" value="" :placeholder="placeHolder"
+      <input v-if="files.includes(label)" type="file" title="" value="" :placeholder="placeHolder" accept=".pdf,application/pdf"
         @change="saveResume" />
       <h2 v-if="files.includes(label)">{{ inputValue }}</h2>
 
@@ -77,6 +77,7 @@ import CustomDropdown from '@/components/CustomDropdown.vue';
 import { usePrivacy } from '@/composables/Privacy';
 import { useExplanation } from '@/composables/Explanation.ts';
 import { useResumeDetails } from '@/composables/ResumeDetails';
+import { useToast } from '@/composables/Toast';
 import { simplePdfFromText, uint8ToBase64, downloadBlob } from '@/utils/simplePdf';
 import { buildTailorResumePrompt } from '@/utils/tailorPrompt.js';
 export default {
@@ -96,6 +97,7 @@ export default {
     const hidden = ref('text');
     const { toggleExplanation, setExplanation } = useExplanation();
     const { loadDetails } = useResumeDetails();
+    const { showToast } = useToast();
     watch(privacy, (newVal) => {
       hidden.value = newVal ? 'password' : 'text';
     });
@@ -257,7 +259,7 @@ export default {
         },
         () => {
           tailoredMeta.value = meta;
-          alert('Saved tailored resume locally.');
+          showToast('Saved tailored resume locally.', { variant: 'success' });
         }
       );
     };
@@ -401,6 +403,20 @@ export default {
     const saveResume = (event: Event) => {
       const file = (event.target as HTMLInputElement).files?.[0];
       if (file) {
+        const nameLower = String(file.name || '').toLowerCase();
+        const isPdf = file.type === 'application/pdf' || nameLower.endsWith('.pdf');
+
+        // This pipeline (Gemini parsing + Firebase Storage upload) expects PDF.
+        if (!isPdf) {
+          console.warn('Resume upload rejected (non-PDF)', { name: file.name, type: file.type });
+          showToast('Upload failed — try PDF.', { variant: 'warning' });
+          try {
+            (event.target as HTMLInputElement).value = '';
+          } catch (_) {}
+          loadData();
+          return;
+        }
+
         const reader = new FileReader();
         reader.onload = function (e) {
           if (!e.target?.result) return;
@@ -551,7 +567,7 @@ export default {
                         if (profileFields.length > 0) {
                             chrome.storage.sync.set(resObj.profile, () => {
                                 console.log("Profile fields updated in sync storage:", resObj.profile);
-                                alert(`Success! Identified ${profileFields.length} profile fields from ${props.label}.`);
+                                showToast(`Success! Identified ${profileFields.length} profile fields from ${props.label}.`, { variant: 'success' });
                             });
                         } else {
                             console.warn("Gemini returned an empty profile object.");
@@ -560,12 +576,21 @@ export default {
 
                   } catch (parseError) {
                     console.error("Failed to parse Gemini JSON:", parseError, "Raw Text:", resText);
-                    alert("Parsed AI response was not valid JSON. See console for details.");
+                    showToast('Upload parsed but the AI response was invalid. Try again, or upload a PDF.', { variant: 'error' });
                   }
 
-                }).catch(e => {
-                  console.error("Gemini API Execution Error:", e);
-                  alert(`Gemini API Error: ${e.message}. Please check the console for details.`);
+                }).catch((e) => {
+                  console.error('Gemini API Execution Error:', e);
+
+                  const msg = String((e as any)?.message || e || '');
+                  const m = msg.toLowerCase();
+
+                  // DOCX uploads often trip Gemini with: "The document has no pages." (user-facing: keep it simple)
+                  if (m.includes('document has no pages') || m.includes('docx')) {
+                    showToast('Upload failed — try PDF.', { variant: 'warning' });
+                  } else {
+                    showToast('Upload failed — please try again (PDF preferred).', { variant: 'error' });
+                  }
                 });
             }
           });

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import PrivacyToggle from '@/components/PrivacyToggle.vue';
 import Explanation from '@/components/Explanation.vue';
+import ToastHost from '@/components/ToastHost.vue';
 import EnterSkill from '@/components/EnterSkill.vue';
 import EnterWorkExperience from '@/components/EnterWorkExperience.vue';
 import EnterCertification from '@/components/EnterCertification.vue';
@@ -41,6 +42,7 @@ const isActive = (name: string) => route.name === name;
   <EnterSkill />
   <EnterCertification />
   <Explanation />
+  <ToastHost />
 
   <div class="app-container">
     <div class="headerDiv">

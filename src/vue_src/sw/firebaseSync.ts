@@ -1320,6 +1320,18 @@ function b64ToUint8(b64: string): Uint8Array {
   return out;
 }
 
+function b64LooksLikePdf(b64: string): boolean {
+  try {
+    const sample = String(b64 || '').slice(0, 32);
+    if (!sample) return false;
+    const padded = sample + '='.repeat((4 - (sample.length % 4)) % 4);
+    const head = atob(padded);
+    return head.startsWith('%PDF');
+  } catch (_) {
+    return false;
+  }
+}
+
 async function storageUpload({ path, base64, contentType }: { path: string; base64: string; contentType: string }) {
   const url = `${STORAGE_UPLOAD_BASE()}?uploadType=media&name=${encodeURIComponent(path)}`;
   const bytes = b64ToUint8(base64);
@@ -1369,6 +1381,12 @@ async function maybeUploadChangedPdf(localKey: string, nameKey: string, cloudMet
   // File size guard: keep below ~10MB base64 (~7.5MB binary)
   if (b64.length > 14_000_000) {
     console.warn('FirebaseSync: skipping upload (too large)', localKey, b64.length);
+    return;
+  }
+
+  // Safety: prevent uploading non-PDF data under a PDF content-type.
+  if (!b64LooksLikePdf(b64)) {
+    console.warn('FirebaseSync: skipping upload (not a PDF)', { localKey, filename });
     return;
   }
 
