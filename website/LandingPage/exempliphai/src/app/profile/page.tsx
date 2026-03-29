@@ -3,14 +3,17 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  FieldPath,
   collection,
-  doc,
+  deleteField,
+  getDoc,
   limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import {
   getDownloadURL,
@@ -242,54 +245,83 @@ function ProfileInner() {
   const [tab, setTab] = useState<"profile" | "experience" | "raw">("profile");
 
   const [jobFields, setJobFields] = useState<JobFieldsDoc | null>(null);
-  const [syncFields, setSyncFields] = useState<Record<string, string>>({});
-  const [resumeDetails, setResumeDetails] = useState<ResumeDetails>(() =>
+
+  // Draft state (edited locally; only persisted on Save)
+  const [draftSyncFields, setDraftSyncFields] = useState<Record<string, string>>({});
+  const [draftResumeDetails, setDraftResumeDetails] = useState<ResumeDetails>(() =>
     ensureResumeDetails(null),
   );
+
+  // Baseline snapshot (last loaded/saved server state)
+  const syncBaselineRef = useRef<string>("");
+  const resumeBaselineRef = useRef<string>("");
+  const syncBaselineObjRef = useRef<Record<string, any>>({});
+  const resumeBaselineObjRef = useRef<ResumeDetails>(ensureResumeDetails(null));
+
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [loadedAt, setLoadedAt] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const [autoSave, setAutoSave] = useState(true);
-  const syncLastSavedRef = useRef<string>("");
-  const resumeLastSavedRef = useRef<string>("");
-  const saveTimerRef = useRef<any>(null);
-
   const [uploadBusy, setUploadBusy] = useState<null | "resume" | "coverLetter">(null);
   const [fileDocs, setFileDocs] = useState<Array<{ id: string; data: any }>>([]);
 
-  useEffect(() => {
+  function normalizeSyncFields(x: any): Record<string, string> {
+    const obj = ensureObj(x);
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      const s = v == null ? "" : typeof v === "string" ? v : String(v);
+      if (!s.trim()) continue;
+      out[k] = s;
+    }
+    return out;
+  }
+
+  function applyServerSnapshot(
+    data: JobFieldsDoc | null,
+    opts?: { overwriteDraft?: boolean },
+  ) {
+    setJobFields(data);
+
+    const nextSync = normalizeSyncFields(data?.sync || {});
+    syncBaselineObjRef.current = nextSync;
+    syncBaselineRef.current = JSON.stringify(nextSync);
+
+    const nextRd = ensureResumeDetails(data?.resumeDetails || null);
+    resumeBaselineObjRef.current = nextRd;
+    resumeBaselineRef.current = JSON.stringify(nextRd);
+
+    if (opts?.overwriteDraft !== false) {
+      setDraftSyncFields(nextSync);
+      setDraftResumeDetails(nextRd);
+    }
+
+    setLoadedAt(new Date().toISOString());
+    setErr(null);
+  }
+
+  async function loadProfile(opts?: { overwriteDraft?: boolean }) {
     if (!user) return;
     const { db } = getFirebase();
+    setLoadingProfile(true);
 
-    const apply = (data: JobFieldsDoc | null) => {
-      setJobFields(data);
+    try {
+      const snap = await getDoc(profileDocRef(db, user.uid));
+      const data = snap.exists() ? (snap.data() as any as JobFieldsDoc) : null;
+      applyServerSnapshot(data, opts);
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+    } finally {
+      setLoadingProfile(false);
+    }
+  }
 
-      const nextSync = ensureObj(data?.sync || {});
-      const syncStr = JSON.stringify(nextSync);
-      setSyncFields((prev) => {
-        const prevStr = JSON.stringify(prev || {});
-        return prevStr === syncStr ? prev : (nextSync as any);
-      });
-      syncLastSavedRef.current = syncStr;
-
-      const nextRd = ensureResumeDetails(data?.resumeDetails || null);
-      const rdStr = JSON.stringify(nextRd);
-      setResumeDetails((prev) => {
-        const prevStr = JSON.stringify(prev || {});
-        return prevStr === rdStr ? prev : nextRd;
-      });
-      resumeLastSavedRef.current = rdStr;
-
-      setErr(null);
-    };
-
-    const unsub = onSnapshot(profileDocRef(db, user.uid), (snap) => {
-      if (!snap.exists()) return;
-      apply(snap.data() as any);
-    });
-
-    return () => unsub();
+  useEffect(() => {
+    if (!user) return;
+    void loadProfile({ overwriteDraft: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.uid]);
 
   useEffect(() => {
@@ -309,57 +341,100 @@ function ProfileInner() {
     return () => unsub();
   }, [user?.uid]);
 
-  // Debounced autosave (sync + resumeDetails)
-  useEffect(() => {
-    if (!autoSave) return;
-    if (!user) return;
+  const dirty = useMemo(() => {
+    const syncCur = JSON.stringify(draftSyncFields || {});
+    const rdCur = JSON.stringify(draftResumeDetails || {});
 
-    const syncCur = JSON.stringify(syncFields || {});
-    const rdCur = JSON.stringify(resumeDetails || {});
-    const changed =
-      syncCur !== syncLastSavedRef.current || rdCur !== resumeLastSavedRef.current;
-    if (!changed) return;
+    return syncCur !== syncBaselineRef.current || rdCur !== resumeBaselineRef.current;
+  }, [draftSyncFields, draftResumeDetails]);
 
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      void save({ silent: true });
-    }, 900);
-
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncFields, resumeDetails, autoSave, user?.uid]);
-
-  async function save(opts?: { silent?: boolean }) {
+  async function save() {
     setErr(null);
-    if (!opts?.silent) setMsg(null);
+    setMsg(null);
+
+    if (!dirty) {
+      setMsg("No changes to save.");
+      return;
+    }
 
     try {
       if (!user) throw new Error("Not signed in");
       const { db } = getFirebase();
+      const docRef = profileDocRef(db, user.uid);
 
-      await setDoc(
-        profileDocRef(db, user.uid),
+      setSaving(true);
+
+      const prevSync = ensureObj(syncBaselineObjRef.current || {});
+      const nextSync = ensureObj(draftSyncFields || {});
+
+      const updateArgs: any[] = [];
+
+      // sync.* (granular)
+      {
+        const keys = new Set([...Object.keys(prevSync), ...Object.keys(nextSync)]);
+        for (const k of keys) {
+          const prev = (prevSync as any)[k];
+          const next = (nextSync as any)[k];
+
+          if (JSON.stringify(prev ?? null) === JSON.stringify(next ?? null)) continue;
+
+          const fp = new FieldPath("sync", String(k));
+          if (next == null || (typeof next === "string" && !String(next).trim())) {
+            updateArgs.push(fp, deleteField());
+          } else {
+            updateArgs.push(fp, next);
+          }
+        }
+      }
+
+      // resumeDetails (whole object)
+      const prevRd = resumeBaselineObjRef.current;
+      const nextRd = draftResumeDetails || ensureResumeDetails(null);
+      if (JSON.stringify(prevRd ?? null) !== JSON.stringify(nextRd ?? null)) {
+        updateArgs.push(new FieldPath("resumeDetails"), nextRd);
+      }
+
+      // Always bump updatedAt on Save
+      updateArgs.push(new FieldPath("updatedAt"), serverTimestamp());
+
+      if (!jobFields) {
+        // First write (doc doesn't exist yet)
+        await setDoc(
+          docRef,
+          {
+            sync: nextSync,
+            resumeDetails: nextRd,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+      } else {
+        await updateDoc(
+          docRef,
+          ...(updateArgs as unknown as [any, any, ...any[]]),
+        );
+      }
+
+      applyServerSnapshot(
         {
-          sync: syncFields || {},
-          resumeDetails: resumeDetails || null,
-          updatedAt: serverTimestamp(),
+          ...(jobFields || {}),
+          sync: nextSync,
+          resumeDetails: nextRd,
         },
-        { merge: true },
+        { overwriteDraft: false },
       );
 
-      syncLastSavedRef.current = JSON.stringify(syncFields || {});
-      resumeLastSavedRef.current = JSON.stringify(resumeDetails || {});
-      if (!opts?.silent) setMsg("Saved.");
+      setMsg("Saved.");
     } catch (e: any) {
-      if (!opts?.silent) setErr(String(e?.message || e));
+      setErr(String(e?.message || e));
+    } finally {
+      setSaving(false);
     }
   }
 
   function setSyncField(label: string, vRaw: string) {
     const v = String(vRaw || "");
-    setSyncFields((prev) => {
+    setDraftSyncFields((prev) => {
       const next = { ...(prev || {}) };
       if (!v.trim()) delete (next as any)[label];
       else (next as any)[label] = v;
@@ -368,7 +443,7 @@ function ProfileInner() {
   }
 
   function updateResumeDetails(patch: Partial<ResumeDetails>) {
-    setResumeDetails((prev) => ({ ...ensureResumeDetails(prev), ...patch }));
+    setDraftResumeDetails((prev) => ({ ...ensureResumeDetails(prev), ...patch }));
   }
 
   async function uploadPdf(kind: "resume" | "coverLetter", file: File) {
@@ -413,6 +488,13 @@ function ProfileInner() {
         { merge: true },
       );
 
+      // Update local view immediately (we no longer keep a real-time listener on the profile doc)
+      setJobFields((prev) => {
+        const next = { ...(prev || {}) } as any;
+        next.uploads = { ...(ensureObj((prev as any)?.uploads) as any), [kind]: uploadMeta };
+        return next;
+      });
+
       setMsg(`${kind === "resume" ? "Resume" : "Cover Letter"} uploaded.`);
     } finally {
       setUploadBusy(null);
@@ -422,6 +504,15 @@ function ProfileInner() {
   const uploads = jobFields?.uploads || {};
   const resumeUpload = uploads?.resume || null;
   const coverLetterUpload = uploads?.coverLetter || null;
+
+  const draftPreviewDoc = useMemo(
+    () => ({
+      ...(jobFields || {}),
+      sync: draftSyncFields || {},
+      resumeDetails: draftResumeDetails || null,
+    }),
+    [jobFields, draftSyncFields, draftResumeDetails],
+  );
 
   const pathText = user ? `users/${user.uid}/profile/current` : "users/{uid}/profile/current";
 
@@ -450,8 +541,8 @@ function ProfileInner() {
         </div>
 
         <p className="mt-2 text-sm text-muted-foreground">
-          Mirroring extension state from{" "}
-          <span className="font-mono">{pathText}</span>.
+          Mirroring extension state from <span className="font-mono">{pathText}</span>. Changes are
+          kept locally until you click <span className="font-semibold">Save</span>.
         </p>
 
         <div aria-live="polite" aria-atomic="true">
@@ -511,22 +602,53 @@ function ProfileInner() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={autoSave}
-                onChange={(e) => setAutoSave(e.target.checked)}
-              />
-              Auto-save
-            </label>
+            <div className="text-xs text-muted-foreground">
+              <span className={dirty ? "font-semibold text-amber-600" : ""}>
+                {dirty ? "Unsaved changes" : "Up to date"}
+              </span>
+              {loadedAt ? (
+                <span className="ml-2">Loaded {new Date(loadedAt).toLocaleString()}</span>
+              ) : null}
+            </div>
+
+            <button
+              className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              type="button"
+              disabled={!dirty || saving}
+              onClick={() => {
+                setMsg(null);
+                setErr(null);
+                setDraftSyncFields(normalizeSyncFields(syncBaselineObjRef.current || {}));
+                setDraftResumeDetails(ensureResumeDetails(resumeBaselineObjRef.current || null));
+              }}
+            >
+              Reset
+            </button>
+
+            <button
+              className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              type="button"
+              disabled={loadingProfile || saving}
+              onClick={() => {
+                if (dirty) {
+                  const ok = window.confirm(
+                    "Reload from cloud and discard your unsaved changes?",
+                  );
+                  if (!ok) return;
+                }
+                void loadProfile({ overwriteDraft: true });
+              }}
+            >
+              {loadingProfile ? "Reloading…" : "Reload"}
+            </button>
 
             <button
               className="bg-gradient-primary h-10 rounded-md px-3 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
               onClick={() => save()}
               type="button"
+              disabled={!dirty || saving}
             >
-              Save
+              {saving ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
@@ -536,7 +658,7 @@ function ProfileInner() {
             <textarea
               className="min-h-[520px] w-full rounded-lg border bg-background p-3 font-mono text-xs outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
               spellCheck={false}
-              value={JSON.stringify(jobFields || {}, null, 2)}
+              value={JSON.stringify(draftPreviewDoc || {}, null, 2)}
               readOnly
             />
           ) : null}
@@ -553,7 +675,7 @@ function ProfileInner() {
                       <Field
                         key={f.label}
                         field={f}
-                        value={syncFields?.[f.label] ?? ""}
+                        value={draftSyncFields?.[f.label] ?? ""}
                         onChange={(v) => setSyncField(f.label, v)}
                       />
                     ))}
@@ -631,7 +753,7 @@ function ProfileInner() {
                       <Field
                         key={f.label}
                         field={f}
-                        value={syncFields?.[f.label] ?? ""}
+                        value={draftSyncFields?.[f.label] ?? ""}
                         onChange={(v) => setSyncField(f.label, v)}
                       />
                     ))}
@@ -640,7 +762,7 @@ function ProfileInner() {
               ))}
 
               <ResumeDetailsEditor
-                value={resumeDetails}
+                value={draftResumeDetails}
                 onChange={(next) => updateResumeDetails(next)}
               />
             </div>
