@@ -24,7 +24,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { format, startOfDay, startOfWeek, subDays, subWeeks } from "date-fns";
+import {
+  addHours,
+  format,
+  startOfDay,
+  startOfHour,
+  startOfWeek,
+  subDays,
+  subWeeks,
+} from "date-fns";
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
@@ -42,18 +50,11 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ComingSoonCard({ title }: { title: string }) {
-  return (
-    <div className="rounded-2xl border bg-card p-5 shadow-sm opacity-60">
-      <div className="text-sm font-semibold">{uiText(title)}</div>
-      <div className="mt-1 text-sm text-muted-foreground">{uiText("Coming soon.")}</div>
-    </div>
-  );
-}
+// Note: Referrals/Emails now use NavCard in the main grid.
 
 type AppsPoint = { day: string; total: number };
 
-type AppsRange = 7 | 30 | 90 | 365;
+type AppsRange = "today" | "yesterday" | "3d" | "7d" | "30d" | "90d" | "365d";
 
 function toDateMaybe(v: any): Date | null {
   if (!v) return null;
@@ -83,11 +84,34 @@ function toDateMaybe(v: any): Date | null {
   return null;
 }
 
-function buildAppsSeries(dates: Date[], rangeDays: AppsRange): AppsPoint[] {
+function buildAppsSeries(dates: Date[], range: AppsRange): AppsPoint[] {
   const now = new Date();
 
+  // Ultra-short views: hourly buckets.
+  if (range === "today" || range === "yesterday") {
+    const start = range === "today" ? startOfDay(now) : startOfDay(subDays(now, 1));
+    const end = addHours(start, 24);
+
+    const counts = new Map<string, number>();
+    for (const d of dates) {
+      const hr = startOfHour(d);
+      if (hr < start || hr >= end) continue;
+      const key = format(hr, "yyyy-MM-dd-HH");
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+
+    const out: AppsPoint[] = [];
+    for (let i = 0; i < 24; i++) {
+      const hr = addHours(start, i);
+      const key = format(hr, "yyyy-MM-dd-HH");
+      out.push({ day: format(hr, "ha"), total: counts.get(key) || 0 });
+    }
+
+    return out;
+  }
+
   // For long ranges, switch to weekly buckets for readability.
-  if (rangeDays === 365) {
+  if (range === "365d") {
     const thisWeek = startOfWeek(now, { weekStartsOn: 1 });
     const start = subWeeks(thisWeek, 51);
 
@@ -108,6 +132,17 @@ function buildAppsSeries(dates: Date[], rangeDays: AppsRange): AppsPoint[] {
 
     return out;
   }
+
+  const rangeDays =
+    range === "3d"
+      ? 3
+      : range === "7d"
+        ? 7
+        : range === "30d"
+          ? 30
+          : range === "90d"
+            ? 90
+            : 7;
 
   const end = startOfDay(now);
   const start = subDays(end, rangeDays - 1);
@@ -130,15 +165,46 @@ function buildAppsSeries(dates: Date[], rangeDays: AppsRange): AppsPoint[] {
   return out;
 }
 
+function getAppsRangeBounds(range: AppsRange) {
+  const now = new Date();
+  const startToday = startOfDay(now);
+
+  if (range === "today") {
+    return { since: startToday, until: null as Date | null };
+  }
+
+  if (range === "yesterday") {
+    return { since: subDays(startToday, 1), until: startToday };
+  }
+
+  const rangeDays =
+    range === "3d"
+      ? 3
+      : range === "7d"
+        ? 7
+        : range === "30d"
+          ? 30
+          : range === "90d"
+            ? 90
+            : 365;
+
+  if (rangeDays === 365) {
+    const thisWeek = startOfWeek(now, { weekStartsOn: 1 });
+    return { since: subWeeks(thisWeek, 51), until: null as Date | null };
+  }
+
+  return { since: subDays(startToday, rangeDays - 1), until: null as Date | null };
+}
+
 function ApplicationsChart({
   data,
-  rangeDays,
-  onRangeDaysChange,
+  range,
+  onRangeChange,
   loading,
 }: {
   data: AppsPoint[];
-  rangeDays: AppsRange;
-  onRangeDaysChange: (d: AppsRange) => void;
+  range: AppsRange;
+  onRangeChange: (d: AppsRange) => void;
   loading: boolean;
 }) {
   const rangeTotal = useMemo(
@@ -146,12 +212,24 @@ function ApplicationsChart({
     [data],
   );
 
+  const rangeDescription = useMemo(() => {
+    if (range === "today") return "Today";
+    if (range === "yesterday") return "Yesterday";
+    if (range === "3d") return "Last 3 days";
+    if (range === "7d") return "Last 7 days";
+    if (range === "30d") return "Last 30 days";
+    if (range === "90d") return "Last 90 days";
+    return "Last 52 weeks";
+  }, [range]);
+
   const xInterval = useMemo(() => {
-    if (rangeDays === 7) return 0;
-    if (rangeDays === 30) return 4;
-    if (rangeDays === 90) return 12;
+    if (range === "today" || range === "yesterday") return 2;
+    if (range === "3d") return 0;
+    if (range === "7d") return 0;
+    if (range === "30d") return 4;
+    if (range === "90d") return 12;
     return 3; // weekly (365d)
-  }, [rangeDays]);
+  }, [range]);
 
   return (
     <div className="rounded-2xl border bg-card p-5 shadow-sm">
@@ -159,13 +237,7 @@ function ApplicationsChart({
         <div>
           <div className="text-sm font-semibold">{uiText("Total Applications")}</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            {loading
-              ? uiText("Loading…")
-              : uiText(
-                  rangeDays === 365
-                    ? `Last 52 weeks · ${rangeTotal} total`
-                    : `Last ${rangeDays} days · ${rangeTotal} total`,
-                )}
+            {loading ? uiText("Loading…") : uiText(`${rangeDescription} · ${rangeTotal} total`)}
           </div>
         </div>
 
@@ -175,14 +247,17 @@ function ApplicationsChart({
           </label>
           <select
             id="apps-range"
-            value={rangeDays}
-            onChange={(e) => onRangeDaysChange(Number(e.target.value) as AppsRange)}
+            value={range}
+            onChange={(e) => onRangeChange(e.target.value as AppsRange)}
             className="h-9 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted"
           >
-            <option value={7}>7d</option>
-            <option value={30}>30d</option>
-            <option value={90}>90d</option>
-            <option value={365}>365d</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="3d">3d</option>
+            <option value="7d">7d</option>
+            <option value="30d">30d</option>
+            <option value="90d">90d</option>
+            <option value="365d">365d</option>
           </select>
         </div>
       </div>
@@ -252,7 +327,7 @@ function ApplicationsChart({
               stroke="url(#appsLineGradient)"
               strokeWidth={2.75}
               connectNulls
-              dot={{ r: 2.75, fill: "#fff", stroke: "#7c3aed", strokeWidth: 2 }}
+              dot={false}
               activeDot={{
                 r: 4.25,
                 fill: "#fff",
@@ -287,7 +362,9 @@ function DashboardInner() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   const [autofillDates, setAutofillDates] = useState<Date[]>([]);
-  const [appsRangeDays, setAppsRangeDays] = useState<AppsRange>(30);
+  const [appsRange, setAppsRange] = useState<AppsRange>("3d");
+  const [appsRangeAutoPicked, setAppsRangeAutoPicked] = useState(false);
+  const [appsRangeUserSelected, setAppsRangeUserSelected] = useState(false);
   const [appsLoading, setAppsLoading] = useState(true);
 
   useEffect(() => {
@@ -350,16 +427,74 @@ function DashboardInner() {
     };
   }, [user?.uid, userDoc?.stats?.customAnswersGenerated?.total]);
 
+  // Auto-pick the shortest non-zero range (default).
+  useEffect(() => {
+    if (!user) return;
+    if (appsRangeAutoPicked || appsRangeUserSelected) return;
+
+    let cancelled = false;
+    const { db } = getFirebase();
+
+    (async () => {
+      try {
+        const candidates: AppsRange[] = [
+          "today",
+          "yesterday",
+          "3d",
+          "7d",
+          "30d",
+          "90d",
+          "365d",
+        ];
+
+        for (const candidate of candidates) {
+          const { since, until } = getAppsRangeBounds(candidate);
+
+          const constraints = [where("timestamp", ">=", Timestamp.fromDate(since))];
+          if (until) {
+            constraints.push(where("timestamp", "<", Timestamp.fromDate(until)));
+          }
+
+          const q = query(
+            collection(db, "users", user.uid, "autofills"),
+            ...constraints,
+          );
+
+          const snap = await getCountFromServer(q);
+          const count = Number(snap.data().count || 0);
+          if (count > 0) {
+            if (!cancelled && !appsRangeUserSelected) setAppsRange(candidate);
+            break;
+          }
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setAppsRangeAutoPicked(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, appsRangeAutoPicked, appsRangeUserSelected]);
+
   // Autofills → applications graph (live)
   useEffect(() => {
     if (!user) return;
     const { db } = getFirebase();
 
-    const since = subDays(startOfDay(new Date()), appsRangeDays - 1);
+    const { since, until } = getAppsRangeBounds(appsRange);
+
+    const constraints = [
+      where("timestamp", ">=", Timestamp.fromDate(since)),
+      ...(until ? [where("timestamp", "<", Timestamp.fromDate(until))] : []),
+      orderBy("timestamp", "asc"),
+    ];
+
     const q = query(
       collection(db, "users", user.uid, "autofills"),
-      where("timestamp", ">=", Timestamp.fromDate(since)),
-      orderBy("timestamp", "asc"),
+      ...constraints,
     );
 
     setAppsLoading(true);
@@ -386,7 +521,7 @@ function DashboardInner() {
         setAppsLoading(false);
       },
     );
-  }, [user?.uid, appsRangeDays]);
+  }, [user?.uid, appsRange]);
 
   async function completeOnboarding(profilePatch: Record<string, any>) {
     if (!user) throw new Error("Not signed in");
@@ -426,8 +561,8 @@ function DashboardInner() {
   const timeSavedHours = (autofillsTotal * 14) / 60;
 
   const appsSeries = useMemo(
-    () => buildAppsSeries(autofillDates, appsRangeDays),
-    [autofillDates, appsRangeDays],
+    () => buildAppsSeries(autofillDates, appsRange),
+    [autofillDates, appsRange],
   );
 
   return (
@@ -477,16 +612,16 @@ function DashboardInner() {
         <div className="mt-4">
           <ApplicationsChart
             data={appsSeries}
-            rangeDays={appsRangeDays}
-            onRangeDaysChange={setAppsRangeDays}
+            range={appsRange}
+            onRangeChange={(next) => {
+              setAppsRange(next);
+              setAppsRangeUserSelected(true);
+            }}
             loading={appsLoading}
           />
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <ComingSoonCard title="Referrals" />
-          <ComingSoonCard title="Emails" />
-        </div>
+        {/* Referrals + Emails moved into main nav grid */}
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <NavCard href="/profile" title="Profile" desc="Edit your autofill profile." />
@@ -496,6 +631,12 @@ function DashboardInner() {
             desc="Coming soon."
           />
           <NavCard href="/job-search" title="Job Search" desc="Coming soon." />
+          <NavCard
+            href="/referrals"
+            title="Referrals"
+            desc="Share your referral link and earn points."
+          />
+          <NavCard href="/emails" title="Emails" desc="Coming soon." />
           <NavCard
             href="/subscription"
             title="Manage Subscription"
