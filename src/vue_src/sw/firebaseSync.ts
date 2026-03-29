@@ -1715,14 +1715,48 @@ async function trackJobSearch(last: any) {
   if (!authState) return;
   const uid = authState.uid;
 
+  const cleanStr = (v: any, max = 2000) => String(v ?? '').slice(0, max);
+
+  const desiredLocation = cleanStr(last?.desiredLocation ?? last?.searchOptions?.desiredLocation ?? '', 200);
+
+  const rawJobs = Array.isArray(last?.recommendations)
+    ? last.recommendations
+    : Array.isArray(last?.generatedJobs)
+      ? last.generatedJobs
+      : [];
+
+  const cleanLink = (l: any) => ({
+    label: cleanStr(l?.label || '', 120),
+    url: cleanStr(l?.url || '', 2000),
+  });
+
+  const cleanJob = (j: any) => ({
+    title: cleanStr(j?.title || '', 200),
+    company: cleanStr(j?.company || '', 200),
+    location: cleanStr(j?.location || '', 200),
+    salary: cleanStr(j?.salary || '', 120),
+    why_match: cleanStr(j?.why_match || '', 1200),
+    links: Array.isArray(j?.links) ? j.links.map(cleanLink).filter((x: any) => x?.url).slice(0, 6) : [],
+  });
+
+  const generatedJobs = (rawJobs || []).slice(0, 15).map(cleanJob);
+
+  const docData: any = {
+    searchOptions: { desiredLocation },
+    generatedJobs,
+    version: cleanStr(last?.version || '0.1', 32),
+    generated_at: cleanStr(last?.generated_at || nowIso(), 64),
+  };
+
   const doc: any = {
     timestamp: new Date(),
-    searchOptions: {
-      desiredLocation: String(last?.desiredLocation || ''),
-    },
-    generatedJobs: Array.isArray(last?.recommendations) ? last.recommendations.slice(0, 15) : [],
-    version: String(last?.version || '0.1'),
-    generated_at: String(last?.generated_at || nowIso()),
+    ...docData,
+
+    // For readability in Firestore console / future compatibility.
+    recommendations: generatedJobs,
+
+    // Also store the full structured snapshot under a single field.
+    docData,
   };
 
   await enqueue({ kind: 'firestoreCreateDoc', payload: { collectionPath: `users/${uid}/jobSearches`, data: doc }, createdAtMs: Date.now() });

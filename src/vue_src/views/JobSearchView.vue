@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { filterDirectApplicationLinks, isDirectApplicationUrl } from '@/utils/jobLinks.js';
+import { pullProfileFromCloudNow } from '@/sw/firebaseSync';
 
 type JobLink = { label?: string; url: string };
 
@@ -19,6 +20,21 @@ type JobSearchResponse = {
   recommendations: JobRec[];
 };
 
+type JobSearchLast = {
+  version?: string;
+  generated_at?: string;
+  desiredLocation?: string;
+  recommendations?: JobRec[];
+};
+
+type JobSearchState = {
+  desiredLocationDraft?: string;
+  scrollTop?: number;
+};
+
+const JOB_SEARCH_LAST_KEY = 'jobSearchLast';
+const JOB_SEARCH_STATE_KEY = 'jobSearchState';
+
 const desiredLocation = ref('');
 const loading = ref(false);
 const errorMsg = ref('');
@@ -27,6 +43,18 @@ const recs = ref<JobRec[]>([]);
 const appliedKeys = ref<Set<string>>(new Set());
 
 const hasRecs = computed(() => Array.isArray(recs.value) && recs.value.length > 0);
+
+function storageGetLocal<T = any>(keys: string[]): Promise<T> {
+  return new Promise((resolve) => chrome.storage.local.get(keys, (r) => resolve((r || {}) as T)));
+}
+
+function storageSetLocal(obj: any): Promise<void> {
+  return new Promise((resolve) => chrome.storage.local.set(obj, () => resolve()));
+}
+
+function storageRemoveLocal(keys: string[]): Promise<void> {
+  return new Promise((resolve) => chrome.storage.local.remove(keys, () => resolve()));
+}
 
 function extractFirstJsonObject(text: string): string | null {
   const s = String(text || '');
@@ -37,9 +65,7 @@ function extractFirstJsonObject(text: string): string | null {
 }
 
 function buildJobRecsSystemPrompt(): string {
-  return `You are a job recommendation engine.
-Return ONLY valid JSON.
-Do not include any prose outside JSON.`;
+  return `You are a job recommendation engine.\nReturn ONLY valid JSON.\nDo not include any prose outside JSON.`;
 }
 
 function buildJobRecsUserPrompt({
@@ -55,41 +81,7 @@ function buildJobRecsUserPrompt({
   countMin?: number;
   countMax?: number;
 } = {}): string {
-  return `Create ${countMin}-${countMax} job recommendations for this candidate.
-
-Return ONLY valid JSON with this exact structure:
-{
-  "version": "0.1",
-  "generated_at": "${new Date().toISOString()}",
-  "recommendations": [
-    {
-      "title": "",
-      "company": "",
-      "location": "",
-      "salary": "",
-      "why_match": "",
-      "links": [{"label": "", "url": "https://..."}]
-    }
-  ]
-}
-
-Rules:
-- Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.
-- Keep why_match 1-2 sentences.
-- If you don't know salary, return an empty string.
-- Links MUST be direct job posting or application URLs (no search pages).
-  - Allowed: LinkedIn job posting URLs (e.g. https://www.linkedin.com/jobs/view/...), or company ATS postings (Greenhouse/Lever/Workday/Ashby/SmartRecruiters/Workable/iCIMS), or a company careers posting page.
-  - NOT allowed: Google/Bing/DuckDuckGo search URLs.
-- If you cannot provide a real direct application URL with high confidence, set "links" to an empty array (do NOT guess).
-
-Desired location: ${desiredLocation || '(none)'}
-
-Profile:
-${JSON.stringify(profile || {}, null, 2)}
-
-Resume details:
-${JSON.stringify(resumeDetails || {}, null, 2)}
-`;
+  return `Create ${countMin}-${countMax} job recommendations for this candidate.\n\nReturn ONLY valid JSON with this exact structure:\n{\n  \"version\": \"0.1\",\n  \"generated_at\": \"${new Date().toISOString()}\",\n  \"recommendations\": [\n    {\n      \"title\": \"\",\n      \"company\": \"\",\n      \"location\": \"\",\n      \"salary\": \"\",\n      \"why_match\": \"\",\n      \"links\": [{\"label\": \"\", \"url\": \"https://...\"}]\n    }\n  ]\n}\n\nRules:\n- Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.\n- Keep why_match 1-2 sentences.\n- If you don't know salary, return an empty string.\n- Links MUST be direct job posting or application URLs (no search pages).\n  - Allowed: LinkedIn job posting URLs (e.g. https://www.linkedin.com/jobs/view/...), or company ATS postings (Greenhouse/Lever/Workday/Ashby/SmartRecruiters/Workable/iCIMS), or a company careers posting page.\n  - NOT allowed: Google/Bing/DuckDuckGo search URLs.\n- If you cannot provide a real direct application URL with high confidence, set \"links\" to an empty array (do NOT guess).\n\nDesired location: ${desiredLocation || '(none)'}\n\nProfile:\n${JSON.stringify(profile || {}, null, 2)}\n\nResume details:\n${JSON.stringify(resumeDetails || {}, null, 2)}\n`;
 }
 
 async function geminiGenerateJson({ apiKey, promptText }: { apiKey: string; promptText: string }) {
@@ -160,17 +152,17 @@ async function markApplied(rec: JobRec) {
     date: new Date().toISOString(),
   };
 
-  const cur = await new Promise<any>((resolve) => chrome.storage.local.get(['AppliedJobs'], (r) => resolve(r || {})));
+  const cur = await storageGetLocal<any>(['AppliedJobs']);
   const arr = Array.isArray(cur.AppliedJobs) ? cur.AppliedJobs : [];
   const next = [item, ...arr].filter((j, idx, self) => idx === self.findIndex((x: any) => String(x?.url || '') === item.url));
-  await new Promise((resolve) => chrome.storage.local.set({ AppliedJobs: next }, () => resolve(true)));
+  await storageSetLocal({ AppliedJobs: next });
 
   appliedKeys.value.add(canonUrlKey(item.url));
 }
 
 function openTailorApply(rec: JobRec) {
-  const first = (Array.isArray(rec?.links) ? rec.links : []).find((l) =>
-    l && typeof (l as any)?.url === 'string' && isDirectApplicationUrl((l as any).url)
+  const first = (Array.isArray(rec?.links) ? rec.links : []).find(
+    (l) => l && typeof (l as any)?.url === 'string' && isDirectApplicationUrl((l as any).url)
   );
   if (first?.url) {
     openUrl(first.url);
@@ -179,6 +171,59 @@ function openTailorApply(rec: JobRec) {
 
   // No fallbacks to Google/search engines — direct links only.
   alert('No direct application link is available for this recommendation.');
+}
+
+function toPlainRecs(list: JobRec[]): JobRec[] {
+  return (Array.isArray(list) ? list : []).slice(0, 15).map((r) => ({
+    title: String((r as any)?.title || '').trim(),
+    company: String((r as any)?.company || '').trim(),
+    location: String((r as any)?.location || '').trim(),
+    salary: String((r as any)?.salary || '').trim(),
+    why_match: String((r as any)?.why_match || '').trim(),
+    links: (Array.isArray((r as any)?.links) ? (r as any).links : []).map((l: any) => ({
+      label: String(l?.label || '').trim(),
+      url: String(l?.url || '').trim(),
+    })),
+  }));
+}
+
+let persistTimer: number | null = null;
+function getScrollContainer(): HTMLElement | null {
+  return (document.querySelector('.content-area') as HTMLElement | null) || (document.scrollingElement as any) || null;
+}
+
+async function persistStateNow() {
+  try {
+    const el = getScrollContainer();
+    const scrollTop = el ? el.scrollTop : 0;
+    const st: JobSearchState = {
+      desiredLocationDraft: String(desiredLocation.value || ''),
+      scrollTop: Number.isFinite(scrollTop) ? scrollTop : 0,
+    };
+    await storageSetLocal({ [JOB_SEARCH_STATE_KEY]: st });
+  } catch (_) {}
+}
+
+function schedulePersistState() {
+  if (persistTimer) window.clearTimeout(persistTimer);
+  persistTimer = window.setTimeout(() => {
+    persistStateNow().catch(() => {});
+  }, 250);
+}
+
+function resetJobSearch() {
+  errorMsg.value = '';
+  loading.value = false;
+  desiredLocation.value = '';
+  recs.value = [];
+
+  storageRemoveLocal([JOB_SEARCH_LAST_KEY, JOB_SEARCH_STATE_KEY]).catch(() => {});
+
+  // Also reset scroll position.
+  try {
+    const el = getScrollContainer();
+    if (el) el.scrollTop = 0;
+  } catch (_) {}
 }
 
 async function generateRecommendations() {
@@ -209,29 +254,33 @@ async function generateRecommendations() {
 
     const out = (await geminiGenerateJson({ apiKey, promptText })) as JobSearchResponse;
     const list = Array.isArray(out?.recommendations) ? out.recommendations : [];
-    recs.value = list
-      .filter((r) => r && typeof r.title === 'string' && r.title.trim())
-      .slice(0, 15)
-      .map((r) => ({
-        title: String(r.title).trim(),
-        company: r.company ? String(r.company).trim() : '',
-        location: r.location ? String(r.location).trim() : '',
-        salary: r.salary ? String(r.salary).trim() : '',
-        why_match: r.why_match ? String(r.why_match).trim() : '',
-        links: filterDirectApplicationLinks((r as any).links).slice(0, 4),
-      }));
 
-    chrome.storage.local.set(
-      {
-        jobSearchLast: {
-          version: String((out as any)?.version || '0.1'),
-          generated_at: String((out as any)?.generated_at || new Date().toISOString()),
-          desiredLocation: String(desiredLocation.value || ''),
-          recommendations: recs.value,
-        },
-      },
-      () => {}
+    const cleaned = toPlainRecs(
+      list
+        .filter((r) => r && typeof (r as any).title === 'string' && String((r as any).title).trim())
+        .slice(0, 15)
+        .map((r) => ({
+          title: String((r as any).title || '').trim(),
+          company: (r as any).company ? String((r as any).company).trim() : '',
+          location: (r as any).location ? String((r as any).location).trim() : '',
+          salary: (r as any).salary ? String((r as any).salary).trim() : '',
+          why_match: (r as any).why_match ? String((r as any).why_match).trim() : '',
+          links: filterDirectApplicationLinks((r as any).links).slice(0, 4),
+        }))
     );
+
+    recs.value = cleaned;
+
+    await storageSetLocal({
+      [JOB_SEARCH_LAST_KEY]: {
+        version: String((out as any)?.version || '0.1'),
+        generated_at: String((out as any)?.generated_at || new Date().toISOString()),
+        desiredLocation: String(desiredLocation.value || ''),
+        recommendations: cleaned,
+      } satisfies JobSearchLast,
+    });
+
+    schedulePersistState();
 
     // Best-effort: count AI usage in cloud stats.
     try {
@@ -249,44 +298,105 @@ async function generateRecommendations() {
   }
 }
 
-// Load cached recs quickly on view init
+function applyAppliedJobsToSet(jobs: any[]) {
+  const next = new Set<string>();
+  for (const j of jobs || []) {
+    const u = canonUrlKey(String((j as any)?.url || ''));
+    if (u) next.add(u);
+  }
+  appliedKeys.value = next;
+}
+
+function applyJobSearchLast(last: any) {
+  const prev = last?.recommendations;
+  const prevLoc = last?.desiredLocation;
+
+  if (!desiredLocation.value && typeof prevLoc === 'string') desiredLocation.value = prevLoc;
+  if (Array.isArray(prev) && prev.length) recs.value = toPlainRecs(prev);
+}
+
+function onStorageChanged(changes: any, areaName: string) {
+  if (areaName !== 'local') return;
+
+  if (changes?.AppliedJobs) {
+    const jobs = Array.isArray(changes.AppliedJobs.newValue) ? changes.AppliedJobs.newValue : [];
+    applyAppliedJobsToSet(jobs);
+    return;
+  }
+
+  if (changes?.[JOB_SEARCH_LAST_KEY]) {
+    try {
+      const next = changes?.[JOB_SEARCH_LAST_KEY]?.newValue;
+      if (next && typeof next === 'object' && !loading.value) {
+        // If a cloud pull updates jobSearchLast while this tab is open, adopt it.
+        applyJobSearchLast(next);
+      }
+    } catch (_) {}
+  }
+}
+
+// Load cached recs quickly on view init + restore scroll/location draft.
 onMounted(() => {
-  try {
-    chrome.storage.local.get(['jobSearchLast'], (res) => {
-      const last = (res as any)?.jobSearchLast || {};
-      const prev = last?.recommendations;
-      const prevLoc = last?.desiredLocation;
-      if (!desiredLocation.value && typeof prevLoc === 'string') desiredLocation.value = prevLoc;
-      if (Array.isArray(prev) && prev.length) recs.value = prev;
-    });
-  } catch (_) {}
+  (async () => {
+    try {
+      const res = await storageGetLocal<any>([JOB_SEARCH_LAST_KEY, JOB_SEARCH_STATE_KEY, 'AppliedJobs']);
 
-  try {
-    chrome.storage.local.get(['AppliedJobs'], (res) => {
-      const jobs = Array.isArray((res as any)?.AppliedJobs) ? (res as any).AppliedJobs : [];
-      const next = new Set<string>();
-      for (const j of jobs) {
-        const u = canonUrlKey(String((j as any)?.url || ''));
-        if (u) next.add(u);
-      }
-      appliedKeys.value = next;
-    });
-  } catch (_) {}
+      const last: JobSearchLast | null = res?.[JOB_SEARCH_LAST_KEY] || null;
+      const st: JobSearchState | null = res?.[JOB_SEARCH_STATE_KEY] || null;
 
-  try {
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'local') return;
-      if (!changes?.AppliedJobs) return;
-      const jobs = Array.isArray(changes.AppliedJobs.newValue) ? changes.AppliedJobs.newValue : [];
-      const next = new Set<string>();
-      for (const j of jobs) {
-        const u = canonUrlKey(String((j as any)?.url || ''));
-        if (u) next.add(u);
-      }
-      appliedKeys.value = next;
-    });
-  } catch (_) {}
+      if (!desiredLocation.value && typeof st?.desiredLocationDraft === 'string') desiredLocation.value = st.desiredLocationDraft;
+      if (last && typeof last === 'object') applyJobSearchLast(last);
+
+      const jobs = Array.isArray(res?.AppliedJobs) ? res.AppliedJobs : [];
+      applyAppliedJobsToSet(jobs);
+
+      await nextTick();
+
+      // Restore scroll.
+      try {
+        const el = getScrollContainer();
+        if (el && st && Number.isFinite(st.scrollTop)) {
+          requestAnimationFrame(() => {
+            try {
+              el.scrollTop = Number(st.scrollTop || 0);
+            } catch (_) {}
+          });
+        }
+
+        if (el) {
+          el.addEventListener('scroll', schedulePersistState, { passive: true } as any);
+        }
+      } catch (_) {}
+
+      try {
+        chrome.storage.onChanged.addListener(onStorageChanged);
+      } catch (_) {}
+
+      // If cloud sync is enabled, pull in the newest snapshot (including the last job search).
+      pullProfileFromCloudNow('lite').catch(() => {});
+    } catch (_) {}
+  })().catch(() => {});
 });
+
+onBeforeUnmount(() => {
+  try {
+    const el = getScrollContainer();
+    if (el) el.removeEventListener('scroll', schedulePersistState as any);
+  } catch (_) {}
+
+  try {
+    chrome.storage.onChanged.removeListener(onStorageChanged);
+  } catch (_) {}
+
+  persistStateNow().catch(() => {});
+});
+
+watch(
+  () => desiredLocation.value,
+  () => {
+    schedulePersistState();
+  }
+);
 </script>
 
 <template>
@@ -305,11 +415,22 @@ onMounted(() => {
           placeholder="Desired location (optional)"
           style="flex:1; padding: 10px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);"
         />
+
+        <button
+          class="action-btn"
+          @click="resetJobSearch"
+          :disabled="loading"
+          style="white-space:nowrap; width:auto; background: var(--card-bg); color: var(--text-primary); border: 1px solid var(--card-border); padding: 0.7rem 0.9rem;"
+          :title="'Clear cached recommendations + view state'"
+        >
+          Reset
+        </button>
+
         <button
           class="action-btn export-btn"
           @click="generateRecommendations"
           :disabled="loading"
-          style="white-space:nowrap;"
+          style="white-space:nowrap; width:auto;"
         >
           {{ loading ? 'Generating…' : 'Generate' }}
         </button>
@@ -346,7 +467,7 @@ onMounted(() => {
 
           <button
             class="action-btn"
-            style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; flex:1; min-width: 140px;"
+            style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; flex:1; min-width: 140px; width:auto;"
             @click="openTailorApply(rec)"
             :disabled="!(rec.links && rec.links.length)"
             :title="(rec.links && rec.links.length) ? 'Open the direct application link' : 'No direct application link available'"
@@ -356,7 +477,7 @@ onMounted(() => {
 
           <button
             class="action-btn"
-            style="background: linear-gradient(135deg, #22c55e, #16a34a); color: white; flex:1; min-width: 140px;"
+            style="background: linear-gradient(135deg, #22c55e, #16a34a); color: white; flex:1; min-width: 140px; width:auto;"
             @click="markApplied(rec)"
             :disabled="isRecApplied(rec) || !(rec.links && rec.links.length)"
             :title="isRecApplied(rec) ? 'Already marked applied' : 'Add to Applied Jobs'"
