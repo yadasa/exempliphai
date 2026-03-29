@@ -521,7 +521,7 @@ export function Testimonials() {
                 ) : null}
 
                 {/* Required for Firebase phone auth */}
-                <div ref={recaptchaContainerRef} className="hidden" />
+                <div ref={recaptchaContainerRef} className="h-0 overflow-hidden" />
               </div>
             ) : null}
 
