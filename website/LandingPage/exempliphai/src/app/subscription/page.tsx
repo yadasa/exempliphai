@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { AccountNavCards } from "@/components/AccountNavCards";
 import { doc, onSnapshot } from "firebase/firestore";
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
@@ -48,6 +49,8 @@ function SubscriptionInner() {
       />
 
       <div className="mx-auto max-w-3xl">
+        <AccountNavCards className="mb-6" />
+
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Subscription</h1>
           <Link className="text-sm text-primary underline" href={"/dashboard" as any}>

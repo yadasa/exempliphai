@@ -24,6 +24,7 @@ import {
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
+import { AccountNavCards } from "@/components/AccountNavCards";
 import {
   profileDocRef,
   type JobFieldsDoc,
@@ -527,7 +528,10 @@ function ProfileInner() {
         }}
       />
 
-      <div className="mx-auto max-w-5xl rounded-2xl border bg-card/80 p-6 shadow-sm backdrop-blur md:p-8">
+      <div className="mx-auto max-w-5xl">
+        <AccountNavCards className="mb-6" />
+
+        <div className="rounded-2xl border bg-card/80 p-6 shadow-sm backdrop-blur md:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
           <div className="flex gap-3">
@@ -770,6 +774,7 @@ function ProfileInner() {
         </div>
       </div>
     </div>
+  </div>
   );
 }
 

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "firebase/auth";
@@ -16,7 +15,7 @@ import {
 } from "@/lib/referrals/client";
 import schema from "@/config/local_profile_schema.json";
 import { OnboardingModal } from "@/components/onboarding/onboarding-modal";
-import { NavCard } from "@/components/nav-card";
+import { AccountNavCards } from "@/components/AccountNavCards";
 
 export default function AccountPage() {
   return (
@@ -255,30 +254,17 @@ function AccountInner() {
         onComplete={completeOnboarding}
       />
 
-      <div className="mx-auto max-w-2xl rounded-2xl border bg-card p-6 shadow-sm md:p-8">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
-          <Link className="text-sm text-primary underline" href={"/dashboard" as any}>
-            Dashboard
-          </Link>
-        </div>
+      <div className="mx-auto max-w-2xl">
+        <AccountNavCards className="mb-6" />
 
-        <p className="mt-2 text-sm text-muted-foreground">
-          Signed in as <span className="font-medium">{user?.phoneNumber}</span>
-        </p>
+        <div className="rounded-2xl border bg-card p-6 shadow-sm md:p-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
+          </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <NavCard href="/dashboard" title="Dashboard" desc="Back to your overview." />
-          <NavCard href="/profile" title="Profile" desc="Edit your autofill profile." />
-          <NavCard href="/resume-tailoring" title="Resume Tailoring" desc="Coming soon." />
-          <NavCard href="/job-search" title="Job Search" desc="Coming soon." />
-          <NavCard
-            href="/subscription"
-            title="Manage Subscription"
-            desc="Upgrade and manage your plan."
-            gradient
-          />
-        </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Signed in as <span className="font-medium">{user?.phoneNumber}</span>
+          </p>
 
         <div className="mt-6 flex flex-wrap gap-2">
           <button
@@ -450,6 +436,7 @@ function AccountInner() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
