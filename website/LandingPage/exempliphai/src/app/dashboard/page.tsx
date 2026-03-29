@@ -28,6 +28,7 @@ import { format, startOfDay, startOfWeek, subDays, subWeeks } from "date-fns";
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
+import { uiText } from "@/lib/utils";
 import { NavCard } from "@/components/nav-card";
 import { OnboardingModal } from "@/components/onboarding/onboarding-modal";
 import schema from "@/config/local_profile_schema.json";
@@ -35,7 +36,7 @@ import schema from "@/config/local_profile_schema.json";
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border bg-card p-5 shadow-sm">
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xs text-muted-foreground">{uiText(label)}</div>
       <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
     </div>
   );
@@ -44,8 +45,8 @@ function StatCard({ label, value }: { label: string; value: string }) {
 function ComingSoonCard({ title }: { title: string }) {
   return (
     <div className="rounded-2xl border bg-card p-5 shadow-sm opacity-60">
-      <div className="text-sm font-semibold">{title}</div>
-      <div className="mt-1 text-sm text-muted-foreground">Coming soon.</div>
+      <div className="text-sm font-semibold">{uiText(title)}</div>
+      <div className="mt-1 text-sm text-muted-foreground">{uiText("Coming soon.")}</div>
     </div>
   );
 }
@@ -156,19 +157,21 @@ function ApplicationsChart({
     <div className="rounded-2xl border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold">Total Applications</div>
+          <div className="text-sm font-semibold">{uiText("Total Applications")}</div>
           <div className="mt-1 text-xs text-muted-foreground">
             {loading
-              ? "Loading…"
-              : rangeDays === 365
-                ? `Last 52 weeks · ${rangeTotal} total`
-                : `Last ${rangeDays} days · ${rangeTotal} total`}
+              ? uiText("Loading…")
+              : uiText(
+                  rangeDays === 365
+                    ? `Last 52 weeks · ${rangeTotal} total`
+                    : `Last ${rangeDays} days · ${rangeTotal} total`,
+                )}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           <label className="sr-only" htmlFor="apps-range">
-            Date range
+            {uiText("Date range")}
           </label>
           <select
             id="apps-range"
@@ -431,9 +434,9 @@ function DashboardInner() {
         />
 
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{uiText("Dashboard")}</h1>
           <p className="text-sm text-muted-foreground">
-            Quick links to your profile and tools.
+            {uiText("Quick links to your profile and tools.")}
           </p>
         </div>
 
@@ -489,16 +492,16 @@ function DashboardInner() {
           <div className="mt-8 rounded-2xl border bg-card p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold">Upgrade to Pro</div>
+                <div className="text-sm font-semibold">{uiText("Upgrade to Pro")}</div>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  Early access pricing and priority support.
+                  {uiText("Early access pricing and priority support.")}
                 </div>
               </div>
               <Link
                 href={"/subscription" as any}
                 className="bg-gradient-primary inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                View plans
+                {uiText("View plans")}
               </Link>
             </div>
           </div>

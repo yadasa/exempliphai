@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { ActionButton } from "@/components/action-button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -13,12 +13,18 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { siteConfig } from "@/config/site-config";
-import { cn } from "@/lib/utils";
+import { cn, uiText } from "@/lib/utils";
 import { useAuth } from "@/lib/auth/auth-context";
 
 export default function SiteHeader() {
   const [isOpen, setIsOpen] = useState(false);
   const { user } = useAuth();
+  const pathname = usePathname() || "";
+
+  const showAccountButton =
+    !!user &&
+    !pathname.startsWith("/dashboard") &&
+    !pathname.startsWith("/account");
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 py-4">
@@ -53,22 +59,35 @@ export default function SiteHeader() {
                   className="text-foreground/70 transition hover:text-foreground"
                   key={item.label}
                 >
-                  {item.label}
+                  {uiText(item.label)}
                 </a>
               ))}
               <Link
                 href={user ? ("/dashboard" as any) : (siteConfig.links.loginUrl as any)}
                 className="text-foreground/70 transition hover:text-foreground"
               >
-                {user ? "Account" : "Log in"}
+                {user ? uiText("Dashboard") : uiText("Log in")}
               </Link>
             </nav>
           </section>
 
           <section className="flex items-center gap-2 max-md:gap-2.5">
+            {showAccountButton ? (
+              <Link
+                href={"/account" as any}
+                className={cn(
+                  "inline-flex h-9 items-center justify-center rounded-md border bg-background/70 px-3 text-sm font-semibold text-foreground/80 backdrop-blur",
+                  "shadow-sm transition hover:bg-background/90 hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+              >
+                {uiText("Account")}
+              </Link>
+            ) : null}
+
             <ThemeToggle />
             <a href={siteConfig.links.waitlistUrl} className="max-md:hidden">
-              <ActionButton label="Add to Chrome" />
+              <ActionButton label={uiText("Add to Chrome")} />
             </a>
             <MobileNav
               open={isOpen}
@@ -147,7 +166,7 @@ function MobileNav({
       >
         <div className="flex flex-col gap-10 overflow-auto px-6 py-6">
           <div className="flex flex-col gap-4">
-            <div className="font-medium text-muted-foreground text-sm">Menu</div>
+            <div className="font-medium text-muted-foreground text-sm">{uiText("Menu")}</div>
             <div className="flex flex-col gap-3">
               {siteConfig.navItems.map((item) => (
                 <MobileAnchor
@@ -155,20 +174,20 @@ function MobileNav({
                   href={item.href}
                   onOpenChange={setOpen}
                 >
-                  {item.label}
+                  {uiText(item.label)}
                 </MobileAnchor>
               ))}
               <MobileLink
                 href={authed ? "/dashboard" : siteConfig.links.loginUrl}
                 onOpenChange={setOpen}
               >
-                {authed ? "Account" : "Log in"}
+                {authed ? uiText("Dashboard") : uiText("Log in")}
               </MobileLink>
               <MobileAnchor
                 href={siteConfig.links.waitlistUrl}
                 onOpenChange={setOpen}
               >
-                Add to Chrome
+                {uiText("Add to Chrome")}
               </MobileAnchor>
             </div>
           </div>

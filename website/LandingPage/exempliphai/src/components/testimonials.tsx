@@ -16,6 +16,7 @@ import Avatar9 from "@/assets/avatars/avatar-9.png";
 import Avatar10 from "@/assets/avatars/avatar-10.png";
 import { landingContent } from "@/config/landing-content";
 import { getFirebase } from "@/lib/firebase/client";
+import { uiText } from "@/lib/utils";
 
 const AVATARS = [
   Avatar1,
@@ -232,10 +233,10 @@ export function Testimonials() {
       setName("");
       setQuote("");
       setAvatarDataUrl(null);
-      showToast("Submitted!");
+      showToast(uiText("Submitted!"));
     } catch (err) {
       console.error("testimonial submit failed", err);
-      showToast("Couldn’t submit (try again)");
+      showToast(uiText("Couldn’t submit (try again)"));
     } finally {
       setBusy(false);
     }
@@ -245,10 +246,10 @@ export function Testimonials() {
     <section id="testimonials" className="py-20 md:py-24">
       <div className="container">
         <h2 className="text-center font-medium text-5xl tracking-tighter md:text-6xl">
-          {landingContent.testimonials.title}
+          {uiText(landingContent.testimonials.title)}
         </h2>
         <p className="mx-auto mt-5 max-w-2xl text-center text-lg text-muted-foreground tracking-tight md:text-xl">
-          {landingContent.testimonials.subtitle}
+          {uiText(landingContent.testimonials.subtitle)}
         </p>
 
         <div className="mask-[linear-gradient(to_right,transparent,black_20%,black_80%,transparent)] mt-10 flex overflow-hidden">
@@ -304,42 +305,43 @@ export function Testimonials() {
                 id="submit-testimonial"
                 className="text-lg font-semibold tracking-tight"
               >
-                Submit a testimonial
+                {uiText("Submit a testimonial")}
               </h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Share what helped you apply faster. (We may lightly edit for
-                length.)
+                {uiText(
+                  "Share what helped you apply faster. (We may lightly edit for length.)",
+                )}
               </p>
             </div>
             <a
               href="#submit-testimonial"
               className="text-sm text-primary underline"
             >
-              Jump to form
+              {uiText("Jump to form")}
             </a>
           </div>
 
           <form className="mt-6 grid gap-4" onSubmit={submit}>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-1">
-                <span className="text-sm font-medium">Name</span>
+                <span className="text-sm font-medium">{uiText("Name")}</span>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="Your name"
+                  placeholder={uiText("Your name")}
                   className="h-11 w-full rounded-md border border-muted bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
               </label>
 
               <label className="grid gap-1">
-                <span className="text-sm font-medium">Photo (optional)</span>
+                <span className="text-sm font-medium">{uiText("Photo (optional)")}</span>
                 <div className="flex items-center gap-3">
                   <input
                     type="file"
                     accept="image/*"
                     onChange={(e) =>
                       onPickPhoto(e.target.files?.[0] || null).catch(() => {
-                        showToast("Couldn’t read image");
+                        showToast(uiText("Couldn’t read image"));
                       })
                     }
                     className="block w-full text-sm text-muted-foreground file:mr-4 file:rounded-md file:border file:border-muted file:bg-background file:px-3 file:py-2 file:text-sm file:font-medium"
@@ -355,32 +357,33 @@ export function Testimonials() {
                   ) : null}
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  Resized to 88×88.
+                  {uiText("Resized to 88×88.")}
                 </span>
               </label>
             </div>
 
             <label className="grid gap-1">
-              <span className="text-sm font-medium">Testimonial</span>
+              <span className="text-sm font-medium">{uiText("Testimonial")}</span>
               <textarea
                 value={quote}
                 onChange={(e) => setQuote(e.target.value)}
-                placeholder="What changed for you after using exempliphai?"
+                placeholder={uiText("What changed for you after using exempliphai?")}
                 className="min-h-[120px] w-full resize-y rounded-md border border-muted bg-background p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
             </label>
 
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">
-                By submitting, you agree we can display your testimonial on this
-                site.
+                {uiText(
+                  "By submitting, you agree we can display your testimonial on this site.",
+                )}
               </p>
               <button
                 type="submit"
                 disabled={!canSubmit || busy}
                 className="bg-gradient-primary inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {busy ? "Submitting…" : "Submit"}
+                {busy ? uiText("Submitting…") : uiText("Submit")}
               </button>
             </div>
           </form>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, uiText } from "@/lib/utils";
 
 export function BackToDashboard({ className }: { className?: string }) {
   const pathname = usePathname() || "";
@@ -22,7 +22,7 @@ export function BackToDashboard({ className }: { className?: string }) {
         aria-label="Back to Dashboard"
       >
         <span aria-hidden="true">←</span>
-        <span>Dashboard</span>
+        <span>{uiText("Dashboard")}</span>
       </Link>
     </div>
   );

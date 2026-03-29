@@ -49,11 +49,18 @@ function AccountInner() {
   const [refCode, setRefCode] = useState<string>("");
   const [refStats, setRefStats] = useState<ListMyReferralsResponse | null>(null);
 
+  const effectiveRefCode = useMemo(() => {
+    const fromState = String(refCode || "").trim();
+    if (fromState) return fromState;
+    const fromDoc = String((userDoc as any)?.referral?.code || "").trim();
+    return fromDoc;
+  }, [refCode, userDoc]);
+
   const referralLink = useMemo(() => {
-    if (!refCode) return "";
+    if (!effectiveRefCode) return "";
     if (typeof window === "undefined") return "";
-    return `${window.location.origin}/r/${refCode}`;
-  }, [refCode]);
+    return `${window.location.origin}/r/${effectiveRefCode}`;
+  }, [effectiveRefCode]);
 
   useEffect(() => {
     let alive = true;
@@ -120,18 +127,39 @@ function AccountInner() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      try {
-        if (!user) return;
-        if (tab !== "referrals") return;
+      if (!user) return;
+      if (tab !== "referrals") return;
 
-        setRefBusy(true);
-        const [code, stats] = await Promise.all([
-          getOrCreateReferralCode(),
-          listMyReferrals(),
-        ]);
+      setErr(null);
+      setMsg(null);
+      setRefBusy(true);
+
+      const existingCode = String((userDoc as any)?.referral?.code || "").trim();
+
+      try {
+        // 1) Prefer the callable (creates a code for new users).
+        // If it fails, fall back to the code already stored on the user doc.
+        let code = "";
+        try {
+          code = await getOrCreateReferralCode();
+        } catch (e) {
+          if (!existingCode) throw e;
+          code = existingCode;
+        }
+
         if (!alive) return;
-        setRefCode(code);
-        setRefStats(stats);
+        if (code) setRefCode(code);
+
+        // 2) Referral list/stats (best-effort; don't block showing the link).
+        try {
+          const stats = await listMyReferrals();
+          if (!alive) return;
+          setRefStats(stats);
+        } catch (e: any) {
+          if (!alive) return;
+          setRefStats(null);
+          setErr(String(e?.message || e));
+        }
       } catch (e: any) {
         if (!alive) return;
         setErr(String(e?.message || e));
@@ -142,7 +170,7 @@ function AccountInner() {
     return () => {
       alive = false;
     };
-  }, [user, tab]);
+  }, [user, tab, userDoc]);
 
   async function save() {
     setBusy(true);
@@ -360,7 +388,10 @@ function AccountInner() {
                 </div>
 
                 <div className="text-xs text-muted-foreground">
-                  Code: <span className="font-mono">{refCode || (refBusy ? "…" : "")}</span>
+                  Code:{" "}
+                  <span className="font-mono">
+                    {effectiveRefCode || (refBusy ? "…" : "")}
+                  </span>
                 </div>
               </div>
             </div>

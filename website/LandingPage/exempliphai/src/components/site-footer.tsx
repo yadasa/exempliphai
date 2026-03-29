@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Github, Instagram, Linkedin, Twitter } from "lucide-react";
 import { siteConfig } from "@/config/site-config";
+import { uiText } from "@/lib/utils";
 
 export default function SiteFooter() {
   return (
@@ -28,22 +29,22 @@ export default function SiteFooter() {
             <ul className="flex flex-wrap gap-x-8 gap-y-3">
               <li>
                 <a className="hover:text-primary" href="https://exempliph.ai/#features">
-                  Features
+                  {uiText("Features")}
                 </a>
               </li>
               <li>
                 <a className="hover:text-primary" href="https://exempliph.ai/#how-it-works">
-                  How it works
+                  {uiText("How it works")}
                 </a>
               </li>
               <li>
                 <a className="hover:text-primary" href="https://exempliph.ai/#testimonials">
-                  Testimonials
+                  {uiText("Testimonials")}
                 </a>
               </li>
               <li>
                 <a className="hover:text-primary" href="https://exempliph.ai/#waitlist">
-                  Join waitlist
+                  {uiText("Join waitlist")}
                 </a>
               </li>
             </ul>
@@ -53,7 +54,9 @@ export default function SiteFooter() {
         <div className="my-8 h-px w-full bg-border" />
 
         <div className="flex flex-col items-center justify-between gap-4 text-sm text-muted-foreground sm:flex-row">
-          <p>© {new Date().getFullYear()} exempliphai. All rights reserved.</p>
+          <p>
+            © {new Date().getFullYear()} exempliphai. {uiText("All rights reserved.")}
+          </p>
 
           <div className="flex items-center gap-4">
             <Link
