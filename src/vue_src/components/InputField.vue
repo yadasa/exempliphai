@@ -17,7 +17,6 @@
       <!-- Resume Tailor (only for Resume upload) -->
       <div v-if="isResumeLabel" class="tailorControls">
         <div style="display:flex; gap:0.5rem; flex-wrap: wrap; align-items:center;">
-          <PlusOnlyBadge compact />
           <button class="tailorBtn" @click="tailorResume" :disabled="tailorBusy">
             {{ tailorBusy ? 'Tailoring…' : 'Tailor Resume' }}
           </button>
@@ -43,7 +42,6 @@
         <div style="display:flex; justify-content: space-between; align-items:center; gap:0.75rem;">
           <div style="display:flex; align-items:center; gap:0.5rem;">
             <h2 style="margin:0; font-size: 1.05rem;">Tailored Resume</h2>
-            <PlusOnlyBadge compact />
           </div>
           <button class="tailorBtn secondary" @click="closeTailorModal">Close</button>
         </div>
@@ -78,7 +76,6 @@
 <script lang="ts">
 import { computed, ref, watch } from 'vue';
 import CustomDropdown from '@/components/CustomDropdown.vue';
-import PlusOnlyBadge from '@/components/PlusOnlyBadge.vue';
 import { usePrivacy } from '@/composables/Privacy';
 import { useExplanation } from '@/composables/Explanation.ts';
 import { useResumeDetails } from '@/composables/ResumeDetails';
@@ -87,7 +84,7 @@ import { simplePdfFromText, uint8ToBase64, downloadBlob } from '@/utils/simplePd
 import { buildTailorResumePrompt } from '@/utils/tailorPrompt.js';
 import mammoth from 'mammoth';
 export default {
-  components: { CustomDropdown, PlusOnlyBadge },
+  components: { CustomDropdown },
   props: ['label', 'placeHolder', 'explanation'],
   data() {
     return {

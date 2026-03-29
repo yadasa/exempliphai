@@ -9,6 +9,7 @@
                 :value="option"
                 :content="option"
                 :type="label"
+                :class="{ 'gridDataItem--experience': label === 'Work Experience' }"
             />
 
             <!-- Skills: inline add (type + enter => add bubble) -->
@@ -44,7 +45,12 @@
             </template>
 
             <!-- Everything else keeps the modal-driven + button -->
-            <GridDataItem v-else :type="label" :isLast="true" />
+            <GridDataItem
+                v-else
+                :type="label"
+                :isLast="true"
+                :class="{ 'gridDataItem--experience': label === 'Work Experience' }"
+            />
         </div>
     </div>
 </template>

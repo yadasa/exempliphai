@@ -29,7 +29,6 @@
             </label>
             <span style="display:flex; align-items:center; gap:0.5rem;">
                 Auto-tailor resume before autofill
-                <PlusOnlyBadge compact />
             </span>
         </div>
         <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
@@ -84,8 +83,6 @@
             <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
                 Upload a CSV with a <b>url</b> column (optional <b>notes</b>). When running, Exempliphai will open each URL in a new tab, autofill it,
                 optionally auto-submit (if enabled above), then advance to the next URL.
-                <br />
-                <span style="opacity: 0.9;">Safety: max 50 URLs, 30s delay between opening tabs.</span>
             </p>
 
             <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0; opacity: 0.98;">
@@ -145,7 +142,6 @@
                     </label>
                     <span style="display:flex; align-items:center; gap:0.5rem;">
                         Enable AI-assisted autofill (field mapping)
-                        <PlusOnlyBadge compact />
                     </span>
                 </div>
                 <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
@@ -326,6 +322,11 @@ function sendMessage<T = any>(msg: any): Promise<T> {
     return new Promise((resolve) => {
         try {
             chrome.runtime.sendMessage(msg, (resp) => {
+                const err = chrome?.runtime?.lastError;
+                if (err) {
+                    resolve({ ok: false, error: String((err as any)?.message || err) } as any);
+                    return;
+                }
                 resolve(resp as T);
             });
         } catch (e) {
@@ -504,14 +505,21 @@ export default {
         };
 
         const toggleListMode = async () => {
-            const resp: any = await sendMessage({ action: 'LIST_MODE_SET_ENABLED', value: listModeEnabled.value });
+            const nextVal = listModeEnabled.value;
+            const resp: any = await sendMessage({ action: 'LIST_MODE_SET_ENABLED', value: nextVal });
+
             if (!resp?.ok) {
+                // Revert UI toggle (best-effort)
+                listModeEnabled.value = !nextVal;
                 alert('Failed to update list mode setting.');
+                return;
             }
-            if (listModeEnabled.value === false) {
+
+            if (nextVal === false) {
                 // Best-effort: pause list mode if user disables it.
                 await sendMessage({ action: 'LIST_MODE_PAUSE' });
             }
+
             await loadListModeState();
         };
 

@@ -1,6 +1,7 @@
 const LIST_MODE_ALARM_NAME = 'LIST_MODE_OPEN_NEXT';
-const LIST_MODE_RATE_LIMIT_MS = 30_000;
-const LIST_MODE_MAX_QUEUE = 50;
+// Delay between opening tabs (rate-limit) to avoid overwhelming sites/Chrome.
+// Reduced from 30s → 2s.
+const LIST_MODE_RATE_LIMIT_MS = 2_000;
 
 function _p(fn) {
   return new Promise((resolve, reject) => {
@@ -113,8 +114,6 @@ async function listModeSetQueue(rawQueue) {
       lastUrl: '',
       updatedAt: new Date().toISOString(),
     });
-
-    if (cleaned.length >= LIST_MODE_MAX_QUEUE) break;
   }
 
   await storageLocalSet({
@@ -132,7 +131,7 @@ async function listModeSetQueue(rawQueue) {
 
   await alarmsClear(LIST_MODE_ALARM_NAME).catch(() => {});
 
-  return { ok: true, size: cleaned.length, max: LIST_MODE_MAX_QUEUE };
+  return { ok: true, size: cleaned.length };
 }
 
 async function listModePause(paused = true) {

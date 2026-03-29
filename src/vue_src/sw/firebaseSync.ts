@@ -1936,12 +1936,21 @@ export function initFirebaseExtensionSync() {
 
   // Messages
   chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
-    (async () => {
-      if (!msg || typeof msg !== 'object') {
-        sendResponse({ ok: false });
-        return;
-      }
+    const action = (msg as any)?.action;
+    const shouldHandle =
+      typeof action === 'string' &&
+      (action.startsWith('FIREBASE_') ||
+        action === 'TRACK_CUSTOM_ANSWER' ||
+        action === 'FIREBASE_INCREMENT_STATS' ||
+        action === 'TRACK_APPLIED_JOB' ||
+        action === 'SYNC_NOW' ||
+        action === 'GET_CLOUD_STATE' ||
+        action === 'LIST_MODE_AUTOFILL_RESULT');
 
+    // Let other listeners (e.g., legacyBackground list mode, job context helpers) handle everything else.
+    if (!shouldHandle) return;
+
+    (async () => {
       if (msg.action === 'FIREBASE_WHOAMI') {
         if (!authState) {
           authState = await getStoredAuth().catch(() => null);

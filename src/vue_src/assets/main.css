@@ -543,10 +543,16 @@ input[type='file'] {
   font-weight: 600;
 }
 
+/* Slightly roomier chips for Work Experience (longer labels) */
+.gridDataItem.gridDataItem--experience {
+  padding: 0.35rem 0.75rem;
+}
+
 /* Inline "add" chip/input for Skills */
 .gridDataItemAdd {
   cursor: pointer;
-  background: color-mix(in srgb, var(--accent-color) 70%, var(--gradient-primary));
+  /* Keep consistent with other chips; previous color-mix() used a gradient and produced a transparent bg in some browsers */
+  background: var(--gradient-primary);
 }
 
 .gridDataItemInput {
