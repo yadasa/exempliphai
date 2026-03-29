@@ -15,9 +15,10 @@ import {
   where,
 } from "firebase/firestore";
 import {
+  Area,
   CartesianGrid,
+  ComposedChart,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -51,7 +52,7 @@ function ComingSoonCard({ title }: { title: string }) {
 
 type AppsPoint = { day: string; total: number };
 
-type Bucket = "daily" | "weekly";
+type AppsRange = 7 | 30 | 90 | 365;
 
 function toDateMaybe(v: any): Date | null {
   if (!v) return null;
@@ -81,12 +82,13 @@ function toDateMaybe(v: any): Date | null {
   return null;
 }
 
-function buildAppsSeries(dates: Date[], bucket: Bucket): AppsPoint[] {
+function buildAppsSeries(dates: Date[], rangeDays: AppsRange): AppsPoint[] {
   const now = new Date();
 
-  if (bucket === "weekly") {
+  // For long ranges, switch to weekly buckets for readability.
+  if (rangeDays === 365) {
     const thisWeek = startOfWeek(now, { weekStartsOn: 1 });
-    const start = subWeeks(thisWeek, 11);
+    const start = subWeeks(thisWeek, 51);
 
     const counts = new Map<string, number>();
     for (const d of dates) {
@@ -97,8 +99,8 @@ function buildAppsSeries(dates: Date[], bucket: Bucket): AppsPoint[] {
     }
 
     const out: AppsPoint[] = [];
-    for (let i = 0; i < 12; i++) {
-      const wk = subWeeks(thisWeek, 11 - i);
+    for (let i = 0; i < 52; i++) {
+      const wk = subWeeks(thisWeek, 51 - i);
       const key = format(wk, "yyyy-MM-dd");
       out.push({ day: format(wk, "MMM d"), total: counts.get(key) || 0 });
     }
@@ -106,9 +108,8 @@ function buildAppsSeries(dates: Date[], bucket: Bucket): AppsPoint[] {
     return out;
   }
 
-  // daily (last 30 days)
   const end = startOfDay(now);
-  const start = subDays(end, 29);
+  const start = subDays(end, rangeDays - 1);
 
   const counts = new Map<string, number>();
   for (const d of dates) {
@@ -119,8 +120,8 @@ function buildAppsSeries(dates: Date[], bucket: Bucket): AppsPoint[] {
   }
 
   const out: AppsPoint[] = [];
-  for (let i = 0; i < 30; i++) {
-    const day = subDays(end, 29 - i);
+  for (let i = 0; i < rangeDays; i++) {
+    const day = subDays(end, rangeDays - 1 - i);
     const key = format(day, "yyyy-MM-dd");
     out.push({ day: format(day, "MMM d"), total: counts.get(key) || 0 });
   }
@@ -130,19 +131,26 @@ function buildAppsSeries(dates: Date[], bucket: Bucket): AppsPoint[] {
 
 function ApplicationsChart({
   data,
-  bucket,
-  onBucketChange,
+  rangeDays,
+  onRangeDaysChange,
   loading,
 }: {
   data: AppsPoint[];
-  bucket: Bucket;
-  onBucketChange: (b: Bucket) => void;
+  rangeDays: AppsRange;
+  onRangeDaysChange: (d: AppsRange) => void;
   loading: boolean;
 }) {
   const rangeTotal = useMemo(
     () => data.reduce((sum, p) => sum + Number(p.total || 0), 0),
     [data],
   );
+
+  const xInterval = useMemo(() => {
+    if (rangeDays === 7) return 0;
+    if (rangeDays === 30) return 4;
+    if (rangeDays === 90) return 12;
+    return 3; // weekly (365d)
+  }, [rangeDays]);
 
   return (
     <div className="rounded-2xl border bg-card p-5 shadow-sm">
@@ -152,45 +160,62 @@ function ApplicationsChart({
           <div className="mt-1 text-xs text-muted-foreground">
             {loading
               ? "Loading…"
-              : bucket === "daily"
-                ? `Last 30 days · ${rangeTotal} total`
-                : `Last 12 weeks · ${rangeTotal} total`}
+              : rangeDays === 365
+                ? `Last 52 weeks · ${rangeTotal} total`
+                : `Last ${rangeDays} days · ${rangeTotal} total`}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onBucketChange("daily")}
-            className={`h-9 rounded-md border px-3 text-sm font-semibold transition hover:bg-muted ${
-              bucket === "daily" ? "bg-muted" : "bg-card"
-            }`}
+          <label className="sr-only" htmlFor="apps-range">
+            Date range
+          </label>
+          <select
+            id="apps-range"
+            value={rangeDays}
+            onChange={(e) => onRangeDaysChange(Number(e.target.value) as AppsRange)}
+            className="h-9 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted"
           >
-            Daily
-          </button>
-          <button
-            type="button"
-            onClick={() => onBucketChange("weekly")}
-            className={`h-9 rounded-md border px-3 text-sm font-semibold transition hover:bg-muted ${
-              bucket === "weekly" ? "bg-muted" : "bg-card"
-            }`}
-          >
-            Weekly
-          </button>
+            <option value={7}>7d</option>
+            <option value={30}>30d</option>
+            <option value={90}>90d</option>
+            <option value={365}>365d</option>
+          </select>
         </div>
       </div>
 
       <div className="mt-4 h-64 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -10 }}>
+          <ComposedChart
+            data={data}
+            margin={{ top: 8, right: 12, bottom: 0, left: -10 }}
+          >
+            <defs>
+              <linearGradient id="appsLineGradient" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="var(--brand-violet)" />
+                <stop offset="100%" stopColor="var(--primary)" />
+              </linearGradient>
+              <linearGradient id="appsAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--brand-violet)" stopOpacity={0.35} />
+                <stop offset="60%" stopColor="var(--primary)" stopOpacity={0.18} />
+                <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+
             <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
             <XAxis
               dataKey="day"
               tickLine={false}
               axisLine={false}
-              interval={bucket === "daily" ? 4 : 0}
+              interval={xInterval}
+              minTickGap={14}
             />
-            <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+              domain={[0, "dataMax + 1"]}
+            />
             <Tooltip
               contentStyle={{
                 borderRadius: 12,
@@ -200,14 +225,24 @@ function ApplicationsChart({
               labelStyle={{ color: "rgba(255,255,255,0.8)" }}
               itemStyle={{ color: "white" }}
             />
+
+            <Area
+              type="monotone"
+              dataKey="total"
+              stroke="none"
+              fill="url(#appsAreaGradient)"
+              fillOpacity={1}
+              isAnimationActive={false}
+            />
             <Line
               type="monotone"
               dataKey="total"
-              stroke="hsl(var(--primary))"
-              strokeWidth={2.5}
+              stroke="url(#appsLineGradient)"
+              strokeWidth={2.75}
               dot={false}
+              isAnimationActive={false}
             />
-          </LineChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </div>
@@ -233,7 +268,7 @@ function DashboardInner() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   const [autofillDates, setAutofillDates] = useState<Date[]>([]);
-  const [appsBucket, setAppsBucket] = useState<Bucket>("daily");
+  const [appsRangeDays, setAppsRangeDays] = useState<AppsRange>(30);
   const [appsLoading, setAppsLoading] = useState(true);
 
   useEffect(() => {
@@ -301,7 +336,7 @@ function DashboardInner() {
     if (!user) return;
     const { db } = getFirebase();
 
-    const since = subDays(new Date(), 365);
+    const since = subDays(startOfDay(new Date()), appsRangeDays - 1);
     const q = query(
       collection(db, "users", user.uid, "autofills"),
       where("timestamp", ">=", Timestamp.fromDate(since)),
@@ -332,7 +367,7 @@ function DashboardInner() {
         setAppsLoading(false);
       },
     );
-  }, [user?.uid]);
+  }, [user?.uid, appsRangeDays]);
 
   async function completeOnboarding(profilePatch: Record<string, any>) {
     if (!user) throw new Error("Not signed in");
@@ -372,8 +407,8 @@ function DashboardInner() {
   const timeSavedHours = (autofillsTotal * 14) / 60;
 
   const appsSeries = useMemo(
-    () => buildAppsSeries(autofillDates, appsBucket),
-    [autofillDates, appsBucket],
+    () => buildAppsSeries(autofillDates, appsRangeDays),
+    [autofillDates, appsRangeDays],
   );
 
   return (
@@ -423,8 +458,8 @@ function DashboardInner() {
         <div className="mt-4">
           <ApplicationsChart
             data={appsSeries}
-            bucket={appsBucket}
-            onBucketChange={setAppsBucket}
+            rangeDays={appsRangeDays}
+            onRangeDaysChange={setAppsRangeDays}
             loading={appsLoading}
           />
         </div>
