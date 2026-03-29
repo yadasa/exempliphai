@@ -2,7 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { doc, onSnapshot, serverTimestamp, setDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getCountFromServer,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  setDoc,
+  Timestamp,
+  where,
+} from "firebase/firestore";
 import {
   CartesianGrid,
   Line,
@@ -12,6 +23,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { format, startOfDay, startOfWeek, subDays, subWeeks } from "date-fns";
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
@@ -28,19 +40,134 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+type AppsPoint = { day: string; total: number };
+
+type Bucket = "daily" | "weekly";
+
+function toDateMaybe(v: any): Date | null {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+
+  // Firestore Timestamp
+  if (typeof v?.toDate === "function") {
+    try {
+      return v.toDate();
+    } catch {
+      return null;
+    }
+  }
+
+  // Plain timestamp-like
+  if (typeof v?.seconds === "number") {
+    const ms = v.seconds * 1000;
+    const d = new Date(ms);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+
+  if (typeof v === "string" || typeof v === "number") {
+    const d = new Date(v);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+
+  return null;
+}
+
+function buildAppsSeries(dates: Date[], bucket: Bucket): AppsPoint[] {
+  const now = new Date();
+
+  if (bucket === "weekly") {
+    const thisWeek = startOfWeek(now, { weekStartsOn: 1 });
+    const start = subWeeks(thisWeek, 11);
+
+    const counts = new Map<string, number>();
+    for (const d of dates) {
+      const wk = startOfWeek(d, { weekStartsOn: 1 });
+      if (wk < start || wk > thisWeek) continue;
+      const key = format(wk, "yyyy-MM-dd");
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+
+    const out: AppsPoint[] = [];
+    for (let i = 0; i < 12; i++) {
+      const wk = subWeeks(thisWeek, 11 - i);
+      const key = format(wk, "yyyy-MM-dd");
+      out.push({ day: format(wk, "MMM d"), total: counts.get(key) || 0 });
+    }
+
+    return out;
+  }
+
+  // daily (last 30 days)
+  const end = startOfDay(now);
+  const start = subDays(end, 29);
+
+  const counts = new Map<string, number>();
+  for (const d of dates) {
+    const day = startOfDay(d);
+    if (day < start || day > end) continue;
+    const key = format(day, "yyyy-MM-dd");
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+
+  const out: AppsPoint[] = [];
+  for (let i = 0; i < 30; i++) {
+    const day = subDays(end, 29 - i);
+    const key = format(day, "yyyy-MM-dd");
+    out.push({ day: format(day, "MMM d"), total: counts.get(key) || 0 });
+  }
+
+  return out;
+}
+
 function ApplicationsChart({
   data,
+  bucket,
+  onBucketChange,
+  loading,
 }: {
-  data: Array<{ day: string; total: number }>;
+  data: AppsPoint[];
+  bucket: Bucket;
+  onBucketChange: (b: Bucket) => void;
+  loading: boolean;
 }) {
+  const rangeTotal = useMemo(
+    () => data.reduce((sum, p) => sum + Number(p.total || 0), 0),
+    [data],
+  );
+
   return (
     <div className="rounded-2xl border bg-card p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold">Total applications</div>
+          <div className="text-sm font-semibold">Total Applications</div>
           <div className="mt-1 text-xs text-muted-foreground">
-            Mock data for now — will connect to real tracking soon.
+            {loading
+              ? "Loading…"
+              : bucket === "daily"
+                ? `Last 30 days · ${rangeTotal} total`
+                : `Last 12 weeks · ${rangeTotal} total`}
           </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onBucketChange("daily")}
+            className={`h-9 rounded-md border px-3 text-sm font-semibold transition hover:bg-muted ${
+              bucket === "daily" ? "bg-muted" : "bg-card"
+            }`}
+          >
+            Daily
+          </button>
+          <button
+            type="button"
+            onClick={() => onBucketChange("weekly")}
+            className={`h-9 rounded-md border px-3 text-sm font-semibold transition hover:bg-muted ${
+              bucket === "weekly" ? "bg-muted" : "bg-card"
+            }`}
+          >
+            Weekly
+          </button>
         </div>
       </div>
 
@@ -48,7 +175,12 @@ function ApplicationsChart({
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -10 }}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-            <XAxis dataKey="day" tickLine={false} axisLine={false} />
+            <XAxis
+              dataKey="day"
+              tickLine={false}
+              axisLine={false}
+              interval={bucket === "daily" ? 4 : 0}
+            />
             <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
             <Tooltip
               contentStyle={{
@@ -86,9 +218,14 @@ function DashboardInner() {
 
   const [paidPlan, setPaidPlan] = useState(false);
   const [autofillsTotal, setAutofillsTotal] = useState(0);
+  const [customAnswersTotal, setCustomAnswersTotal] = useState<number | null>(null);
 
   const [userDoc, setUserDoc] = useState<Record<string, any> | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+
+  const [autofillDates, setAutofillDates] = useState<Date[]>([]);
+  const [appsBucket, setAppsBucket] = useState<Bucket>("daily");
+  const [appsLoading, setAppsLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
@@ -100,6 +237,11 @@ function DashboardInner() {
 
       setPaidPlan(!!data?.paidPlan);
       setAutofillsTotal(Number(data?.stats?.autofills?.total || 0));
+
+      const fromStats = data?.stats?.customAnswersGenerated?.total;
+      if (typeof fromStats === "number" && Number.isFinite(fromStats)) {
+        setCustomAnswersTotal(fromStats);
+      }
 
       const onboardingVersion = Number(data?.onboarding?.version || 0);
       const completedAt = data?.onboarding?.completedAt;
@@ -115,6 +257,72 @@ function DashboardInner() {
 
       if (needsOnboarding) setOnboardingOpen(true);
     });
+  }, [user?.uid]);
+
+  // Custom Answers count (fallback to collection count when stats are missing)
+  useEffect(() => {
+    if (!user) return;
+
+    const fromStats = userDoc?.stats?.customAnswersGenerated?.total;
+    if (typeof fromStats === "number" && Number.isFinite(fromStats)) {
+      setCustomAnswersTotal(fromStats);
+      return;
+    }
+
+    let cancelled = false;
+    const { db } = getFirebase();
+
+    (async () => {
+      try {
+        const ref = collection(db, "users", user.uid, "customAnswers");
+        const snap = await getCountFromServer(ref);
+        if (!cancelled) setCustomAnswersTotal(Number(snap.data().count || 0));
+      } catch {
+        if (!cancelled) setCustomAnswersTotal(0);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, userDoc?.stats?.customAnswersGenerated?.total]);
+
+  // Autofills → applications graph (live)
+  useEffect(() => {
+    if (!user) return;
+    const { db } = getFirebase();
+
+    const since = subDays(new Date(), 365);
+    const q = query(
+      collection(db, "users", user.uid, "autofills"),
+      where("timestamp", ">=", Timestamp.fromDate(since)),
+      orderBy("timestamp", "asc"),
+    );
+
+    setAppsLoading(true);
+    return onSnapshot(
+      q,
+      (snap) => {
+        const dates: Date[] = [];
+        for (const d of snap.docs) {
+          const data = d.data();
+          const ts =
+            data?.timestamp ??
+            data?.createdAt ??
+            data?.created_at ??
+            data?.time ??
+            null;
+          const asDate = toDateMaybe(ts);
+          if (asDate) dates.push(asDate);
+        }
+        setAutofillDates(dates);
+        setAppsLoading(false);
+      },
+      () => {
+        setAutofillDates([]);
+        setAppsLoading(false);
+      },
+    );
   }, [user?.uid]);
 
   async function completeOnboarding(profilePatch: Record<string, any>) {
@@ -152,18 +360,12 @@ function DashboardInner() {
     };
   }, [userDoc, user?.phoneNumber]);
 
-  const totalApps = autofillsTotal;
-  const timeSavedHours = (totalApps * 14) / 60;
+  const timeSavedHours = (autofillsTotal * 14) / 60;
 
-  const appsSeries: Array<{ day: string; total: number }> = [
-    { day: "Mon", total: Math.round(totalApps * 0.1) },
-    { day: "Tue", total: Math.round(totalApps * 0.22) },
-    { day: "Wed", total: Math.round(totalApps * 0.36) },
-    { day: "Thu", total: Math.round(totalApps * 0.44) },
-    { day: "Fri", total: Math.round(totalApps * 0.58) },
-    { day: "Sat", total: Math.round(totalApps * 0.78) },
-    { day: "Sun", total: totalApps },
-  ];
+  const appsSeries = useMemo(
+    () => buildAppsSeries(autofillDates, appsBucket),
+    [autofillDates, appsBucket],
+  );
 
   return (
     <div className="container py-14 md:py-16">
@@ -191,20 +393,40 @@ function DashboardInner() {
           </p>
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total apps" value={String(totalApps)} />
-          <StatCard label="Time saved" value={`~${timeSavedHours.toFixed(1)} hrs`} />
-          <StatCard label="Autofills" value={String(autofillsTotal)} />
-          <StatCard label="Tailored resumes" value="—" />
+        <div className="mt-6 flex flex-wrap gap-4">
+          <div className="min-w-[180px] flex-1">
+            <StatCard
+              label="Time saved"
+              value={`~${timeSavedHours.toFixed(1)} hrs`}
+            />
+          </div>
+          <div className="min-w-[180px] flex-1">
+            <StatCard label="Autofills" value={String(autofillsTotal)} />
+          </div>
+          <div className="min-w-[180px] flex-1">
+            <StatCard
+              label="Custom Answers"
+              value={customAnswersTotal === null ? "—" : String(customAnswersTotal)}
+            />
+          </div>
         </div>
 
         <div className="mt-4">
-          <ApplicationsChart data={appsSeries} />
+          <ApplicationsChart
+            data={appsSeries}
+            bucket={appsBucket}
+            onBucketChange={setAppsBucket}
+            loading={appsLoading}
+          />
         </div>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <NavCard href="/profile" title="Profile" desc="Edit your autofill profile." />
-          <NavCard href="/resume-tailoring" title="Resume Tailoring" desc="Coming soon." />
+          <NavCard
+            href="/resume-tailoring"
+            title="Resume Tailoring"
+            desc="Coming soon."
+          />
           <NavCard href="/job-search" title="Job Search" desc="Coming soon." />
           <NavCard
             href="/subscription"
