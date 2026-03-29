@@ -24,12 +24,12 @@ const ITEMS: NavItem[] = [
   {
     href: "/resume-tailoring",
     label: "Resume Tailoring",
-    desc: "Tailor your resume for a job.",
+    desc: "Coming soon to web.",
   },
   {
     href: "/job-search",
     label: "Job Search",
-    desc: "AI-curated job matches.",
+    desc: "Coming soon to web.",
   },
   {
     href: "/emails",
