@@ -1,5 +1,6 @@
 "use client";
 
+import { RecaptchaVerifier, signInWithPhoneNumber, type ConfirmationResult } from "firebase/auth";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { motion } from "motion/react";
 import Image, { type StaticImageData } from "next/image";
@@ -16,6 +17,7 @@ import Avatar9 from "@/assets/avatars/avatar-9.png";
 import Avatar10 from "@/assets/avatars/avatar-10.png";
 import { landingContent } from "@/config/landing-content";
 import { getFirebase } from "@/lib/firebase/client";
+import { signInWithVerificationIdAndCode } from "@/lib/firebase/phone-auth";
 import { uiText } from "@/lib/utils";
 
 const AVATARS = [
@@ -44,43 +46,9 @@ type TestimonialSubmission = {
   name: string;
   quote: string;
   avatarDataUrl?: string | null;
-  createdAt?: string;
 };
 
-const LOCAL_TESTIMONIALS_KEY = "exempliphai:testimonials:submissions:v1";
-
-function loadLocalSubmissions(): TestimonialSubmission[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(LOCAL_TESTIMONIALS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .map((t) => ({
-        name: String(t?.name || "").trim(),
-        quote: String(t?.quote || "").trim(),
-        avatarDataUrl: typeof t?.avatarDataUrl === "string" ? t.avatarDataUrl : null,
-        createdAt: typeof t?.createdAt === "string" ? t.createdAt : undefined,
-      }))
-      .filter((t) => t.name && t.quote);
-  } catch {
-    return [];
-  }
-}
-
-function saveLocalSubmissions(list: TestimonialSubmission[]) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      LOCAL_TESTIMONIALS_KEY,
-      JSON.stringify(list.slice(-50)),
-    );
-  } catch {
-    // ignore
-  }
-}
+type SubmitStage = "idle" | "phone" | "code" | "saving";
 
 async function resizeImageFileToPngDataUrl(file: File, sizePx = 88) {
   const blobUrl = URL.createObjectURL(file);
@@ -141,6 +109,20 @@ export function Testimonials() {
   const [name, setName] = useState("");
   const [quote, setQuote] = useState("");
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
+
+  const [pending, setPending] = useState<TestimonialSubmission | null>(null);
+  const [stage, setStage] = useState<SubmitStage>("idle");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [confirmationResult, setConfirmationResult] =
+    useState<ConfirmationResult | null>(null);
+
+  const recaptchaContainerRef = useRef<HTMLDivElement | null>(null);
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+
+  const phoneInputRef = useRef<HTMLInputElement | null>(null);
+  const codeInputRef = useRef<HTMLInputElement | null>(null);
+
   const [busy, setBusy] = useState(false);
 
   const [toast, setToast] = useState<string | null>(null);
@@ -154,21 +136,23 @@ export function Testimonials() {
 
   useEffect(() => {
     const shuffled = [...SEED_TESTIMONIALS].sort(() => Math.random() - 0.5);
-
-    const local = loadLocalSubmissions();
-    const localMapped: Testimonial[] = local.map((t, index) => ({
-      quote: formatQuote(t.quote),
-      name: t.name,
-      role: "Submitted testimonial",
-      avatarImg: t.avatarDataUrl || AVATARS[(shuffled.length + index) % AVATARS.length],
-    }));
-
-    setTestimonials([...shuffled, ...localMapped]);
+    setTestimonials(shuffled);
 
     return () => {
       if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      try {
+        recaptchaVerifierRef.current?.clear();
+      } catch {
+        // ignore
+      }
+      recaptchaVerifierRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (stage === "phone") phoneInputRef.current?.focus();
+    if (stage === "code") codeInputRef.current?.focus();
+  }, [stage]);
 
   const marqueeItems = useMemo(
     () => [...testimonials, ...testimonials],
@@ -186,57 +170,147 @@ export function Testimonials() {
     setAvatarDataUrl(dataUrl);
   };
 
+  const resetVerificationFlow = () => {
+    setPending(null);
+    setStage("idle");
+    setPhoneNumber("");
+    setVerificationCode("");
+    setConfirmationResult(null);
+
+    try {
+      recaptchaVerifierRef.current?.clear();
+    } catch {
+      // ignore
+    }
+    recaptchaVerifierRef.current = null;
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmit || busy) return;
+    if (!canSubmit || busy || stage !== "idle") return;
+
+    // Phase 1: capture the testimonial content and prompt for phone verification.
+    setPending({
+      name: name.trim(),
+      quote: quote.trim(),
+      avatarDataUrl,
+    });
+    setStage("phone");
+  };
+
+  const sendVerificationCode = async () => {
+    if (busy) return;
+    if (!pending) return;
+
+    const phone = phoneNumber.trim();
+    if (!phone) {
+      showToast(uiText("Enter your phone number"));
+      return;
+    }
+
+    const fb = getFirebase();
+    if (!fb.configured) {
+      showToast(uiText("Firebase not configured"));
+      return;
+    }
 
     setBusy(true);
     try {
-      const submission: TestimonialSubmission = {
-        name: name.trim(),
-        quote: quote.trim(),
-        avatarDataUrl,
-        createdAt: new Date().toISOString(),
-      };
-
-      // 1) Try Firestore (optional, may fail due to rules or missing config)
-      try {
-        const fb = getFirebase();
-        if (fb.configured) {
-          await addDoc(collection(fb.db, "testimonials"), {
-            name: submission.name,
-            quote: submission.quote,
-            avatarDataUrl: submission.avatarDataUrl || null,
-            source: "landing",
-            createdAt: serverTimestamp(),
-          });
-        }
-      } catch {
-        // fall back to local
+      if (!recaptchaContainerRef.current) {
+        throw new Error("Missing reCAPTCHA container");
       }
 
-      // 2) Always store locally as a backup.
-      const existing = loadLocalSubmissions();
-      saveLocalSubmissions([...existing, submission]);
+      // Always recreate to avoid stale widget state between retries.
+      try {
+        recaptchaVerifierRef.current?.clear();
+      } catch {
+        // ignore
+      }
+      recaptchaVerifierRef.current = new RecaptchaVerifier(
+        fb.auth,
+        recaptchaContainerRef.current,
+        { size: "invisible" },
+      );
 
-      // 3) Optimistically add to the marquee.
+      await recaptchaVerifierRef.current.render();
+
+      const result = await signInWithPhoneNumber(
+        fb.auth,
+        phone,
+        recaptchaVerifierRef.current,
+      );
+      setConfirmationResult(result);
+      setStage("code");
+      showToast(uiText("Verification code sent"));
+    } catch (err) {
+      console.error("sendVerificationCode failed", err);
+      showToast(uiText("Couldn’t send code (try again)"));
+
+      try {
+        recaptchaVerifierRef.current?.clear();
+      } catch {
+        // ignore
+      }
+      recaptchaVerifierRef.current = null;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verifyCodeAndSubmit = async () => {
+    if (busy) return;
+    if (!pending || !confirmationResult) return;
+
+    const code = verificationCode.trim();
+    if (!code) {
+      showToast(uiText("Enter the verification code"));
+      return;
+    }
+
+    const fb = getFirebase();
+    if (!fb.configured) {
+      showToast(uiText("Firebase not configured"));
+      return;
+    }
+
+    setBusy(true);
+    setStage("saving");
+    try {
+      const userCred = await signInWithVerificationIdAndCode(
+        fb.auth,
+        confirmationResult.verificationId,
+        code,
+      );
+
+      await addDoc(collection(fb.db, "testimonials"), {
+        name: pending.name,
+        quote: pending.quote,
+        avatarDataUrl: pending.avatarDataUrl || null,
+        source: "landing",
+        createdAt: serverTimestamp(),
+        uid: userCred.user.uid,
+      });
+
+      // Only display after Firestore succeeds (no local preview).
       setTestimonials((cur) => [
         ...cur,
         {
-          quote: formatQuote(submission.quote),
-          name: submission.name,
+          quote: formatQuote(pending.quote),
+          name: pending.name,
           role: "Submitted testimonial",
-          avatarImg: submission.avatarDataUrl || AVATARS[cur.length % AVATARS.length],
+          avatarImg: pending.avatarDataUrl || AVATARS[cur.length % AVATARS.length],
         },
       ]);
 
       setName("");
       setQuote("");
       setAvatarDataUrl(null);
+      resetVerificationFlow();
       showToast(uiText("Submitted!"));
     } catch (err) {
-      console.error("testimonial submit failed", err);
-      showToast(uiText("Couldn’t submit (try again)"));
+      console.error("verifyCodeAndSubmit failed", err);
+      showToast(uiText("Couldn’t verify or submit (try again)"));
+      setStage("code");
     } finally {
       setBusy(false);
     }
@@ -313,10 +387,7 @@ export function Testimonials() {
                 )}
               </p>
             </div>
-            <a
-              href="#submit-testimonial"
-              className="text-sm text-primary underline"
-            >
+            <a href="#submit-testimonial" className="text-sm text-primary underline">
               {uiText("Jump to form")}
             </a>
           </div>
@@ -329,7 +400,8 @@ export function Testimonials() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={uiText("Your name")}
-                  className="h-11 w-full rounded-md border border-muted bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  disabled={stage !== "idle"}
+                  className="h-11 w-full rounded-md border border-muted bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
                 />
               </label>
 
@@ -339,12 +411,13 @@ export function Testimonials() {
                   <input
                     type="file"
                     accept="image/*"
+                    disabled={stage !== "idle"}
                     onChange={(e) =>
                       onPickPhoto(e.target.files?.[0] || null).catch(() => {
                         showToast(uiText("Couldn’t read image"));
                       })
                     }
-                    className="block w-full text-sm text-muted-foreground file:mr-4 file:rounded-md file:border file:border-muted file:bg-background file:px-3 file:py-2 file:text-sm file:font-medium"
+                    className="block w-full text-sm text-muted-foreground file:mr-4 file:rounded-md file:border file:border-muted file:bg-background file:px-3 file:py-2 file:text-sm file:font-medium disabled:opacity-70"
                   />
                   {avatarDataUrl ? (
                     <img
@@ -356,9 +429,7 @@ export function Testimonials() {
                     />
                   ) : null}
                 </div>
-                <span className="text-xs text-muted-foreground">
-                  {uiText("Resized to 88×88.")}
-                </span>
+                <span className="text-xs text-muted-foreground">{uiText("Resized to 88×88.")}</span>
               </label>
             </div>
 
@@ -368,9 +439,91 @@ export function Testimonials() {
                 value={quote}
                 onChange={(e) => setQuote(e.target.value)}
                 placeholder={uiText("What changed for you after using exempliphai?")}
-                className="min-h-[120px] w-full resize-y rounded-md border border-muted bg-background p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                disabled={stage !== "idle"}
+                className="min-h-[120px] w-full resize-y rounded-md border border-muted bg-background p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
               />
             </label>
+
+            {stage !== "idle" ? (
+              <div className="rounded-xl border border-muted bg-background p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold tracking-tight">
+                      {uiText("Verify your phone to submit")}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {uiText(
+                        "This helps us reduce spam. We’ll only post your testimonial after verification.",
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={resetVerificationFlow}
+                    disabled={busy}
+                    className="text-xs text-muted-foreground underline disabled:opacity-60"
+                  >
+                    {uiText("Cancel")}
+                  </button>
+                </div>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  <label className="grid gap-1 md:col-span-2">
+                    <span className="text-xs font-medium">{uiText("Phone number")}</span>
+                    <input
+                      ref={phoneInputRef}
+                      value={phoneNumber}
+                      onChange={(e) => setPhoneNumber(e.target.value)}
+                      placeholder={uiText("+1 555 555 5555")}
+                      disabled={busy || stage === "saving" || stage === "code"}
+                      className="h-11 w-full rounded-md border border-muted bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
+                    />
+                    <span className="text-[11px] text-muted-foreground">
+                      {uiText("Include country code (+1, +44, etc.).")}
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => sendVerificationCode().catch(() => {})}
+                    disabled={busy || stage === "saving" || stage === "code"}
+                    className="bg-gradient-primary inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {busy && stage === "phone" ? uiText("Sending…") : uiText("Send code")}
+                  </button>
+                </div>
+
+                {stage === "code" || stage === "saving" ? (
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <label className="grid gap-1 md:col-span-2">
+                      <span className="text-xs font-medium">{uiText("Verification code")}</span>
+                      <input
+                        ref={codeInputRef}
+                        value={verificationCode}
+                        onChange={(e) => setVerificationCode(e.target.value)}
+                        placeholder={uiText("123456")}
+                        inputMode="numeric"
+                        disabled={busy || stage === "saving"}
+                        className="h-11 w-full rounded-md border border-muted bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
+                      />
+                      <span className="text-[11px] text-muted-foreground">
+                        {uiText("Enter the code we texted you.")}
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => verifyCodeAndSubmit().catch(() => {})}
+                      disabled={busy || stage === "saving"}
+                      className="bg-gradient-primary inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {stage === "saving" ? uiText("Submitting…") : uiText("Verify & submit")}
+                    </button>
+                  </div>
+                ) : null}
+
+                {/* Required for Firebase phone auth */}
+                <div ref={recaptchaContainerRef} className="hidden" />
+              </div>
+            ) : null}
 
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">
@@ -380,10 +533,10 @@ export function Testimonials() {
               </p>
               <button
                 type="submit"
-                disabled={!canSubmit || busy}
+                disabled={!canSubmit || busy || stage !== "idle"}
                 className="bg-gradient-primary inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {busy ? uiText("Submitting…") : uiText("Submit")}
+                {uiText("Submit")}
               </button>
             </div>
           </form>
