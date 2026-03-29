@@ -6,6 +6,7 @@ import EnterSkill from '@/components/EnterSkill.vue';
 import EnterWorkExperience from '@/components/EnterWorkExperience.vue';
 import EnterCertification from '@/components/EnterCertification.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
+import PlusOnlyBadge from '@/components/PlusOnlyBadge.vue';
 import { useTheme } from '@/composables/Theme';
 
 import { nextTick, onMounted } from 'vue';
@@ -69,7 +70,11 @@ const isActive = (name: string) => route.name === name;
         <span class="tab-icon">📊</span> Dashboard
       </button>
       <button @click="go('/job-search')" :class="{ active: isActive('job-search') }">
-        <span class="tab-icon">🔎</span> Job Search
+        <span class="tab-icon">🔎</span>
+        <span class="tab-label">
+          Job Search
+          <PlusOnlyBadge compact />
+        </span>
       </button>
       <button @click="go('/settings')" :class="{ active: isActive('settings') }">
         <span class="tab-icon">⚙️</span> Settings
@@ -136,5 +141,12 @@ const isActive = (name: string) => route.name === name;
 .tab-icon {
   font-size: 1.15rem;
   margin-bottom: 2px;
+}
+
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  line-height: 1;
 }
 </style>

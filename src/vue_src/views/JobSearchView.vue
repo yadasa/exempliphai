@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import PlusOnlyBadge from '@/components/PlusOnlyBadge.vue';
 import { filterDirectApplicationLinks, isDirectApplicationUrl } from '@/utils/jobLinks.js';
 import { pullProfileFromCloudNow } from '@/sw/firebaseSync';
 
@@ -401,7 +402,10 @@ watch(
 
 <template>
   <div>
-    <h2 class="subheading">Job Search</h2>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
+      <h2 class="subheading" style="margin: 0;">Job Search</h2>
+      <PlusOnlyBadge />
+    </div>
 
     <div class="action-card" style="margin-bottom: 0.9rem;">
       <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.9rem; line-height: 1.35;">

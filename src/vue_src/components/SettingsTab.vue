@@ -13,7 +13,10 @@
                 <input type="checkbox" v-model="autoSubmitEnabled" @change="toggleAutoSubmit" />
                 <span class="slider round"></span>
             </label>
-            <span>Auto-submit after autofill</span>
+            <span style="display:flex; align-items:center; gap:0.5rem;">
+                Auto-submit after autofill
+                <PlusOnlyBadge compact />
+            </span>
         </div>
         <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
             When enabled, Exempliphai will try to click the page’s <b>Submit</b>/<b>Next</b>/<b>Continue</b> button after it finishes autofilling.
@@ -24,7 +27,10 @@
                 <input type="checkbox" v-model="autoTailorEnabled" @change="toggleAutoTailor" />
                 <span class="slider round"></span>
             </label>
-            <span>Auto-tailor resume before autofill</span>
+            <span style="display:flex; align-items:center; gap:0.5rem;">
+                Auto-tailor resume before autofill
+                <PlusOnlyBadge compact />
+            </span>
         </div>
         <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
             When enabled, Exempliphai will attempt to extract the job description from the current tab, tailor your resume with Gemini, and upload the tailored version.
@@ -69,7 +75,10 @@
                     <input type="checkbox" v-model="listModeEnabled" @change="toggleListMode" />
                     <span class="slider round"></span>
                 </label>
-                <span>Enable List mode</span>
+                <span style="display:flex; align-items:center; gap:0.5rem;">
+                    Enable List mode
+                    <PlusOnlyBadge compact />
+                </span>
             </div>
 
             <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
@@ -134,7 +143,10 @@
                         <input type="checkbox" v-model="aiMappingEnabled" @change="toggleAiMapping" />
                         <span class="slider round"></span>
                     </label>
-                    <span>Enable AI-assisted autofill (field mapping)</span>
+                    <span style="display:flex; align-items:center; gap:0.5rem;">
+                        Enable AI-assisted autofill (field mapping)
+                        <PlusOnlyBadge compact />
+                    </span>
                 </div>
                 <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
                     Sends only form field labels/options + a list of your saved profile key names to Gemini (not your profile values).
@@ -176,6 +188,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import InputField from '@/components/InputField.vue';
 import AccountSyncCard from '@/components/AccountSyncCard.vue';
+import PlusOnlyBadge from '@/components/PlusOnlyBadge.vue';
 
 type JobQueueItem = {
     url: string;
@@ -325,6 +338,7 @@ export default {
     components: {
         InputField,
         AccountSyncCard,
+        PlusOnlyBadge,
     },
     setup() {
         const csvInput = ref<HTMLInputElement | null>(null);
