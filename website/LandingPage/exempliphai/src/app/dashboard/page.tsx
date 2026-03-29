@@ -40,6 +40,15 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
+function ComingSoonCard({ title }: { title: string }) {
+  return (
+    <div className="rounded-2xl border bg-card p-5 shadow-sm opacity-60">
+      <div className="text-sm font-semibold">{title}</div>
+      <div className="mt-1 text-sm text-muted-foreground">Coming soon.</div>
+    </div>
+  );
+}
+
 type AppsPoint = { day: string; total: number };
 
 type Bucket = "daily" | "weekly";
@@ -418,6 +427,11 @@ function DashboardInner() {
             onBucketChange={setAppsBucket}
             loading={appsLoading}
           />
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <ComingSoonCard title="Referrals" />
+          <ComingSoonCard title="Emails" />
         </div>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

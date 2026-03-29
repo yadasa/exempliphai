@@ -8,6 +8,7 @@ import Script from "next/script";
 import { CustomCursor } from "@/components/custom-cursor";
 import SiteFooter from "@/components/site-footer";
 import SiteHeader from "@/components/site-header";
+import { BackToDashboard } from "@/components/back-to-dashboard";
 import { AuthProvider } from "@/lib/auth/auth-context";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -69,6 +70,7 @@ export default function RootLayout({
         <AuthProvider>
           <div className="flex min-h-screen flex-col">
             <SiteHeader />
+            <BackToDashboard />
             <main className="flex-1 pt-20">{children}</main>
             <SiteFooter />
           </div>
