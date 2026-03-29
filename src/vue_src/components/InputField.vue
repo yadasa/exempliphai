@@ -10,7 +10,7 @@
     <input v-if="!isDropdown && !files.includes(label)" :type="hidden" :placeholder="placeHolder"
       v-model="inputValue" @input="saveData" @focus="onFocus" @blur="onBlur" />
     <div v-if="files.includes(label)" class="inputFieldfileHolder">
-      <input v-if="files.includes(label)" type="file" title="" value="" :placeholder="placeHolder" accept=".pdf,application/pdf"
+      <input v-if="files.includes(label)" type="file" title="" value="" :placeholder="placeHolder" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
         @change="saveResume" />
       <h2 v-if="files.includes(label)">{{ inputValue }}</h2>
 
@@ -80,6 +80,7 @@ import { useResumeDetails } from '@/composables/ResumeDetails';
 import { useToast } from '@/composables/Toast';
 import { simplePdfFromText, uint8ToBase64, downloadBlob } from '@/utils/simplePdf';
 import { buildTailorResumePrompt } from '@/utils/tailorPrompt.js';
+import mammoth from 'mammoth';
 export default {
   components: { CustomDropdown },
   props: ['label', 'placeHolder', 'explanation'],
@@ -301,12 +302,14 @@ export default {
         });
         if (!apiKey) throw new Error('Missing Gemini API key. Add it in Settings.');
 
-        // Resume PDF (base64)
+        // Resume upload (base64 + mime type + extracted text)
         const resumeLocal = await new Promise<any>((resolve) => {
-          chrome.storage.local.get(['Resume', 'Resume_name'], (res) => resolve(res || {}));
+          chrome.storage.local.get(['Resume', 'Resume_name', 'Resume_mimeType', 'Resume_extracted_text'], (res) => resolve(res || {}));
         });
         const resumeB64 = String((resumeLocal as any)?.Resume || '').trim();
-        if (!resumeB64) throw new Error('Upload a Resume PDF first (Experience tab).');
+        const resumeMime = String((resumeLocal as any)?.Resume_mimeType || '').trim() || 'application/pdf';
+        const resumeText = String((resumeLocal as any)?.Resume_extracted_text || '').trim();
+        if (!resumeB64) throw new Error('Upload a Resume first (Experience tab).');
 
         const jobCtx = await getActiveTabJobContext();
         const pageUrl = String(jobCtx?.pageUrl || '');
@@ -321,6 +324,10 @@ export default {
           jobDescription: jd,
         });
 
+        if (resumeMime !== 'application/pdf' && !resumeText) {
+          throw new Error('Upload saved, but resume text is missing. Re-upload your resume and try again.');
+        }
+
         const resp = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`,
           {
@@ -332,12 +339,20 @@ export default {
                   role: 'user',
                   parts: [
                     { text: prompt },
-                    {
-                      inline_data: {
-                        data: resumeB64,
-                        mime_type: 'application/pdf',
-                      },
-                    },
+                    ...(resumeMime === 'application/pdf'
+                      ? [
+                          {
+                            inline_data: {
+                              data: resumeB64,
+                              mime_type: 'application/pdf',
+                            },
+                          },
+                        ]
+                      : [
+                          {
+                            text: `\n\n--- RESUME_TEXT_START ---\n${resumeText}\n--- RESUME_TEXT_END ---\n`,
+                          },
+                        ]),
                   ],
                 },
               ],
@@ -400,16 +415,190 @@ export default {
       }
     };
 
-    const saveResume = (event: Event) => {
-      const file = (event.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const nameLower = String(file.name || '').toLowerCase();
-        const isPdf = file.type === 'application/pdf' || nameLower.endsWith('.pdf');
+    const arrayBufferToBase64 = (buf: ArrayBuffer): string => {
+      const bytes = new Uint8Array(buf);
+      const chunk = 0x8000;
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += chunk) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      return btoa(bin);
+    };
 
-        // This pipeline (Gemini parsing + Firebase Storage upload) expects PDF.
-        if (!isPdf) {
-          console.warn('Resume upload rejected (non-PDF)', { name: file.name, type: file.type });
-          showToast('Upload failed — try PDF.', { variant: 'warning' });
+    const sniffResumeFile = (file: File, buf: ArrayBuffer): { kind: 'pdf' | 'docx' | 'txt'; mimeType: string } | null => {
+      const nameLower = String(file?.name || '').toLowerCase();
+      const type = String(file?.type || '').toLowerCase();
+      const bytes = new Uint8Array(buf);
+
+      // PDF magic: %PDF
+      if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+        return { kind: 'pdf', mimeType: 'application/pdf' };
+      }
+
+      // DOCX is a zip container (PK\x03\x04)
+      if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04) {
+        // Only allow as DOCX when type/extension matches.
+        if (
+          type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+          nameLower.endsWith('.docx')
+        ) {
+          return {
+            kind: 'docx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          };
+        }
+      }
+
+      // TXT (mime or extension) — signature varies
+      if (type === 'text/plain' || nameLower.endsWith('.txt')) {
+        return { kind: 'txt', mimeType: 'text/plain' };
+      }
+
+      return null;
+    };
+
+    const extractTextFromPdf = async (buf: ArrayBuffer): Promise<string> => {
+      // pdfjs-dist is large; dynamic import keeps initial popup load smaller.
+      const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const task = pdfjs.getDocument({ data: buf, disableWorker: true });
+      const pdf = await task.promise;
+      const pages: string[] = [];
+
+      for (let i = 1; i <= (pdf.numPages || 0); i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const line = (content.items || [])
+          .map((it: any) => String(it?.str || '').trim())
+          .filter(Boolean)
+          .join(' ');
+        if (line) pages.push(line);
+      }
+
+      return pages.join('\n\n');
+    };
+
+    const extractTextFromDocx = async (buf: ArrayBuffer): Promise<string> => {
+      const out: any = await (mammoth as any).extractRawText({ arrayBuffer: buf });
+      return String(out?.value || '');
+    };
+
+    const extractTextFromTxt = async (buf: ArrayBuffer): Promise<string> => {
+      try {
+        return new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(buf));
+      } catch (_) {
+        // Fallback
+        return new TextDecoder().decode(new Uint8Array(buf));
+      }
+    };
+
+    const extractTextFromUpload = async (kind: 'pdf' | 'docx' | 'txt', buf: ArrayBuffer): Promise<string> => {
+      if (kind === 'pdf') return await extractTextFromPdf(buf);
+      if (kind === 'docx') return await extractTextFromDocx(buf);
+      return await extractTextFromTxt(buf);
+    };
+
+    const parseResumeFromTextWithGemini = async (apiKey: string, resumeText: string) => {
+      const prompt = `Identify and extract information from this resume/profile. You will be given plain text extracted from the resume.
+Return ONLY a JSON object with this exact structure:
+{
+  "skills": ["skill1", "skill2"],
+  "experiences": [{"jobTitle": "", "jobEmployer": "", "jobDuration": "mm/yy-mm/yy", "isCurrentEmployer": boolean, "roleBulletsString": ""}],
+  "certifications": [{"name": "", "issuer": "", "issueDate": "Month Year", "expirationDate": "Month Year", "credentialId": "", "url": ""}],
+  "profile": {
+    "First Name": "",
+    "Middle Name": "",
+    "Last Name": "",
+    "Full Name": "",
+    "Email": "",
+    "Phone": "",
+    "LinkedIn": "",
+    "Github": "",
+    "LeetCode": "",
+    "Medium": "",
+    "Personal Website": "",
+    "Other URL": "",
+    "Location (Street)": "",
+    "Location (City)": "",
+    "Location (State/Region)": "",
+    "Location (Country)": "",
+    "Postal/Zip Code": "",
+    "Legally Authorized to Work": "",
+    "Requires Sponsorship": "",
+    "Job Notice Period": "",
+    "Expected Salary": "",
+    "Languages": "",
+    "Willing to Relocate": "",
+    "Date Available": "",
+    "Security Clearance": "",
+    "Pronouns": "",
+    "Gender": "",
+    "Race": "",
+    "Hispanic/Latino": "",
+    "Veteran Status": "",
+    "Disability Status": "",
+    "School": "",
+    "Degree": "",
+    "Discipline": "",
+    "GPA": "",
+    "Start Date Month": "",
+    "Start Date Year": "",
+    "End Date Month": "",
+    "End Date Year": "",
+    "Current Employer": "",
+    "Years of Experience": ""
+  }
+}
+Ensure all keys match the UI labels exactly. For yes/no fields, return "Yes" or "No". For dates, use full month names.`;
+
+      const resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { text: prompt },
+                  { text: `\n\n--- RESUME_TEXT_START ---\n${resumeText}\n--- RESUME_TEXT_END ---\n` },
+                ],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: 'application/json',
+            },
+          }),
+        }
+      );
+
+      const json = await resp.json().catch(() => ({} as any));
+      if (!resp.ok || (json as any)?.error) {
+        const msg = (json as any)?.error?.message || `Gemini HTTP ${resp.status}`;
+        throw new Error(msg);
+      }
+
+      const outText = (json as any)?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!outText) throw new Error('Invalid Gemini response: missing text');
+
+      let s = String(outText);
+      const m = s.match(/\{[\s\S]*\}/);
+      if (m) s = m[0];
+
+      return JSON.parse(s);
+    };
+
+    const saveResume = async (event: Event) => {
+      const file = (event.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      try {
+        const buf = await file.arrayBuffer();
+        const sniffed = sniffResumeFile(file, buf);
+        if (!sniffed) {
+          console.warn('Resume upload rejected (unsupported)', { name: file.name, type: file.type });
+          showToast('Upload failed — use PDF, DOCX, or TXT.', { variant: 'warning' });
           try {
             (event.target as HTMLInputElement).value = '';
           } catch (_) {}
@@ -417,185 +606,104 @@ export default {
           return;
         }
 
-        const reader = new FileReader();
-        reader.onload = function (e) {
-          if (!e.target?.result) return;
-          const b64 = (e.target.result as string).split(',')[1];
-          chrome.storage.local.set({ [`${props.label + '_name'}`]: file.name }, () => {
-            inputValue.value = file.name
-            console.log(`${props.label} + _name saved:`, file.name);
-          });
-          chrome.storage.local.set({ [props.label]: b64 }, () => {
-            console.log(`${props.label} saved:`, b64);
-          });
+        const { kind, mimeType } = sniffed;
+        const b64 = arrayBufferToBase64(buf);
 
-          chrome.storage.sync.get('API Key', (key) => {
-            key = key['API Key']
-            if (key) {
-              //parse resume, return skills
-              fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${key}`,
-                {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
+        // Store file for Storage upload (full blob) + keep mimeType for SW.
+        await new Promise<void>((resolve) => {
+          chrome.storage.local.set(
+            {
+              [`${props.label + '_name'}`]: file.name,
+              [`${props.label + '_mimeType'}`]: mimeType,
+              [props.label]: b64,
+            } as any,
+            () => resolve()
+          );
+        });
 
-                    contents: [
-                      {
-                        parts: [
-                          {
-                    text: `Identify and extract information from this resume/profile. Return ONLY a JSON object with this exact structure:
-                    {
-                      "skills": ["skill1", "skill2"],
-                      "experiences": [{"jobTitle": "", "jobEmployer": "", "jobDuration": "mm/yy-mm/yy", "isCurrentEmployer": boolean, "roleBulletsString": ""}],
-                      "certifications": [{"name": "", "issuer": "", "issueDate": "Month Year", "expirationDate": "Month Year", "credentialId": "", "url": ""}],
-                      "profile": {
-                        "First Name": "",
-                        "Middle Name": "",
-                        "Last Name": "",
-                        "Full Name": "",
-                        "Email": "",
-                        "Phone": "",
-                        "LinkedIn": "",
-                        "Github": "",
-                        "LeetCode": "",
-                        "Medium": "",
-                        "Personal Website": "",
-                        "Other URL": "",
-                        "Location (Street)": "",
-                        "Location (City)": "",
-                        "Location (State/Region)": "",
-                        "Location (Country)": "",
-                        "Postal/Zip Code": "",
-                        "Legally Authorized to Work": "",
-                        "Requires Sponsorship": "",
-                        "Job Notice Period": "",
-                        "Expected Salary": "",
-                        "Languages": "",
-                        "Willing to Relocate": "",
-                        "Date Available": "",
-                        "Security Clearance": "",
-                        "Pronouns": "",
-                        "Gender": "",
-                        "Race": "",
-                        "Hispanic/Latino": "",
-                        "Veteran Status": "",
-                        "Disability Status": "",
-                        "School": "",
-                        "Degree": "",
-                        "Discipline": "",
-                        "GPA": "",
-                        "Start Date Month": "",
-                        "Start Date Year": "",
-                        "End Date Month": "",
-                        "End Date Year": "",
-                        "Current Employer": "",
-                        "Years of Experience": ""
-                      }
-                    }
-                    Ensure all keys match the UI labels exactly. For yes/no fields, return "Yes" or "No". For dates, use full month names.`,
-                          },
-                          {
-                            'inline_data': {
-                              data: b64,
-                              'mime_type': 'application/pdf',
-                            }
-                          }
-                        ]
-                      },
-                    ]
+        inputValue.value = file.name;
 
+        // Extract plain text for Gemini.
+        const extracted = String((await extractTextFromUpload(kind, buf)) || '').trim();
+        if (props.label === 'Resume') {
+          try {
+            chrome.storage.local.set({ Resume_extracted_text: extracted } as any);
+          } catch (_) {}
+        }
+        if (props.label === 'Cover Letter') {
+          try {
+            chrome.storage.local.set({ Cover_Letter_extracted_text: extracted } as any);
+          } catch (_) {}
+        }
 
-                  })
-                }
+        // Only parse the Resume into fields.
+        if (!isResumeLabel.value) {
+          showToast('Uploaded successfully.', { variant: 'success' });
+          return;
+        }
 
-              ).then((response) => response.json())
-                .then((json) => {
-                  console.log("Gemini API Raw Response:", json);
-                  
-                  if (json.error) {
-                    throw new Error(`Gemini API Error: ${json.error.message || json.error.status}`);
-                  }
+        if (!extracted) {
+          showToast('Upload saved, but could not extract text. Try a different file.', { variant: 'error' });
+          return;
+        }
 
-                  if (!json.candidates || !json.candidates[0]) {
-                    throw new Error("Invalid Gemini response structure: No candidates returned.");
-                  }
+        const apiKey = await new Promise<string>((resolve) => {
+          chrome.storage.sync.get(['API Key'], (res) => resolve(String((res as any)?.['API Key'] || '')));
+        });
 
-                  const candidate = json.candidates[0];
-                  if (candidate.finishReason !== 'STOP' && candidate.finishReason !== undefined) {
-                    throw new Error(`Gemini API stopped unexpectedly. Reason: ${candidate.finishReason}`);
-                  }
+        if (!apiKey) {
+          showToast('Upload saved. Add your Gemini API key in Settings to parse it.', { variant: 'warning' });
+          return;
+        }
 
-                  if (!candidate.content || !candidate.content.parts || !candidate.content.parts[0]) {
-                    throw new Error("Invalid Gemini response structure: Missing content or parts.");
-                  }
+        try {
+          const resObj = await parseResumeFromTextWithGemini(apiKey, extracted);
 
-                  let resText = candidate.content.parts[0].text;
-                  const jsonMatch = resText.match(/\{[\s\S]*\}/);
-                  if (jsonMatch) {
-                    resText = jsonMatch[0];
-                  }
-                  
-                  try {
-                    const resObj = JSON.parse(resText);
-                    console.log("Parsed Gemini Object:", resObj);
-                    
-                    // Save Skills and Experiences to local storage while preserving existing certs
-                    chrome.storage.local.get(['Resume_details'], (result) => {
-                        let existing = result.Resume_details || { skills: [], experiences: [], certifications: [] };
-                        if (typeof existing === 'string') {
-                            try { existing = JSON.parse(existing); } catch(e) { existing = { skills: [], experiences: [], certifications: [] }; }
-                        }
-                        
-                        const updatedLocal = {
-                            skills: resObj.skills || existing.skills || [],
-                            experiences: resObj.experiences || existing.experiences || [],
-                            certifications: resObj.certifications || existing.certifications || []
-                        };
-                        
-                        chrome.storage.local.set({ Resume_details: updatedLocal }, () => {
-                            console.log(`Resume details (skills/exp) updated in local storage.`);
-                            loadDetails();
-                        });
-                    });
-
-                    // Save Profile details to sync storage for other InputFields
-                    if (resObj.profile && typeof resObj.profile === 'object') {
-                        const profileFields = Object.keys(resObj.profile).filter(k => resObj.profile[k]);
-                        if (profileFields.length > 0) {
-                            chrome.storage.sync.set(resObj.profile, () => {
-                                console.log("Profile fields updated in sync storage:", resObj.profile);
-                                showToast(`Success! Identified ${profileFields.length} profile fields from ${props.label}.`, { variant: 'success' });
-                            });
-                        } else {
-                            console.warn("Gemini returned an empty profile object.");
-                        }
-                    }
-
-                  } catch (parseError) {
-                    console.error("Failed to parse Gemini JSON:", parseError, "Raw Text:", resText);
-                    showToast('Upload parsed but the AI response was invalid. Try again, or upload a PDF.', { variant: 'error' });
-                  }
-
-                }).catch((e) => {
-                  console.error('Gemini API Execution Error:', e);
-
-                  const msg = String((e as any)?.message || e || '');
-                  const m = msg.toLowerCase();
-
-                  // DOCX uploads often trip Gemini with: "The document has no pages." (user-facing: keep it simple)
-                  if (m.includes('document has no pages') || m.includes('docx')) {
-                    showToast('Upload failed — try PDF.', { variant: 'warning' });
-                  } else {
-                    showToast('Upload failed — please try again (PDF preferred).', { variant: 'error' });
-                  }
-                });
+          // Save Skills and Experiences to local storage while preserving existing certs
+          chrome.storage.local.get(['Resume_details'], (result) => {
+            let existing: any = (result as any).Resume_details || { skills: [], experiences: [], certifications: [] };
+            if (typeof existing === 'string') {
+              try {
+                existing = JSON.parse(existing);
+              } catch (e) {
+                existing = { skills: [], experiences: [], certifications: [] };
+              }
             }
+
+            const updatedLocal = {
+              skills: resObj.skills || existing.skills || [],
+              experiences: resObj.experiences || existing.experiences || [],
+              certifications: resObj.certifications || existing.certifications || [],
+            };
+
+            chrome.storage.local.set({ Resume_details: updatedLocal }, () => {
+              console.log('Resume details (skills/exp) updated in local storage.');
+              loadDetails();
+            });
           });
-        };
-        reader.readAsDataURL(file);
+
+          // Save Profile details to sync storage for other InputFields
+          if (resObj.profile && typeof resObj.profile === 'object') {
+            const profileFields = Object.keys(resObj.profile).filter((k) => (resObj.profile as any)[k]);
+            if (profileFields.length > 0) {
+              chrome.storage.sync.set(resObj.profile, () => {
+                console.log('Profile fields updated in sync storage:', resObj.profile);
+                showToast(`Success! Identified ${profileFields.length} profile fields from ${props.label}.`, { variant: 'success' });
+              });
+            } else {
+              console.warn('Gemini returned an empty profile object.');
+              showToast('Uploaded successfully, but no profile fields were found.', { variant: 'warning' });
+            }
+          } else {
+            showToast('Upload saved, but the AI response was missing profile fields. Try again.', { variant: 'warning' });
+          }
+        } catch (e: any) {
+          console.error('Gemini resume parse error:', e);
+          showToast('Upload saved, but parsing failed. Try again.', { variant: 'error' });
+        }
+      } catch (e: any) {
+        console.error('Resume upload/parse error:', e);
+        showToast('Upload failed — please try again (PDF/DOCX/TXT).', { variant: 'error' });
       }
     };
     const saveData = () => {
