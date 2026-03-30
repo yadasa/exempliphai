@@ -241,11 +241,12 @@ function toBillableDeductTokens(billUsd) {
 }
 
 async function getBalanceTokens(uid) {
-  // Store balance as a field on the user doc to keep the path valid and simple.
-  // users/{uid}.exempliphai_balance.tokens
-  const ref = db.doc(`users/${uid}`);
+  // Store extension prepaid tokens in a dedicated wallet doc:
+  //   users/{uid}/wallet/extokens
+  // This keeps billing separate from other user fields.
+  const ref = db.doc(`users/${uid}/wallet/extokens`);
   const snap = await ref.get();
-  const tokens = Number(snap.exists ? snap.get('exempliphai_balance.tokens') : 0);
+  const tokens = Number(snap.exists ? snap.get('tokens') : 0);
   return Number.isFinite(tokens) ? tokens : 0;
 }
 
@@ -328,26 +329,23 @@ api.post('/ai/:action', async (req, res) => {
     const bill_usd = your_usd * MARKUP;
     const deduct_tokens = toBillableDeductTokens(bill_usd);
 
-    const userRef = db.doc(`users/${uid}`);
+    const walletRef = db.doc(`users/${uid}/wallet/extokens`);
 
     const new_balance = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(userRef);
-      const cur = Number(snap.exists ? snap.get('exempliphai_balance.tokens') : 0);
+      const snap = await tx.get(walletRef);
+      const cur = Number(snap.exists ? snap.get('tokens') : 0);
       const curTokens = Number.isFinite(cur) ? cur : 0;
       if (curTokens < deduct_tokens) {
         throw new HttpsError('resource-exhausted', 'insufficient_balance');
       }
       const next = curTokens - deduct_tokens;
       tx.set(
-        userRef,
+        walletRef,
         {
-          exempliphai_balance: {
-            tokens: next,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            lifetimeDeductedTokens: admin.firestore.FieldValue.increment(deduct_tokens),
-            lifetimeProviderUsd: admin.firestore.FieldValue.increment(your_usd),
-          },
+          tokens: next,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lifetimeDeductedTokens: admin.firestore.FieldValue.increment(deduct_tokens),
+          lifetimeProviderUsd: admin.firestore.FieldValue.increment(your_usd),
         },
         { merge: true },
       );
