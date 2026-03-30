@@ -85,31 +85,42 @@ function buildJobRecsUserPrompt({
   return `Create ${countMin}-${countMax} job recommendations for this candidate.\n\nReturn ONLY valid JSON with this exact structure:\n{\n  \"version\": \"0.1\",\n  \"generated_at\": \"${new Date().toISOString()}\",\n  \"recommendations\": [\n    {\n      \"title\": \"\",\n      \"company\": \"\",\n      \"location\": \"\",\n      \"salary\": \"\",\n      \"why_match\": \"\",\n      \"links\": [{\"label\": \"\", \"url\": \"https://...\"}]\n    }\n  ]\n}\n\nRules:\n- Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.\n- Keep why_match 1-2 sentences.\n- If you don't know salary, return an empty string.\n- Links MUST be direct job posting or application URLs (no search pages).\n  - Allowed: LinkedIn job posting URLs (e.g. https://www.linkedin.com/jobs/view/...), or company ATS postings (Greenhouse/Lever/Workday/Ashby/SmartRecruiters/Workable/iCIMS), or a company careers posting page.\n  - NOT allowed: Google/Bing/DuckDuckGo search URLs.\n- If you cannot provide a real direct application URL with high confidence, set \"links\" to an empty array (do NOT guess).\n\nDesired location: ${desiredLocation || '(none)'}\n\nProfile:\n${JSON.stringify(profile || {}, null, 2)}\n\nResume details:\n${JSON.stringify(resumeDetails || {}, null, 2)}\n`;
 }
 
-async function geminiGenerateJson({ apiKey, promptText }: { apiKey: string; promptText: string }) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(
-    apiKey
-  )}`;
+async function aiProxyGenerateJson({ promptText }: { promptText: string }) {
+  const input = {
+    contents: [{ role: 'user', parts: [{ text: promptText }] }],
+    generationConfig: {
+      temperature: 1.0,
+      responseMimeType: 'application/json',
+    },
+  };
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: promptText }] }],
-      generationConfig: {
-        temperature: 0.3,
-        responseMimeType: 'application/json',
+  const resp = await new Promise<any>((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        action: 'AI_PROXY',
+        aiAction: 'jobRecs',
+        model: 'gemini-3-pro-preview',
+        input,
       },
-    }),
+      (r) => {
+        const err = chrome.runtime.lastError;
+        if (err) return reject(new Error(String(err.message || err)));
+        resolve(r);
+      }
+    );
   });
 
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json as any)?.error) {
-    const msg = (json as any)?.error?.message || `Gemini HTTP ${res.status}`;
+  if (!resp || resp.ok === false) {
+    const msg = String(resp?.error || 'AI proxy failed');
+    // Surface low balance nicely
+    if (msg === 'low_balance' || msg === 'insufficient_balance') {
+      throw new Error(`Insufficient ExempliPhai token balance. Please top up to continue.`);
+    }
     throw new Error(msg);
   }
 
-  const text = (json as any)?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Gemini response missing text');
+  const text = resp?.result?.text;
+  if (!text) throw new Error('AI proxy response missing text');
 
   const jsonText = extractFirstJsonObject(text) || text;
   return JSON.parse(jsonText);
@@ -233,11 +244,7 @@ async function generateRecommendations() {
   loading.value = true;
 
   try {
-    const apiKey = await new Promise<string>((resolve) => {
-      chrome.storage.sync.get(['API Key'], (res) => resolve(String((res as any)?.['API Key'] || '')));
-    });
-
-    if (!apiKey) throw new Error('Missing Gemini API key. Add it in Settings.');
+    // AI proxy: no client-side API key.
 
     const resumeDetails = await new Promise<any>((resolve) => {
       chrome.storage.local.get(['Resume_details'], (res) => resolve((res as any)?.Resume_details || {}));
@@ -253,7 +260,7 @@ async function generateRecommendations() {
       desiredLocation: desiredLocation.value,
     })}`;
 
-    const out = (await geminiGenerateJson({ apiKey, promptText })) as JobSearchResponse;
+    const out = (await aiProxyGenerateJson({ promptText })) as JobSearchResponse;
     const list = Array.isArray(out?.recommendations) ? out.recommendations : [];
 
     const cleaned = toPlainRecs(

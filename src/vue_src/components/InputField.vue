@@ -298,11 +298,7 @@ export default {
       tailorBusy.value = true;
 
       try {
-        // API key
-        const apiKey = await new Promise<string>((resolve) => {
-          chrome.storage.sync.get(['API Key'], (res) => resolve(String((res as any)?.['API Key'] || '')));
-        });
-        if (!apiKey) throw new Error('Missing Gemini API key. Add it in Settings.');
+        // AI proxy: no client-side API key.
 
         // Resume upload (base64 + mime type + extracted text)
         const resumeLocal = await new Promise<any>((resolve) => {
@@ -330,50 +326,61 @@ export default {
           throw new Error('Upload saved, but resume text is missing. Re-upload your resume and try again.');
         }
 
-        const resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [
-                {
-                  role: 'user',
-                  parts: [
-                    { text: prompt },
-                    ...(resumeMime === 'application/pdf'
-                      ? [
-                          {
-                            inline_data: {
-                              data: resumeB64,
-                              mime_type: 'application/pdf',
-                            },
-                          },
-                        ]
-                      : [
-                          {
-                            text: `\n\n--- RESUME_TEXT_START ---\n${resumeText}\n--- RESUME_TEXT_END ---\n`,
-                          },
-                        ]),
-                  ],
-                },
+        const input = {
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: prompt },
+                ...(resumeMime === 'application/pdf'
+                  ? [
+                      {
+                        inline_data: {
+                          data: resumeB64,
+                          mime_type: 'application/pdf',
+                        },
+                      },
+                    ]
+                  : [
+                      {
+                        text: `\n\n--- RESUME_TEXT_START ---\n${resumeText}\n--- RESUME_TEXT_END ---\n`,
+                      },
+                    ]),
               ],
-              generationConfig: {
-                temperature: 0.25,
-                responseMimeType: 'application/json',
-              },
-            }),
-          }
-        );
+            },
+          ],
+          generationConfig: {
+            temperature: 1.0,
+            responseMimeType: 'application/json',
+          },
+        };
 
-        const json = await resp.json().catch(() => ({}));
-        if (!resp.ok || (json as any)?.error) {
-          const msg = (json as any)?.error?.message || `Gemini HTTP ${resp.status}`;
+        const proxyResp = await new Promise<any>((resolve, reject) => {
+          chrome.runtime.sendMessage(
+            {
+              action: 'AI_PROXY',
+              aiAction: 'resumeTailor',
+              model: 'gemini-3-pro-preview',
+              input,
+            },
+            (r) => {
+              const err = chrome.runtime.lastError;
+              if (err) return reject(new Error(String(err.message || err)));
+              resolve(r);
+            }
+          );
+        });
+
+        if (!proxyResp || proxyResp.ok === false) {
+          const msg = String(proxyResp?.error || 'AI proxy failed');
+          if (msg === 'low_balance' || msg === 'insufficient_balance') {
+            throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+          }
           throw new Error(msg);
         }
 
-        const outText = (json as any)?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (!outText) throw new Error('Gemini response missing text');
+        const outText = proxyResp?.result?.text;
+        if (!outText) throw new Error('AI proxy response missing text');
 
         const s = String(outText);
         const first = s.indexOf('{');
@@ -499,7 +506,7 @@ export default {
       return await extractTextFromTxt(buf);
     };
 
-    const parseResumeFromTextWithGemini = async (apiKey: string, resumeText: string) => {
+    const parseResumeFromTextWithAiProxy = async (resumeText: string) => {
       const prompt = `Identify and extract information from this resume/profile. You will be given plain text extracted from the resume.
 Return ONLY a JSON object with this exact structure:
 {
@@ -552,37 +559,48 @@ Return ONLY a JSON object with this exact structure:
 }
 Ensure all keys match the UI labels exactly. For yes/no fields, return "Yes" or "No". For dates, use full month names.`;
 
-      const resp = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  { text: prompt },
-                  { text: `\n\n--- RESUME_TEXT_START ---\n${resumeText}\n--- RESUME_TEXT_END ---\n` },
-                ],
-              },
+      const input = {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { text: `\n\n--- RESUME_TEXT_START ---\n${resumeText}\n--- RESUME_TEXT_END ---\n` },
             ],
-            generationConfig: {
-              temperature: 0.2,
-              responseMimeType: 'application/json',
-            },
-          }),
-        }
-      );
+          },
+        ],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json',
+        },
+      };
 
-      const json = await resp.json().catch(() => ({} as any));
-      if (!resp.ok || (json as any)?.error) {
-        const msg = (json as any)?.error?.message || `Gemini HTTP ${resp.status}`;
+      const proxyResp = await new Promise<any>((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          {
+            action: 'AI_PROXY',
+            aiAction: 'resumeParse',
+            model: 'gemini-3-flash-preview',
+            input,
+          },
+          (r) => {
+            const err = chrome.runtime.lastError;
+            if (err) return reject(new Error(String(err.message || err)));
+            resolve(r);
+          }
+        );
+      });
+
+      if (!proxyResp || proxyResp.ok === false) {
+        const msg = String(proxyResp?.error || 'AI proxy failed');
+        if (msg === 'low_balance' || msg === 'insufficient_balance') {
+          throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+        }
         throw new Error(msg);
       }
 
-      const outText = (json as any)?.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!outText) throw new Error('Invalid Gemini response: missing text');
+      const outText = proxyResp?.result?.text;
+      if (!outText) throw new Error('Invalid AI proxy response: missing text');
 
       let s = String(outText);
       const m = s.match(/\{[\s\S]*\}/);
@@ -649,17 +667,8 @@ Ensure all keys match the UI labels exactly. For yes/no fields, return "Yes" or 
           return;
         }
 
-        const apiKey = await new Promise<string>((resolve) => {
-          chrome.storage.sync.get(['API Key'], (res) => resolve(String((res as any)?.['API Key'] || '')));
-        });
-
-        if (!apiKey) {
-          showToast('Upload saved. Add your Gemini API key in Settings to parse it.', { variant: 'warning' });
-          return;
-        }
-
         try {
-          const resObj = await parseResumeFromTextWithGemini(apiKey, extracted);
+          const resObj = await parseResumeFromTextWithAiProxy(extracted);
 
           // Save Skills and Experiences to local storage while preserving existing certs
           chrome.storage.local.get(['Resume_details'], (result) => {

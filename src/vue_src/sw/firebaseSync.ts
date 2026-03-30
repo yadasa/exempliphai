@@ -1945,12 +1945,53 @@ export function initFirebaseExtensionSync() {
         action === 'TRACK_APPLIED_JOB' ||
         action === 'SYNC_NOW' ||
         action === 'GET_CLOUD_STATE' ||
-        action === 'LIST_MODE_AUTOFILL_RESULT');
+        action === 'LIST_MODE_AUTOFILL_RESULT' ||
+        action === 'AI_PROXY');
 
     // Let other listeners (e.g., legacyBackground list mode, job context helpers) handle everything else.
     if (!shouldHandle) return;
 
     (async () => {
+      if (msg.action === 'AI_PROXY') {
+        try {
+          if (!authState) authState = await getStoredAuth().catch(() => null);
+          if (!authState) await tryAuthFromAnyExempliphTab('ai_proxy').catch(() => false);
+
+          const aiAction = String(msg?.aiAction || '').trim();
+          const model = String(msg?.model || '').trim() || undefined;
+          const input = msg?.input;
+
+          if (!aiAction) {
+            sendResponse({ ok: false, error: 'missing_aiAction' });
+            return;
+          }
+          if (!input || typeof input !== 'object') {
+            sendResponse({ ok: false, error: 'missing_input' });
+            return;
+          }
+
+          // Default to your custom domain. Override by setting chrome.storage.sync['AI_PROXY_BASE'].
+          const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
+          const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://api.exempliph.ai/api').trim();
+          const url = `${base.replace(/\/$/, '')}/ai/${encodeURIComponent(aiAction)}`;
+
+          const body = JSON.stringify({ model, input });
+          const res = await authedFetch(url, { method: 'POST', body });
+          const json = await res.json().catch(() => ({}));
+
+          if (!res.ok || json?.ok === false) {
+            sendResponse({ ok: false, error: json?.error || `ai_proxy_http_${res.status}`, details: json, status: res.status });
+            return;
+          }
+
+          sendResponse(json);
+          return;
+        } catch (e: any) {
+          sendResponse({ ok: false, error: String(e?.message || e || 'ai_proxy_failed') });
+          return;
+        }
+      }
+
       if (msg.action === 'FIREBASE_WHOAMI') {
         if (!authState) {
           authState = await getStoredAuth().catch(() => null);

@@ -674,30 +674,42 @@ ${question}`
     });
 
     const callGemini = async (parts, { temperature = 0.2 } = {}) => {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts }],
-            generationConfig: { temperature: Number.isFinite(temperature) ? temperature : 0.2 },
-          }),
-        }
-      );
+      const input = {
+        contents: [{ parts }],
+        generationConfig: { temperature: Number.isFinite(temperature) ? temperature : 0.2 },
+      };
 
-      const json = await response.json();
-      if (json?.error) {
-        throw new Error(json.error.message || 'Unknown API Error');
+      const resp = await new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          {
+            action: 'AI_PROXY',
+            aiAction: 'aiAnswer',
+            model: 'gemini-3-flash-preview',
+            input,
+          },
+          (r) => {
+            const err = chrome.runtime.lastError;
+            if (err) return reject(new Error(String(err.message || err)));
+            resolve(r);
+          }
+        );
+      });
+
+      const json = resp || {};
+      if (json?.ok === false) {
+        const msg = String(json?.error || 'AI proxy error');
+        if (msg === 'low_balance' || msg === 'insufficient_balance') {
+          throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+        }
+        throw new Error(msg);
       }
 
-      const candidate = json?.candidates?.[0];
-      const answerText = candidate?.content?.parts?.[0]?.text;
+      const answerText = json?.result?.text;
       if (!answerText) throw new Error('AI response missing text');
 
       // Best-effort token/cost logging (Gemini returns usageMetadata for many models/tiers)
       try {
-        const usage = json?.usageMetadata || json?.usage || {};
+        const usage = json?.usage || {};
         const tokensIn = Number(
           usage.promptTokenCount ?? usage.prompt_tokens ?? usage.inputTokenCount ?? usage.input_tokens ?? 0
         );
@@ -1637,10 +1649,7 @@ async function _saMaybeAutoTailorBeforeAutofill({ source = 'autofill' } = {}) {
   if (st.inFlight) return { ok: false, reason: 'in_flight' };
   if (st.lastPageKey === pageKey && Date.now() - (st.lastAt || 0) < 30_000) return { ok: false, reason: 'recent' };
 
-  // Need a resume + API key
-  const fullSync = (typeof getStorageDataSync === 'function') ? await getStorageDataSync() : {};
-  const apiKey = fullSync && (fullSync['API Key'] || fullSync.apiKey);
-  if (!apiKey) return { ok: false, reason: 'missing_api_key' };
+  // Need a resume
 
   const local = (typeof getStorageDataLocal === 'function') ? await getStorageDataLocal(['Resume', 'Resume_tailored_meta', 'Resume_tailored_pdf']) : {};
   const resumeB64 = String(local?.Resume || '').trim();
@@ -1675,33 +1684,43 @@ async function _saMaybeAutoTailorBeforeAutofill({ source = 'autofill' } = {}) {
 
     const prompt = `You are an expert resume writer.\n\nRewrite the attached resume PDF to match the job description while staying 100% truthful.\nDo NOT invent employers, degrees, certifications, job titles, dates, or technologies not present in the resume.\n\nReturn ONLY valid JSON:\n{\n  \"version\": \"0.1\",\n  \"job_title\": \"\",\n  \"company\": \"\",\n  \"tailored_resume_text\": \"\"\n}\n\nFormatting constraints:\n- Plain text, ATS-friendly\n- 1 page maximum (roughly <= 58 lines)\n- Use clear sections and concise bullet points\n\nJob title: ${title || '(unknown)'}\nCompany: ${company || '(unknown)'}\nPage URL: ${window.location.href}\n\nJob description:\n${jdClip || '(not found)'}\n`;
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const input = {
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }, { inline_data: { data: resumeB64, mime_type: 'application/pdf' } }],
+        },
+      ],
+      generationConfig: { temperature: 1.0, responseMimeType: 'application/json' },
+    };
 
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: prompt },
-              { inline_data: { data: resumeB64, mime_type: 'application/pdf' } },
-            ],
-          },
-        ],
-        generationConfig: { temperature: 0.25, responseMimeType: 'application/json' },
-      }),
+    const proxyResp = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        {
+          action: 'AI_PROXY',
+          aiAction: 'resumeTailor',
+          model: 'gemini-3-pro-preview',
+          input,
+        },
+        (r) => {
+          const err = chrome.runtime.lastError;
+          if (err) return reject(new Error(String(err.message || err)));
+          resolve(r);
+        }
+      );
     });
 
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || json?.error) {
-      const msg = json?.error?.message || `Gemini HTTP ${res.status}`;
+    const json = proxyResp || {};
+    if (json?.ok === false) {
+      const msg = String(json?.error || 'AI proxy error');
+      if (msg === 'low_balance' || msg === 'insufficient_balance') {
+        throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+      }
       throw new Error(msg);
     }
 
-    const outText = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!outText) throw new Error('Gemini response missing text');
+    const outText = json?.result?.text;
+    if (!outText) throw new Error('AI response missing text');
 
     const s = String(outText);
     const first = s.indexOf('{');

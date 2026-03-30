@@ -15,6 +15,10 @@
         "function": "createAttribution"
       },
       {
+        "source": "/api/**",
+        "function": "api"
+      },
+      {
         "source": "/r/**",
         "destination": "/r/index.html"
       }

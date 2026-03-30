@@ -174,6 +174,209 @@ exports.createAttribution = onRequest({ region: REGION }, async (req, res) => {
   }
 });
 
+/**
+ * AI Proxy + prepaid token billing (ExempliPhai).
+ *
+ * IMPORTANT:
+ * - No client-side Gemini keys.
+ * - All AI calls come here with Firebase ID token.
+ * - Server forwards to Gemini with GEMINI_API_KEY.
+ * - Server deducts ExempliPhai token balance (prepaid) in a Firestore transaction.
+ */
+const express = require('express');
+const cors = require('cors');
+
+const TOKENS_PER_USD = 333;
+const MARKUP = 3.33;
+const LOW_BALANCE_THRESHOLD = 30;
+
+// Gemini pricing table (USD per 1M tokens). Keep this updated.
+const GEMINI_USD_PER_1M = {
+  'gemini-3-flash-preview': { input: 0.35, output: 0.53 },
+  'gemini-3-pro-preview': { input: 3.5, output: 10.5 },
+};
+
+function pickModelRates(model) {
+  const m = String(model || '').trim();
+  return GEMINI_USD_PER_1M[m] || GEMINI_USD_PER_1M['gemini-3-pro-preview'];
+}
+
+async function requireUidFromAuthHeader(req) {
+  const h = String(req.get('authorization') || '');
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  if (!m) throw new HttpsError('unauthenticated', 'Missing Authorization Bearer token');
+  const idToken = m[1];
+  const decoded = await admin.auth().verifyIdToken(idToken);
+  if (!decoded?.uid) throw new HttpsError('unauthenticated', 'Invalid token');
+  return decoded.uid;
+}
+
+function extractUsageTokens(geminiJson) {
+  const usage = geminiJson?.usageMetadata || geminiJson?.usage || {};
+  const prompt_tokens = Number(
+    usage.promptTokenCount ?? usage.prompt_tokens ?? usage.inputTokenCount ?? usage.input_tokens ?? 0,
+  );
+  const completion_tokens = Number(
+    usage.candidatesTokenCount ??
+      usage.candidates_tokens ??
+      usage.outputTokenCount ??
+      usage.output_tokens ??
+      usage.completionTokenCount ??
+      0,
+  );
+  return {
+    prompt_tokens: Number.isFinite(prompt_tokens) ? prompt_tokens : 0,
+    completion_tokens: Number.isFinite(completion_tokens) ? completion_tokens : 0,
+  };
+}
+
+function calcProviderUsd({ model, prompt_tokens, completion_tokens }) {
+  const rates = pickModelRates(model);
+  return (prompt_tokens / 1_000_000) * rates.input + (completion_tokens / 1_000_000) * rates.output;
+}
+
+function toBillableDeductTokens(billUsd) {
+  const usd = Number.isFinite(billUsd) ? billUsd : 0;
+  return Math.max(0, Math.ceil(usd * TOKENS_PER_USD));
+}
+
+async function getBalanceTokens(uid) {
+  const ref = db.doc(`users/${uid}/exempliphai_balance`);
+  const snap = await ref.get();
+  const tokens = Number(snap.exists ? snap.get('tokens') : 0);
+  return Number.isFinite(tokens) ? tokens : 0;
+}
+
+const api = express();
+api.use(cors({ origin: true }));
+api.use(express.json({ limit: '2mb' }));
+
+// Balance endpoint for UI
+api.get('/billing/balance', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+    const tokens = await getBalanceTokens(uid);
+    res.json({ ok: true, tokens, low: tokens < LOW_BALANCE_THRESHOLD });
+  } catch (e) {
+    logger.error('balance failed', e);
+    res.status(401).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// AI proxy endpoint
+api.post('/ai/:action', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+    const action = String(req.params.action || '').trim();
+
+    // Enforce low-balance gate BEFORE paying Gemini.
+    const bal = await getBalanceTokens(uid);
+    if (bal < LOW_BALANCE_THRESHOLD) {
+      res.status(402).json({ ok: false, error: 'low_balance', tokens: bal, threshold: LOW_BALANCE_THRESHOLD });
+      return;
+    }
+
+    const model = String(req.body?.model || 'gemini-3-pro-preview').trim();
+    const input = req.body?.input;
+
+    if (!input || typeof input !== 'object') {
+      res.status(400).json({ ok: false, error: 'missing_input' });
+      return;
+    }
+
+    // Allowlist actions (defense in depth)
+    const allowedActions = new Set([
+      'mapFieldsToFillPlan',
+      'generateNarrativeAnswer',
+      'aiAnswer',
+      'resumeTailor',
+      'resumeParse',
+      'jobRecs',
+    ]);
+    if (!allowedActions.has(action)) {
+      res.status(400).json({ ok: false, error: 'invalid_action' });
+      return;
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
+    if (!apiKey) {
+      res.status(500).json({ ok: false, error: 'missing_server_gemini_key' });
+      return;
+    }
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      model,
+    )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    const gRes = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+
+    const json = await gRes.json().catch(() => ({}));
+    if (!gRes.ok || json?.error) {
+      const msg = json?.error?.message || `Gemini HTTP ${gRes.status}`;
+      res.status(502).json({ ok: false, error: msg, details: json?.error || null });
+      return;
+    }
+
+    const { prompt_tokens, completion_tokens } = extractUsageTokens(json);
+    const your_usd = calcProviderUsd({ model, prompt_tokens, completion_tokens });
+    const bill_usd = your_usd * MARKUP;
+    const deduct_tokens = toBillableDeductTokens(bill_usd);
+
+    const balanceRef = db.doc(`users/${uid}/exempliphai_balance`);
+
+    const new_balance = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(balanceRef);
+      const cur = Number(snap.exists ? snap.get('tokens') : 0);
+      const curTokens = Number.isFinite(cur) ? cur : 0;
+      if (curTokens < deduct_tokens) {
+        throw new HttpsError('resource-exhausted', 'insufficient_balance');
+      }
+      const next = curTokens - deduct_tokens;
+      tx.set(
+        balanceRef,
+        {
+          tokens: next,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lifetimeDeductedTokens: admin.firestore.FieldValue.increment(deduct_tokens),
+          lifetimeProviderUsd: admin.firestore.FieldValue.increment(your_usd),
+        },
+        { merge: true },
+      );
+      return next;
+    });
+
+    const outText = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    res.json({
+      ok: true,
+      action,
+      result: { text: String(outText) },
+      provider: { name: 'gemini', model },
+      usage: { prompt_tokens, completion_tokens, total_tokens: prompt_tokens + completion_tokens },
+      billing: {
+        your_usd,
+        bill_usd,
+        deducted_tokens: deduct_tokens,
+        tokens_per_usd: TOKENS_PER_USD,
+        markup: MARKUP,
+      },
+      new_balance,
+    });
+  } catch (e) {
+    logger.error('ai proxy failed', e);
+    const msg = String(e?.message || e);
+    const insufficient = msg.includes('insufficient_balance');
+    res.status(insufficient ? 402 : 500).json({ ok: false, error: insufficient ? 'insufficient_balance' : msg });
+  }
+});
+
+exports.api = onRequest({ region: REGION }, api);
+
+
 exports.applyAttribution = onCall({ region: REGION, cors: true }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");

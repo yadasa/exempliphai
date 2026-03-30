@@ -71,6 +71,31 @@ function asCleanText(x) {
   return String(x);
 }
 
+function proxyGenerateContent({ aiAction, model, input, timeoutMs = 20000 } = {}) {
+  return new Promise((resolve, reject) => {
+    try {
+      const t = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+      chrome.runtime.sendMessage(
+        {
+          action: 'AI_PROXY',
+          aiAction,
+          model,
+          input,
+        },
+        (resp) => {
+          clearTimeout(t);
+          const err = chrome.runtime.lastError;
+          if (err) return reject(new Error(String(err.message || err)));
+          if (!resp || resp.ok === false) return reject(new Error(String(resp?.error || 'ai_proxy_failed')));
+          resolve(resp);
+        }
+      );
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 export function buildTier1MappingSystemPrompt() {
   return `You are a form-field mapping engine for a browser extension.
 
@@ -243,32 +268,49 @@ async function geminiGenerateContent({
   timeoutMs,
   responseMimeType,
   temperature = 0.2,
+  aiAction = 'generateNarrativeAnswer',
+  useProxy = true,
 }) {
-  const url = `${GEMINI_API_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
   // Gemini REST (generativelanguage) supports a top-level systemInstruction in newer APIs,
   // but not consistently across models/versions. We embed system+user prompts into one message
   // to keep behavior predictable.
   const combined = `${systemPrompt}\n\n---\n\n${userPrompt}`;
 
+  const input = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: combined }],
+      },
+    ],
+    generationConfig: {
+      temperature,
+      ...(responseMimeType ? { responseMimeType } : {}),
+    },
+  };
+
+  if (useProxy) {
+    const resp = /** @type {any} */ (await proxyGenerateContent({ aiAction, model, input, timeoutMs }));
+    const text = resp?.result?.text;
+    if (!text) {
+      const err = new Error('AI proxy response missing text');
+      // @ts-ignore
+      err.details = resp;
+      throw err;
+    }
+    return { raw: resp, text };
+  }
+
+  if (!apiKey) throw new Error('Gemini direct mode requires apiKey');
+
+  const url = `${GEMINI_API_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
   const { controller, cancel } = withTimeout(timeoutMs);
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: combined }],
-          },
-        ],
-        generationConfig: {
-          temperature,
-          ...(responseMimeType ? { responseMimeType } : {}),
-        },
-      }),
+      body: JSON.stringify(input),
     });
 
     const json = await res.json().catch(() => ({}));
@@ -318,8 +360,10 @@ async function withRetry(fn, { maxRetries = 2 } = {}) {
  * @returns {AiProvider}
  */
 export function createGeminiProvider(cfg) {
-  const apiKey = cfg?.apiKey;
-  if (!apiKey) throw new Error('Gemini provider requires apiKey');
+  const apiKey = cfg?.apiKey; // legacy direct-mode only
+
+  // By default we run through the server proxy (no client-side keys).
+  const useProxy = cfg?.useProxy !== false;
 
   const model = cfg?.model || GEMINI_DEFAULT_MODEL;
   const timeoutMs = Number.isFinite(cfg?.timeoutMs) ? cfg.timeoutMs : 20000;
@@ -339,6 +383,8 @@ export function createGeminiProvider(cfg) {
             userPrompt,
             timeoutMs: args?.timeoutMs ?? timeoutMs,
             responseMimeType: 'application/json',
+            aiAction: 'mapFieldsToFillPlan',
+            useProxy,
           }),
         { maxRetries: args?.maxRetries ?? maxRetries }
       );
@@ -368,6 +414,8 @@ export function createGeminiProvider(cfg) {
             systemPrompt,
             userPrompt,
             timeoutMs: args?.timeoutMs ?? timeoutMs,
+            aiAction: 'generateNarrativeAnswer',
+            useProxy,
           }),
         { maxRetries: args?.maxRetries ?? maxRetries }
       );
