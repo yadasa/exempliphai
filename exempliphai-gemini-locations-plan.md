@@ -529,75 +529,100 @@ This leverages the existing Firebase auth state (`chrome.storage.local.firebaseA
 
 ---
 
-## 3) Billing plan (token-based, 3.33x markup, $1 per 333 tokens)
+## 3) Billing plan (prepaid ExempliPhai tokens via Stripe)
 
-### Definitions
+### Overview
 
-- Provider token usage:
-  - `provider_total_tokens = prompt_tokens + completion_tokens`
-- Billing markup:
-  - `billed_tokens = ceil(provider_total_tokens * 3.33)`
-- Price:
-  - **$1 per 333 billed tokens**
-  - Effective price per billed token ≈ `$0.003003`
-  - Effective price per provider token ≈ `$0.0100` (because 3.33×)
+- **Prepay:** Users buy **ExempliPhai tokens** via Stripe.
+  - **Exchange rate:** **$1 = 333 tokens**
+  - Store balance in Firestore: `users/{uid}/exempliphai_balance.tokens`
+- **Usage deduction:** Every proxied Gemini call returns usage; the server computes USD cost, applies markup, then deducts tokens **atomically**.
+- **Low balance halt (client):** if `balance < 30`, disable AI actions and show: `Low balance (X tokens)—top up via Stripe`.
 
-### Server-side accounting (Firestore)
+### Firestore schema
 
-Store a billing document keyed by uid, e.g.:
-
-- `users/{uid}/billing/current` (or `billing/{uid}`)
-
-Example fields:
+**Balance doc (authoritative):** `users/{uid}/exempliphai_balance`
 
 ```json
 {
-  "tokenBalance": 10000,
-  "tokenUsedLifetime": 123456,
-  "usdChargedLifetime": 42.00,
-  "plan": "payg|sub",
-  "updatedAt": "..."
+  "tokens": 3330,
+  "updatedAt": "<server timestamp>",
+  "lifetimePurchasedTokens": 9990,
+  "lifetimeDeductedTokens": 6660
 }
 ```
 
-Per request (authoritative billing on server):
+Notes:
+- Only `tokens` is required by this plan; the lifetime fields are optional but useful for audits.
+- Writes to balances should be server-only (Stripe webhook + AI proxy), with client read access for display.
 
-1. Verify auth → uid
-2. (Optional) **pre-check** minimum balance (e.g., require at least 500 tokens)
-3. Call Gemini
-4. Read usage from the Gemini response (`usageMetadata`) **on the server** (do **not** trust client-reported usage for billing)
-5. Compute `billed_tokens = ceil(total_tokens * 3.33)`
-6. Firestore transaction:
-   - decrement `tokenBalance -= billed_tokens`
-   - increment `tokenUsedLifetime += billed_tokens`
-   - (optional) append a per-request usage record (action/model/tokens/latency)
-7. Return `{usage, billed_tokens, remainingBalance}`
+### Usage → USD cost → token deduction
 
-Optional (analytics / transitional period):
-- If any AI calls temporarily remain **client-direct**, or you want client-side aggregated telemetry, the extension can **batch-report** `usage: {prompt_tokens, completion_tokens}` to a separate endpoint (server must treat it as non-authoritative).
+#### Step-by-step (server authoritative)
 
-### Charging users (Stripe / IAP)
+1. Proxy calls Gemini; Gemini responds with `{ result, usage: { prompt_tokens, completion_tokens } }`.
+2. Compute **your** (provider) USD cost:
 
-Two common routes:
+   ```text
+   your_usd = (prompt_tokens / 1_000_000) * input_usd_per_1m
+           + (completion_tokens / 1_000_000) * output_usd_per_1m
+   ```
 
-1) **Token packs (pay-as-you-go)**
-- User buys packs of billed tokens:
-  - 3,330 tokens → $10
-  - 16,650 tokens → $50
-  - 33,300 tokens → $100
-- Stripe Checkout + webhook `checkout.session.completed` updates Firestore balance.
+   Example rates (Gemini Pro-style pricing):
+   - `input_usd_per_1m = 3.50`
+   - `output_usd_per_1m = 10.50`
 
-2) **Subscription**
-- Monthly includes N tokens/month; overage via packs.
-- Stripe subscriptions + monthly refill job (Cloud Scheduler + Function) or webhook-driven refill.
+3. Apply markup:
 
-### UI changes (extension)
+   ```text
+   bill_usd = your_usd * 3.33
+   ```
 
-- Show `Token balance` and `Estimated tokens used` in:
-  - Settings
-  - Job Search tab
-  - Tailor resume modal
-- Provide `Top up` button → opens Stripe Checkout (new tab).
+4. Convert to ExempliPhai tokens and round up:
+
+   ```text
+   deduct_tokens = ceil(bill_usd * 333)
+   ```
+
+5. Firestore **transaction** (atomic):
+   - Read `users/{uid}/exempliphai_balance.tokens`
+   - If `balance < deduct_tokens`, reject the call
+   - Else `balance -= deduct_tokens`
+
+6. Respond to client:
+
+```json
+{
+  "result": { "text": "..." },
+  "usage": { "prompt_tokens": 123, "completion_tokens": 456 },
+  "deducted_tokens": 41,
+  "new_balance": 3289
+}
+```
+
+Important implementation note:
+- To avoid paying Gemini for requests that will later be rejected due to insufficient funds, you typically also do a **pre-check** (e.g., require a minimum balance and/or require balance ≥ worst-case max for that action based on server-enforced output limits). The required behavior above (reject if balance < deduct) should still be enforced in the transaction.
+
+### Stripe “Top Up” (token packs)
+
+- Packs (examples):
+  - **$5 = 1,665 tokens**
+  - **$10 = 3,330 tokens**
+  - **$20 = 6,660 tokens**
+
+Recommended approach:
+- Use fixed Stripe Prices for each pack.
+- Put the token credit amount in `price.metadata.tokens` (or in Checkout Session metadata) so the webhook can credit an exact integer token amount (no rounding).
+- Webhook credits Firestore `users/{uid}/exempliphai_balance.tokens += packTokens` (transaction) and stores the Stripe event/session id for idempotency.
+
+### Client UX
+
+- Add a popup dashboard panel:
+  - Token balance gauge
+  - “Top Up” button → Stripe Checkout
+- After every AI proxy response, update local UI state with `new_balance`.
+- **Low balance halt:**
+  - `if (balance < 30) { disableAiButtons(); notify("Low balance (X tokens)—top up via Stripe"); }`
 
 ---
 
@@ -605,7 +630,7 @@ Two common routes:
 
 > These are **stubs / examples** to illustrate the intended integration. They are not wired into the extension build yet.
 
-### Server stub (Firebase HTTPS function / Express-style)
+### Server stub: AI proxy with prepaid deduction (Firebase HTTPS / Express-style)
 
 ```ts
 // functions/src/aiProxy.ts (example)
@@ -614,18 +639,38 @@ import * as admin from 'firebase-admin';
 
 admin.initializeApp();
 
-type AiAction =
-  | 'mapFieldsToFillPlan'
-  | 'generateNarrativeAnswer'
-  | 'resumeTailor'
-  | 'resumeParse'
-  | 'jobRecs';
+const TOKENS_PER_USD = 333;
+const MARKUP = 3.33;
+
+// Example rates (Gemini Pro-style). Keep these in config per model.
+const USD_PER_1M_INPUT = 3.50;
+const USD_PER_1M_OUTPUT = 10.50;
 
 function requireAuth(req: functions.https.Request) {
   const h = String(req.headers.authorization || '');
   const m = h.match(/^Bearer\s+(.+)$/i);
   if (!m) throw new functions.https.HttpsError('unauthenticated', 'Missing Authorization bearer token');
   return m[1];
+}
+
+function extractUsageTokens(geminiJson: any): { prompt_tokens: number; completion_tokens: number } {
+  const usage = geminiJson?.usageMetadata || geminiJson?.usage || {};
+  const prompt_tokens = Number(
+    usage.promptTokenCount ?? usage.prompt_tokens ?? usage.inputTokenCount ?? usage.input_tokens ?? 0
+  );
+  const completion_tokens = Number(
+    usage.candidatesTokenCount ??
+      usage.candidates_tokens ??
+      usage.outputTokenCount ??
+      usage.output_tokens ??
+      usage.completionTokenCount ??
+      0
+  );
+  return { prompt_tokens, completion_tokens };
+}
+
+function calcProviderUsd({ prompt_tokens, completion_tokens }: { prompt_tokens: number; completion_tokens: number }) {
+  return (prompt_tokens / 1_000_000) * USD_PER_1M_INPUT + (completion_tokens / 1_000_000) * USD_PER_1M_OUTPUT;
 }
 
 export const aiProxy = functions.https.onRequest(async (req, res) => {
@@ -639,17 +684,20 @@ export const aiProxy = functions.https.onRequest(async (req, res) => {
     const decoded = await admin.auth().verifyIdToken(idToken);
     const uid = decoded.uid;
 
-    const action = String(req.path || '').split('/').pop() as AiAction;
     const { model, input } = (req.body || {}) as any;
-
-    // TODO: validate action/model/input sizes
-    // TODO: rate limit per uid
 
     const geminiApiKey = process.env.GEMINI_API_KEY; // set via functions config / secrets
     if (!geminiApiKey) throw new Error('missing_gemini_api_key');
 
-    // TODO: build Gemini REST request body from action+input
-    // NOTE: keep this server-side to avoid key exposure.
+    // OPTIONAL pre-check: block obviously-low balances before calling Gemini.
+    // (Still enforce the post-call transaction check below.)
+    const balanceRef = admin.firestore().doc(`users/${uid}/exempliphai_balance`);
+    const balanceSnap = await balanceRef.get();
+    const currentBalance = Number(balanceSnap.exists ? balanceSnap.get('tokens') : 0);
+    if (!Number.isFinite(currentBalance) || currentBalance < 30) {
+      res.status(402).json({ ok: false, error: 'low_balance', balance: currentBalance });
+      return;
+    }
 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       model || 'gemini-3-pro-preview'
@@ -667,83 +715,220 @@ export const aiProxy = functions.https.onRequest(async (req, res) => {
       return;
     }
 
-    const usage = (json as any)?.usageMetadata || {};
-    const prompt_tokens = Number(usage.promptTokenCount || 0);
-    const completion_tokens = Number(usage.candidatesTokenCount || 0);
-    const total_tokens = prompt_tokens + completion_tokens;
+    const { prompt_tokens, completion_tokens } = extractUsageTokens(json);
 
-    // Billing: billed_tokens = ceil(total_tokens * 3.33)
-    const billed_tokens = Math.ceil(total_tokens * 3.33);
+    const your_usd = calcProviderUsd({ prompt_tokens, completion_tokens });
+    const bill_usd = your_usd * MARKUP;
+    const deduct_tokens = Math.ceil(bill_usd * TOKENS_PER_USD);
 
-    // TODO: Firestore transaction to decrement token balance for uid
+    // Atomic deduct (authoritative): reject if insufficient.
+    const new_balance = await admin.firestore().runTransaction(async (tx) => {
+      const snap = await tx.get(balanceRef);
+      const bal = Number(snap.exists ? snap.get('tokens') : 0);
+      if (!Number.isFinite(bal) || bal < deduct_tokens) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Insufficient token balance');
+      }
+      const next = bal - deduct_tokens;
+      tx.set(
+        balanceRef,
+        {
+          tokens: next,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lifetimeDeductedTokens: admin.firestore.FieldValue.increment(deduct_tokens),
+        },
+        { merge: true }
+      );
+      return next;
+    });
 
     const text = (json as any)?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     res.json({
       ok: true,
-      action,
-      provider: { name: 'gemini', model: model || null },
-      result: { text, raw: null },
-      usage: { prompt_tokens, completion_tokens, total_tokens, billed_tokens },
-      uid,
+      result: { text },
+      usage: { prompt_tokens, completion_tokens },
+      deducted_tokens: deduct_tokens,
+      new_balance,
     });
   } catch (e: any) {
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
+    const msg = String(e?.message || e);
+    res.status(500).json({ ok: false, error: msg });
   }
 });
 ```
 
-### Client stub (MV3 background → server)
+### Server stub: Stripe Checkout + webhook credit
 
 ```ts
-// src/vue_src/sw/aiProxyClient.ts (example)
-// Use the existing firebaseSync authedFetch() pattern: Authorization: Bearer <idToken>
+// functions/src/stripeTopup.ts (example)
+import * as functions from 'firebase-functions';
+import * as admin from 'firebase-admin';
+import Stripe from 'stripe';
 
-export async function callAiProxy(path: string, body: any): Promise<any> {
-  // TODO: reuse existing ensureFreshIdToken()/authedFetch() from firebaseSync.ts
-  const res = await fetch(`https://<YOUR_API_HOST>/api/ai/${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // 'Authorization': `Bearer ${idToken}`
-    },
-    body: JSON.stringify(body),
+admin.initializeApp();
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' });
+
+// 1) Create Checkout session (called by extension server-side, after verifying Firebase auth)
+export const createTopupCheckout = functions.https.onRequest(async (req, res) => {
+  // TODO: verify Firebase ID token → uid (same as aiProxy)
+  const uid = '...';
+
+  const { priceId, successUrl, cancelUrl } = (req.body || {}) as any;
+
+  // Never trust client-supplied token amounts; map priceId → token credit server-side.
+  const PACK_TOKENS_BY_PRICE: Record<string, number> = {
+    // 'price_5usd': 1665,
+    // 'price_10usd': 3330,
+    // 'price_20usd': 6660,
+  };
+  const packTokens = Number(PACK_TOKENS_BY_PRICE[String(priceId)] || 0);
+  if (!Number.isFinite(packTokens) || packTokens <= 0) {
+    res.status(400).json({ ok: false, error: 'invalid_price' });
+    return;
+  }
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    line_items: [{ price: priceId, quantity: 1 }],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    metadata: { uid, tokens: String(packTokens) },
   });
+
+  res.json({ ok: true, url: session.url, packTokens });
+});
+
+// 2) Webhook: credit tokens on checkout.session.completed
+export const stripeWebhook = functions.https.onRequest(async (req, res) => {
+  const sig = String(req.headers['stripe-signature'] || '');
+  const whSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+
+  let evt: Stripe.Event;
+  try {
+    evt = stripe.webhooks.constructEvent(req.rawBody, sig, whSecret);
+  } catch (err: any) {
+    res.status(400).send(`Webhook signature verification failed: ${String(err?.message || err)}`);
+    return;
+  }
+
+  if (evt.type === 'checkout.session.completed') {
+    const session = evt.data.object as Stripe.Checkout.Session;
+    const uid = String(session.metadata?.uid || '');
+    if (!uid) {
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    // Prefer getting the exact token credit from metadata.
+    // Alternative: read the Stripe Price metadata via line items.
+    const packTokens = Number(session.metadata?.tokens || 0);
+
+    if (Number.isFinite(packTokens) && packTokens > 0) {
+      const ref = admin.firestore().doc(`users/${uid}/exempliphai_balance`);
+      await admin.firestore().runTransaction(async (tx) => {
+        tx.set(
+          ref,
+          {
+            tokens: admin.firestore.FieldValue.increment(packTokens),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            lifetimePurchasedTokens: admin.firestore.FieldValue.increment(packTokens),
+          },
+          { merge: true }
+        );
+      });
+    }
+  }
+
+  res.status(200).json({ ok: true });
+});
+```
+
+### Client stub: calling the AI proxy (MV3 background)
+
+```ts
+// In the MV3 service worker (background).
+// Reuse your existing authedFetch(...) which sends Authorization: Bearer <FirebaseIdToken>.
+export async function callAiProxy(aiAction: string, payload: any) {
+  const res = await authedFetch(`https://<YOUR_API_HOST>/api/ai/${encodeURIComponent(aiAction)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json?.ok === false) throw new Error(json?.error || `AI proxy HTTP ${res.status}`);
-  return json;
+
+  return json as {
+    result: any;
+    usage: { prompt_tokens: number; completion_tokens: number };
+    deducted_tokens: number;
+    new_balance: number;
+  };
 }
 ```
 
-### Client stub (content script provider: replace direct Gemini fetch)
+### Client stub: start Stripe Top Up (popup → server → Stripe Checkout)
 
-```js
-// src/public/contentScripts/providers/gemini.js (idea)
-// Replace geminiGenerateContent() internals with a background message call.
-
-async function proxyGenerateContent({ model, systemPrompt, userPrompt, responseMimeType, temperature }) {
-  const combined = `${systemPrompt}\n\n---\n\n${userPrompt}`;
-
-  const input = {
-    contents: [{ role: 'user', parts: [{ text: combined }] }],
-    generationConfig: {
-      temperature,
-      ...(responseMimeType ? { responseMimeType } : {}),
-    },
-  };
-
-  const resp = await chrome.runtime.sendMessage({
-    action: 'AI_PROXY',
-    aiAction: 'generateContent',
-    body: { model, input },
+```ts
+export async function startTopupCheckout(priceId: string) {
+  const res = await authedFetch(`https://<YOUR_API_HOST>/api/billing/topup/checkout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      priceId,
+      successUrl: 'https://<YOUR_APP>/topup/success',
+      cancelUrl: 'https://<YOUR_APP>/topup/cancel',
+    }),
   });
 
-  return resp; // { result.text, usage... }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || json?.ok === false || !json?.url) throw new Error(json?.error || 'missing_checkout_url');
+
+  // In extension UI:
+  chrome.tabs.create({ url: String(json.url) });
 }
+```
+
+### Client stub: low-balance gate
+
+```ts
+function applyBalanceGate(balance: number) {
+  if (balance < 30) {
+    // disable AI buttons & show banner/toast
+    // "Low balance (X tokens)—top up via Stripe"
+  }
+}
+
+// After every AI proxy call:
+// const { new_balance } = await callAiProxy(...)
+// applyBalanceGate(new_balance)
 ```
 
 ---
 
-## Git notes
+## 4) Migration / tests
+
+### Migration
+
+- Create `users/{uid}/exempliphai_balance` docs for existing users.
+- If you have a legacy balance field (e.g., `users/{uid}/billing/current.tokenBalance`), migrate it once:
+  - Copy → `users/{uid}/exempliphai_balance.tokens`
+  - Keep the legacy field read-only during a transition window (optional), then remove.
+- Ensure all AI calls are routed through the proxy before enabling billing enforcement.
+
+### Tests / checks
+
+- Unit tests:
+  - `calcProviderUsd()` and `deduct_tokens = ceil(bill_usd * 333)` rounding behavior.
+  - Edge cases: zero usage, missing usage metadata, very small charges.
+- Integration tests:
+  - Firestore transaction correctness under concurrency (no negative balances).
+  - Insufficient balance returns a clear error and does not change balances.
+- Stripe tests:
+  - Webhook idempotency (same event delivered twice does not double-credit).
+  - Pack token credit matches configured metadata.
+
+### Git notes
 
 - This plan does **not** modify runtime code yet; it documents all current Gemini call sites and the intended proxy/billing migration path.
