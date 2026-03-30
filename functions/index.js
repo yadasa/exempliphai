@@ -377,7 +377,8 @@ api.post('/ai/:action', async (req, res) => {
   }
 });
 
-exports.api = onRequest({ region: REGION }, api);
+// IMPORTANT: declare secrets so Cloud Functions injects them into process.env
+exports.api = onRequest({ region: REGION, secrets: ['GEMINI_API_KEY'] }, api);
 
 
 exports.applyAttribution = onCall({ region: REGION, cors: true }, async (req) => {
