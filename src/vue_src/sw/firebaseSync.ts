@@ -1972,7 +1972,7 @@ export function initFirebaseExtensionSync() {
 
           // Default to your custom domain. Override by setting chrome.storage.sync['AI_PROXY_BASE'].
           const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
-          const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://api.exempliph.ai/api').trim();
+          const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://us-central1-exempliphai.cloudfunctions.net/api').trim();
           const url = `${base.replace(/\/$/, '')}/ai/${encodeURIComponent(aiAction)}`;
 
           const body = JSON.stringify({ model, input });

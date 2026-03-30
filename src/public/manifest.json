@@ -23,6 +23,11 @@
     "https://www.exempliph.ai/*",
     "https://exempliphai.com/*",
     "https://www.exempliphai.com/*",
+
+    "https://us-central1-exempliphai.cloudfunctions.net/*",
+    "https://api-cpaddqfnhq-uc.a.run.app/*",
+    "https://api.exempliph.ai/*",
+
     "https://firestore.googleapis.com/*",
     "https://securetoken.googleapis.com/*",
     "https://firebasestorage.googleapis.com/*"
