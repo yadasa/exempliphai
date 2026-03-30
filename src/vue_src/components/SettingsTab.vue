@@ -3,10 +3,6 @@
         <AccountSyncCard />
 
         <h2 class="subheading">General</h2>
-        <InputField label="API Key" explanation="The API Key field requires a Gemini-1.5-flash api key." placeHolder="AIyKwaSyBTOk..." />
-        <p style="margin-top: 0.5rem; color: var(--text-secondary); font-size: 0.9rem;">
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color: var(--accent-color); text-decoration: none;">Get a free API Key here</a>
-        </p>
 
         <div class="toggle-container" style="margin: 0.75rem 0 0.35rem 0;">
             <label class="switch">
@@ -145,35 +141,14 @@
                     </span>
                 </div>
                 <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
-                    Sends only form field labels/options + a list of your saved profile key names to Gemini (not your profile values).
+                    Sends job-form field labels/options + a list of your saved profile key names to the Exempliphai AI proxy (not your profile values).
                 </p>
 
                 <button @click="triggerAI" class="action-btn export-btn">AI Answer Last Right-Click Field</button>
                 <button @click="generateAllPending" class="action-btn export-btn" style="margin-top: 0.5rem;">Generate All Pending</button>
             </div>
 
-            <div class="action-card">
-                <h3>AI Usage</h3>
-                <p>Tracks token usage returned by Gemini and estimates cost using Gemini 1.5 Flash rates. Stored locally (last 1000 generations).</p>
-
-                <div v-if="aiUsageTotalGens > 0" class="listmode-status" style="margin-top: 0.5rem;">
-                    <div class="status-row"><b>Total generations:</b> {{ aiUsageTotalGens }}</div>
-                    <div class="status-row"><b>Tokens:</b> in {{ aiUsageTokensIn.toLocaleString() }}, out {{ aiUsageTokensOut.toLocaleString() }}, total {{ aiUsageTokensTotal.toLocaleString() }}</div>
-                    <div class="status-row"><b>Estimated cost:</b> {{ aiUsageCostCentsDisplay }}¢</div>
-                </div>
-                <p v-else style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
-                    No AI usage logged yet.
-                </p>
-
-                <button
-                    @click="clearAiUsageLog"
-                    class="action-btn"
-                    style="margin-top: 0.5rem; background: linear-gradient(135deg, #ef4444, #b91c1c); color: white; box-shadow: 0 18px 35px rgba(239, 68, 68, 0.22);"
-                    :disabled="aiUsageTotalGens === 0"
-                >
-                    Clear AI Usage Log
-                </button>
-            </div>
+            <!-- AI Usage panel removed (billing is handled via extokens + server proxy). -->
 
             <!-- Import/export + legacy cloud sync removed (Firebase sync is in Account & Sync card). -->
         </div>

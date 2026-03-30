@@ -391,6 +391,12 @@ export default {
         const t = String(out?.tailored_resume_text || '').trim();
         if (!t) throw new Error('No tailored_resume_text returned.');
 
+        // Guardrail: avoid silent no-op tailoring.
+        const norm = (x: string) => String(x || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        if (resumeText && norm(t) === norm(resumeText)) {
+          throw new Error('Tailoring produced no meaningful changes. Try a different job page / ensure a job description is detected.');
+        }
+
         tailoredText.value = t;
         let pageKey = pageUrl;
         try {

@@ -82,7 +82,7 @@ function buildJobRecsUserPrompt({
   countMin?: number;
   countMax?: number;
 } = {}): string {
-  return `Create ${countMin}-${countMax} job recommendations for this candidate.\n\nReturn ONLY valid JSON with this exact structure:\n{\n  \"version\": \"0.1\",\n  \"generated_at\": \"${new Date().toISOString()}\",\n  \"recommendations\": [\n    {\n      \"title\": \"\",\n      \"company\": \"\",\n      \"location\": \"\",\n      \"salary\": \"\",\n      \"why_match\": \"\",\n      \"links\": [{\"label\": \"\", \"url\": \"https://...\"}]\n    }\n  ]\n}\n\nRules:\n- Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.\n- Keep why_match 1-2 sentences.\n- If you don't know salary, return an empty string.\n- Links MUST be direct job posting or application URLs (no search pages).\n  - Allowed: LinkedIn job posting URLs (e.g. https://www.linkedin.com/jobs/view/...), or company ATS postings (Greenhouse/Lever/Workday/Ashby/SmartRecruiters/Workable/iCIMS), or a company careers posting page.\n  - NOT allowed: Google/Bing/DuckDuckGo search URLs.\n- If you cannot provide a real direct application URL with high confidence, set \"links\" to an empty array (do NOT guess).\n\nDesired location: ${desiredLocation || '(none)'}\n\nProfile:\n${JSON.stringify(profile || {}, null, 2)}\n\nResume details:\n${JSON.stringify(resumeDetails || {}, null, 2)}\n`;
+  return `Create ${countMin}-${countMax} job recommendations for this candidate.\n\nReturn ONLY valid JSON with this exact structure:\n{\n  \"version\": \"0.1\",\n  \"generated_at\": \"${new Date().toISOString()}\",\n  \"recommendations\": [\n    {\n      \"title\": \"\",\n      \"company\": \"\",\n      \"location\": \"\",\n      \"salary\": \"\",\n      \"why_match\": \"\",\n      \"links\": [{\"label\": \"\", \"url\": \"https://...\"}]\n    }\n  ]\n}\n\nRules:\n- Include 10-15 recommendations; mostly strong matches plus a few stretch upgrades.\n- Keep why_match 1-2 sentences.\n- If you don't know salary, return an empty string.\n- Links MUST be actual job posting/apply URLs (no search pages).\n  - Prefer: LinkedIn job posting URLs (https://www.linkedin.com/jobs/view/...), or company ATS postings (Greenhouse/Lever/Workday/Ashby/SmartRecruiters/Workable/iCIMS), or a company careers/job posting page.\n  - NOT allowed: Google/Bing/DuckDuckGo search URLs.\n- Provide 1–3 links per recommendation whenever possible.\n  - If you cannot find a perfect direct apply link, include the company careers page as a fallback (still not a search engine).\n\nDesired location: ${desiredLocation || '(none)'}\n\nProfile:\n${JSON.stringify(profile || {}, null, 2)}\n\nResume details:\n${JSON.stringify(resumeDetails || {}, null, 2)}\n`;
 }
 
 async function aiProxyGenerateJson({ promptText }: { promptText: string }) {
@@ -419,12 +419,12 @@ watch(
         Generate 10–15 job recommendations based on your saved resume details.
       </p>
 
-      <div style="display:flex; gap:0.5rem; align-items:center;">
+      <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap: wrap;">
         <input
           v-model="desiredLocation"
           type="text"
           placeholder="Desired location (optional)"
-          style="flex:1; padding: 10px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);"
+          style="flex:1; min-width: 220px; padding: 10px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);"
         />
 
         <button

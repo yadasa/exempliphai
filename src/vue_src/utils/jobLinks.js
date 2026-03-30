@@ -84,10 +84,17 @@ export function isDirectApplicationUrl(url) {
 
 export function filterDirectApplicationLinks(links) {
   const arr = Array.isArray(links) ? links : [];
+
   return arr
-    .map((l) => ({
-      label: l?.label ? String(l.label) : '',
-      url: normalizeUrl(l?.url || ''),
-    }))
+    .map((l) => {
+      // Allow either {label,url} objects OR plain string URLs.
+      if (typeof l === 'string') {
+        return { label: '', url: normalizeUrl(l) };
+      }
+      return {
+        label: l?.label ? String(l.label) : '',
+        url: normalizeUrl(l?.url || ''),
+      };
+    })
     .filter((l) => isDirectApplicationUrl(l.url));
 }
