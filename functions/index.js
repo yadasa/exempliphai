@@ -205,10 +205,25 @@ exports.createAttribution = onRequest({ region: REGION }, async (req, res) => {
  */
 const express = require('express');
 const cors = require('cors');
+const Stripe = require('stripe');
 
 const TOKENS_PER_USD = 333;
 const MARKUP = 3.33;
 const LOW_BALANCE_THRESHOLD = 30;
+
+const TOKEN_PACKS = {
+  1: 250,
+  5: 1500,
+  10: 3330,
+  25: 8890,
+  50: 19000,
+};
+
+function getStripeClient() {
+  const key = String(process.env.STRIPE_SECRET_KEY || '').trim();
+  if (!key) throw new HttpsError('failed-precondition', 'stripe_not_configured');
+  return new Stripe(key);
+}
 
 // SerpAPI (Google Jobs) billing: SerpAPI does not return per-request cost.
 // We bill a configurable USD amount per request (your cost), then apply the same markup.
@@ -332,6 +347,66 @@ async function getBalanceTokens(uid) {
 
 const api = express();
 api.use(cors({ origin: true }));
+
+// Stripe webhooks must verify the raw request body. This must run BEFORE express.json.
+api.post(
+  ['/stripe/webhook', '/api/stripe/webhook'],
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    try {
+      const stripe = getStripeClient();
+      const secret = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+      if (!secret) throw new HttpsError('failed-precondition', 'stripe_webhook_not_configured');
+
+      const sig = String(req.get('stripe-signature') || '');
+      const rawBody = req.rawBody || req.body;
+
+      let evt;
+      try {
+        evt = stripe.webhooks.constructEvent(rawBody, sig, secret);
+      } catch (e) {
+        res.status(400).send(`Webhook Error: ${String(e?.message || e)}`);
+        return;
+      }
+
+      if (evt.type === 'checkout.session.completed') {
+        const session = evt.data.object;
+        const uid = String(session?.metadata?.uid || '').trim();
+        const tokens = Number(session?.metadata?.tokens || 0);
+        const usd = Number(session?.metadata?.usd || 0);
+
+        if (uid && Number.isFinite(tokens) && tokens > 0) {
+          const walletRef = db.doc(`users/${uid}/wallet/extokens`);
+          await db.runTransaction(async (tx) => {
+            tx.set(
+              walletRef,
+              {
+                tokens: admin.firestore.FieldValue.increment(tokens),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                lifetimePurchasedTokens: admin.firestore.FieldValue.increment(tokens),
+                lifetimePurchasedUsd: admin.firestore.FieldValue.increment(Number.isFinite(usd) ? usd : 0),
+                lastTopUp: {
+                  tokens,
+                  usd: Number.isFinite(usd) ? usd : null,
+                  sessionId: String(session?.id || ''),
+                  at: admin.firestore.FieldValue.serverTimestamp(),
+                },
+              },
+              { merge: true },
+            );
+          });
+        }
+      }
+
+      res.json({ received: true });
+    } catch (e) {
+      logger.error('stripe webhook failed', e);
+      // Stripe treats non-2xx as retry; return 500 only for transient errors.
+      res.status(500).json({ ok: false, error: 'internal' });
+    }
+  },
+);
+
 api.use(express.json({ limit: '2mb' }));
 
 // Some Firebase Hosting rewrites forward the full path (e.g. /api/...)
@@ -645,6 +720,54 @@ apiRouter.get('/billing/balance', async (req, res) => {
     res.json({ ok: true, tokens, low: tokens < LOW_BALANCE_THRESHOLD });
   } catch (e) {
     logger.error('balance failed', e);
+    sendHttpError(res, e);
+  }
+});
+
+// Stripe checkout for buying tokens (website)
+apiRouter.post('/tokens/checkout', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+
+    const usd = Number(req.body?.usd || 0);
+    const usdKey = String(usd);
+    const tokens = TOKEN_PACKS[usdKey];
+    if (!tokens) {
+      res.status(400).json({ ok: false, error: 'invalid_pack' });
+      return;
+    }
+
+    const stripe = getStripeClient();
+
+    const origin = String(req.get('origin') || 'https://exempliph.ai');
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            unit_amount: Math.round(usd * 100),
+            product_data: {
+              name: `ExempliPhai Tokens`,
+              description: `${tokens.toLocaleString()} tokens`,
+            },
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: `${origin}/tokens?success=1&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/tokens?canceled=1`,
+      metadata: {
+        uid,
+        usd: String(usd),
+        tokens: String(tokens),
+      },
+    });
+
+    res.json({ ok: true, url: session.url });
+  } catch (e) {
+    logger.error('tokens/checkout failed', e);
     sendHttpError(res, e);
   }
 });
