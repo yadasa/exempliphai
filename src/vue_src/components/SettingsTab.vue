@@ -28,7 +28,7 @@
             </span>
         </div>
         <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
-            When enabled, Exempliphai will attempt to extract the job description from the current tab, tailor your resume with Gemini, and upload the tailored version.
+            When enabled, this will attempt to extract the job description from the current tab, tailor your resume with exempliphai, and upload the tailored version.
         </p>
 
         <div class="range-container" style="margin: 0.9rem 0 0.35rem 0;">

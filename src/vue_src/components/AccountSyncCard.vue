@@ -276,7 +276,7 @@ function startPolling() {
       if (w?.authed) {
         dbg('poll: already authed');
         stopPolling();
-        setMessage('Connected. Firebase sync enabled.');
+        setMessage('Connected');
         return;
       }
 
@@ -291,7 +291,7 @@ function startPolling() {
       dbg('poll: tryConnectFromAnyExempliphTab result', { ok });
       if (ok) {
         stopPolling();
-        setMessage('Connected. Firebase sync enabled.');
+        setMessage('Connected');
       }
     })().catch((e) => {
       dbg('poll tick failed', { error: String((e as any)?.message || e) });
@@ -311,7 +311,7 @@ async function signIn() {
     if (tab?.id && isExempliphUrl(String(tab.url || ''))) {
       const ok = await tryConnectFromTab(tab.id).catch(() => false);
       if (ok) {
-        setMessage('Connected. Firebase sync enabled.');
+        setMessage('Connected');
         return;
       }
     }
@@ -398,7 +398,7 @@ onMounted(() => {
   tryConnectFromAnyExempliphTab()
     .then((ok) => {
       dbg('mounted: tryConnectFromAnyExempliphTab', { ok });
-      if (ok) setMessage('Connected. Firebase sync enabled.');
+      if (ok) setMessage('Connected');
     })
     .catch(() => {});
 

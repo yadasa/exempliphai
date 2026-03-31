@@ -8,15 +8,40 @@ import EnterCertification from '@/components/EnterCertification.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 import { useTheme } from '@/composables/Theme';
 
-import { nextTick, onMounted } from 'vue';
+import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import LogoMain from '@/assets/logo-main.png';
 
 const { loadTheme } = useTheme();
 const route = useRoute();
 const router = useRouter();
 
+const tokensBalance = ref<number | null>(null);
+let balanceTimer: any = null;
+
+const refreshBalance = async () => {
+  if (!chrome?.runtime?.sendMessage) return;
+  await new Promise<void>((resolve) => {
+    chrome.runtime.sendMessage({ action: 'BILLING_BALANCE' }, (resp) => {
+      const err = chrome?.runtime?.lastError;
+      if (err) {
+        tokensBalance.value = null;
+        resolve();
+        return;
+      }
+      const t = Number((resp as any)?.tokens ?? 0);
+      tokensBalance.value = Number.isFinite(t) ? t : null;
+      resolve();
+    });
+  });
+};
+
 onMounted(() => {
   loadTheme();
+
+  // Initial token balance for the header.
+  void refreshBalance();
+  balanceTimer = setInterval(() => void refreshBalance(), 30_000);
 
   chrome.action?.onClicked?.addListener(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -25,6 +50,11 @@ onMounted(() => {
       chrome.tabs.sendMessage(tabId, { action: 'TRIGGER_AI_REPLY' });
     });
   });
+});
+
+onUnmounted(() => {
+  if (balanceTimer) clearInterval(balanceTimer);
+  balanceTimer = null;
 });
 
 const go = async (path: string) => {
@@ -45,11 +75,19 @@ const isActive = (name: string) => route.name === name;
   <ToastHost />
 
   <div class="app-container">
-    <div class="headerDiv">
-      <h1 class="aSelfTop">Exempliphai</h1>
-      <div class="aRight gap-2">
-        <ThemeToggle />
-        <PrivacyToggle />
+    <div class="headerWrap">
+      <div class="headerDiv">
+        <div class="brandLeft">
+          <img :src="LogoMain" alt="exempliphai" class="brandLogo" />
+          <h1 class="aSelfTop">exempliphai</h1>
+        </div>
+        <div class="aRight gap-2">
+          <ThemeToggle />
+          <PrivacyToggle />
+        </div>
+      </div>
+      <div v-if="tokensBalance !== null" class="headerBalance">
+        {{ tokensBalance.toLocaleString() }} tokens
       </div>
     </div>
 
@@ -85,6 +123,39 @@ const isActive = (name: string) => route.name === name;
   height: 600px; /* Fixed height for extension popup */
   width: 400px;
   background: var(--bg-primary);
+}
+
+.headerWrap {
+  position: relative;
+}
+
+.brandLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.brandLogo {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: 0 0 auto;
+}
+
+.headerBalance {
+  position: absolute;
+  right: 1.35rem;
+  bottom: -0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.28rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-1);
 }
 
 .content-area {
