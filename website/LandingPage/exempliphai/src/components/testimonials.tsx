@@ -44,6 +44,7 @@ type Testimonial = {
 
 type TestimonialSubmission = {
   name: string;
+  role: string;
   quote: string;
   avatarDataUrl?: string | null;
 };
@@ -107,8 +108,11 @@ export function Testimonials() {
   const [testimonials, setTestimonials] = useState<Testimonial[]>(SEED_TESTIMONIALS);
 
   const [name, setName] = useState("");
+  const [role, setRole] = useState("");
   const [quote, setQuote] = useState("");
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
+
+  const [submitOpen, setSubmitOpen] = useState(false);
 
   const [pending, setPending] = useState<TestimonialSubmission | null>(null);
   const [stage, setStage] = useState<SubmitStage>("idle");
@@ -159,7 +163,7 @@ export function Testimonials() {
     [testimonials],
   );
 
-  const canSubmit = name.trim().length > 0 && quote.trim().length > 0;
+  const canSubmit = name.trim().length > 0 && role.trim().length > 0 && quote.trim().length > 0;
 
   const onPickPhoto = async (file: File | null) => {
     if (!file) {
@@ -192,6 +196,7 @@ export function Testimonials() {
     // Phase 1: capture the testimonial content and prompt for phone verification.
     setPending({
       name: name.trim(),
+      role: role.trim(),
       quote: quote.trim(),
       avatarDataUrl,
     });
@@ -284,6 +289,7 @@ export function Testimonials() {
 
       await addDoc(collection(fb.db, "testimonials"), {
         name: pending.name,
+        role: pending.role,
         quote: pending.quote,
         avatarDataUrl: pending.avatarDataUrl || null,
         source: "landing",
@@ -297,15 +303,17 @@ export function Testimonials() {
         {
           quote: formatQuote(pending.quote),
           name: pending.name,
-          role: "Submitted testimonial",
+          role: pending.role || "Submitted testimonial",
           avatarImg: pending.avatarDataUrl || AVATARS[cur.length % AVATARS.length],
         },
       ]);
 
       setName("");
+      setRole("");
       setQuote("");
       setAvatarDataUrl(null);
       resetVerificationFlow();
+      setSubmitOpen(false);
       showToast(uiText("Submitted!"));
     } catch (err) {
       console.error("verifyCodeAndSubmit failed", err);
@@ -373,26 +381,39 @@ export function Testimonials() {
         </div>
 
         <div className="mx-auto mt-10 max-w-3xl rounded-2xl border border-muted bg-card p-6 md:p-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3
-                id="submit-testimonial"
-                className="text-lg font-semibold tracking-tight"
-              >
-                {uiText("Submit a testimonial")}
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {uiText(
-                  "Share what helped you apply faster. (We may lightly edit for length.)",
-                )}
-              </p>
-            </div>
-            <a href="#submit-testimonial" className="text-sm text-primary underline">
-              {uiText("Jump to form")}
-            </a>
-          </div>
+          {!submitOpen ? (
+            <button
+              type="button"
+              onClick={() => setSubmitOpen(true)}
+              className="w-full text-center text-sm font-semibold text-primary underline"
+            >
+              {uiText("Submit a testimonial")}
+            </button>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 id="submit-testimonial" className="text-lg font-semibold tracking-tight">
+                    {uiText("Submit a testimonial")}
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {uiText(
+                      "Share what helped you apply faster. (We may lightly edit for length.)",
+                    )}
+                  </p>
+                </div>
 
-          <form className="mt-6 grid gap-4" onSubmit={submit}>
+                <button
+                  type="button"
+                  onClick={() => setSubmitOpen(false)}
+                  className="text-xs text-muted-foreground underline"
+                >
+                  {uiText("Close")}
+                </button>
+              </div>
+
+              <form className="mt-6 grid gap-4" onSubmit={submit}>
+
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-1">
                 <span className="text-sm font-medium">{uiText("Name")}</span>
@@ -400,6 +421,17 @@ export function Testimonials() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={uiText("Your name")}
+                  disabled={stage !== "idle"}
+                  className="h-11 w-full rounded-md border border-muted bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
+                />
+              </label>
+
+              <label className="grid gap-1">
+                <span className="text-sm font-medium">{uiText("Your role")}</span>
+                <input
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  placeholder={uiText("e.g., Sales Engineer")}
                   disabled={stage !== "idle"}
                   className="h-11 w-full rounded-md border border-muted bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
                 />
@@ -540,6 +572,8 @@ export function Testimonials() {
               </button>
             </div>
           </form>
+            </>
+          )}
         </div>
 
         {toast ? (
