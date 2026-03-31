@@ -304,7 +304,7 @@ async function generateRecommendations() {
       chrome.runtime.sendMessage(
         {
           action: 'SEARCH_PROXY',
-          searchAction: 'googleJobs',
+          searchAction: 'jobs',
           payload,
         },
         (r) => {

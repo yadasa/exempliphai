@@ -192,7 +192,7 @@ const LOW_BALANCE_THRESHOLD = 30;
 
 // SerpAPI (Google Jobs) billing: SerpAPI does not return per-request cost.
 // We bill a configurable USD amount per request (your cost), then apply the same markup.
-const SERPAPI_USD_PER_REQUEST = Number(process.env.SERPAPI_USD_PER_REQUEST || 0.015); // default ~ $75 / 5000 searches
+const SERPAPI_USD_PER_REQUEST = Number(process.env.SERPAPI_USD_PER_REQUEST || 0.033); // default: 3.3¢ per search
 
 // Gemini pricing table (USD per 1M tokens). Keep this updated.
 const GEMINI_USD_PER_1M = {
@@ -305,40 +305,36 @@ api.get('/billing/balance', async (req, res) => {
 });
 
 // SerpAPI search endpoint(s)
-api.post('/search/:action', async (req, res) => {
-  try {
-    const uid = await requireUidFromAuthHeader(req);
-    const action = String(req.params.action || '').trim();
+// Preferred endpoints:
+//   POST /search/jobs  (SerpAPI engine=google_jobs)
+//   POST /search/web   (SerpAPI engine=google)
+// Back-compat:
+//   POST /search/:action   where action in { jobs, web }
+async function handleSerpSearch(req, res, action) {
+  const uid = await requireUidFromAuthHeader(req);
 
-    // Enforce low-balance gate BEFORE paying SerpAPI.
-    const bal = await getBalanceTokens(uid);
-    if (bal < LOW_BALANCE_THRESHOLD) {
-      res.status(402).json({ ok: false, error: 'low_balance', tokens: bal, threshold: LOW_BALANCE_THRESHOLD });
-      return;
-    }
+  // Enforce low-balance gate BEFORE paying SerpAPI.
+  const bal = await getBalanceTokens(uid);
+  if (bal < LOW_BALANCE_THRESHOLD) {
+    res.status(402).json({ ok: false, error: 'low_balance', tokens: bal, threshold: LOW_BALANCE_THRESHOLD });
+    return;
+  }
 
-    const serpKey = process.env.SERPAPI_API_KEY;
-    if (!serpKey) {
-      res.status(500).json({ ok: false, error: 'missing_server_serpapi_key' });
-      return;
-    }
+  const serpKey = process.env.SERPAPI_API_KEY;
+  if (!serpKey) {
+    res.status(500).json({ ok: false, error: 'missing_server_serpapi_key' });
+    return;
+  }
 
-    // Allowlist search actions
-    const allowed = new Set(['googleJobs']);
-    if (!allowed.has(action)) {
-      res.status(400).json({ ok: false, error: 'invalid_action' });
-      return;
-    }
+  const q = String(req.body?.q || '').trim();
+  const location = String(req.body?.location || '').trim();
+  const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 20)));
+  if (!q) {
+    res.status(400).json({ ok: false, error: 'missing_q' });
+    return;
+  }
 
-    const q = String(req.body?.q || '').trim();
-    const location = String(req.body?.location || '').trim();
-    const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 20)));
-
-    if (!q) {
-      res.status(400).json({ ok: false, error: 'missing_q' });
-      return;
-    }
-
+  if (action === 'jobs') {
     const params = new URLSearchParams();
     params.set('engine', 'google_jobs');
     params.set('q', q);
@@ -369,21 +365,14 @@ api.post('/search/:action', async (req, res) => {
         posted_at: String(j?.detected_extensions?.posted_at || '').trim(),
         schedule_type: String(j?.detected_extensions?.schedule_type || '').trim(),
         apply_options: apply
-          .map((a) => ({
-            title: String(a?.title || '').trim(),
-            link: String(a?.link || '').trim(),
-          }))
+          .map((a) => ({ title: String(a?.title || '').trim(), link: String(a?.link || '').trim() }))
           .filter((a) => a.link),
         related_links: related
-          .map((l) => ({
-            text: String(l?.text || '').trim(),
-            link: String(l?.link || '').trim(),
-          }))
+          .map((l) => ({ text: String(l?.text || '').trim(), link: String(l?.link || '').trim() }))
           .filter((l) => l.link),
       };
     });
 
-    // Bill SerpAPI as a fixed USD per-request cost.
     const charge = await deductWalletUsd({
       uid,
       your_usd: SERPAPI_USD_PER_REQUEST,
@@ -392,7 +381,7 @@ api.post('/search/:action', async (req, res) => {
 
     res.json({
       ok: true,
-      action,
+      action: 'jobs',
       provider: { name: 'serpapi', engine: 'google_jobs' },
       query: { q, location, limit },
       results: out,
@@ -405,6 +394,88 @@ api.post('/search/:action', async (req, res) => {
       },
       new_balance: charge.new_balance,
     });
+    return;
+  }
+
+  if (action === 'web') {
+    const params = new URLSearchParams();
+    params.set('engine', 'google');
+    params.set('q', q);
+    if (location) params.set('location', location);
+    params.set('hl', 'en');
+    params.set('api_key', serpKey);
+
+    const url = `https://serpapi.com/search.json?${params.toString()}`;
+    const sRes = await fetch(url, { method: 'GET' });
+    const json = await sRes.json().catch(() => ({}));
+
+    if (!sRes.ok || json?.error) {
+      res.status(502).json({ ok: false, error: json?.error || `serpapi_http_${sRes.status}`, details: json });
+      return;
+    }
+
+    const org = Array.isArray(json?.organic_results) ? json.organic_results : [];
+    const out = org.slice(0, limit).map((r) => ({
+      position: Number(r?.position || 0) || null,
+      title: String(r?.title || '').trim(),
+      link: String(r?.link || '').trim(),
+      snippet: String(r?.snippet || '').trim(),
+      source: String(r?.source || '').trim(),
+    })).filter((r) => r.link || r.snippet);
+
+    const charge = await deductWalletUsd({
+      uid,
+      your_usd: SERPAPI_USD_PER_REQUEST,
+      meta: { kind: 'search', provider: 'serpapi', engine: 'google', action, q, location },
+    });
+
+    res.json({
+      ok: true,
+      action: 'web',
+      provider: { name: 'serpapi', engine: 'google' },
+      query: { q, location, limit },
+      results: out,
+      billing: {
+        your_usd: SERPAPI_USD_PER_REQUEST,
+        bill_usd: charge.bill_usd,
+        deducted_tokens: charge.deducted_tokens,
+        tokens_per_usd: TOKENS_PER_USD,
+        markup: MARKUP,
+      },
+      new_balance: charge.new_balance,
+    });
+    return;
+  }
+
+  res.status(400).json({ ok: false, error: 'invalid_action' });
+}
+
+api.post('/search/jobs', async (req, res) => {
+  try {
+    await handleSerpSearch(req, res, 'jobs');
+  } catch (e) {
+    logger.error('search/jobs failed', e);
+    const msg = String(e?.message || e);
+    const insufficient = msg.includes('insufficient_balance');
+    res.status(insufficient ? 402 : 500).json({ ok: false, error: insufficient ? 'insufficient_balance' : msg });
+  }
+});
+
+api.post('/search/web', async (req, res) => {
+  try {
+    await handleSerpSearch(req, res, 'web');
+  } catch (e) {
+    logger.error('search/web failed', e);
+    const msg = String(e?.message || e);
+    const insufficient = msg.includes('insufficient_balance');
+    res.status(insufficient ? 402 : 500).json({ ok: false, error: insufficient ? 'insufficient_balance' : msg });
+  }
+});
+
+api.post('/search/:action', async (req, res) => {
+  try {
+    const action = String(req.params.action || '').trim();
+    await handleSerpSearch(req, res, action);
   } catch (e) {
     logger.error('search proxy failed', e);
     const msg = String(e?.message || e);

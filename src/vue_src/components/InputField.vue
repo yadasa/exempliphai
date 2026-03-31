@@ -352,7 +352,41 @@ export default {
         const pageUrl = String(jobCtx?.pageUrl || '');
         const jobTitle = String(jobCtx?.title || jobCtx?.jobTitle || '').trim();
         const company = String(jobCtx?.company || '').trim();
-        const jd = String(jobCtx?.description || jobCtx?.jobDescription || '').trim();
+        let jd = String(jobCtx?.description || jobCtx?.jobDescription || '').trim();
+
+        // If no job description detected, use SerpAPI normal Google search to pull a snippet.
+        // (We do NOT scrape pages here; we just use search snippets as fallback context.)
+        const JD_MIN_CHARS = 400;
+        if (jd.length < JD_MIN_CHARS) {
+          try {
+            const q = [jobTitle, company, 'job description'].filter(Boolean).join(' ');
+            const searchResp = await new Promise<any>((resolve, reject) => {
+              chrome.runtime.sendMessage(
+                {
+                  action: 'SEARCH_PROXY',
+                  searchAction: 'web',
+                  payload: { q, location: '', limit: 5 },
+                },
+                (r) => {
+                  const err = chrome.runtime.lastError;
+                  if (err) return reject(new Error(String(err.message || err)));
+                  resolve(r);
+                },
+              );
+            });
+
+            if (searchResp?.ok && Array.isArray(searchResp?.results)) {
+              const snippets = searchResp.results
+                .map((r: any) => String(r?.snippet || '').trim())
+                .filter(Boolean)
+                .slice(0, 3);
+              const fallback = snippets.join('\n\n');
+              if (fallback) {
+                jd = `${jd ? jd + '\n\n---\n\n' : ''}Fallback (Google search snippets):\n${fallback}`.trim();
+              }
+            }
+          } catch (_) {}
+        }
 
         const jdLen = jd.length;
 

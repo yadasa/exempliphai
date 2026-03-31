@@ -1996,7 +1996,8 @@ export function initFirebaseExtensionSync() {
 
           const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
           const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://us-central1-exempliphai.cloudfunctions.net/api').trim();
-          const url = `${base.replace(/\/$/, '')}/search/${encodeURIComponent(searchAction)}`;
+          const action = searchAction === 'googleJobs' ? 'jobs' : searchAction;
+          const url = `${base.replace(/\/$/, '')}/search/${encodeURIComponent(action)}`;
 
           const body = JSON.stringify(payload);
           const res = await authedFetch(url, { method: 'POST', body });

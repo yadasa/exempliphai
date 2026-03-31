@@ -5,6 +5,23 @@
             <div class="stat-row"><b>Autofills:</b> {{ statsAutofills.toLocaleString() }}</div>
             <div class="stat-row"><b>Custom answers generated:</b> {{ statsCustomAnswers.toLocaleString() }}</div>
             <div class="stat-row" v-if="statsLastAutofill"><b>Last autofill:</b> {{ formatDate(statsLastAutofill) }}</div>
+
+            <!-- Mini activity graph (extension-friendly) -->
+            <div class="mini-graph">
+                <div class="mini-graph-title">Last 14 days</div>
+                <div class="mini-bars" :title="graphTitle">
+                    <div
+                        v-for="(d, i) in graphDays"
+                        :key="i"
+                        class="mini-bar"
+                        :style="{ height: d.h + '%', opacity: d.count > 0 ? 0.95 : 0.25 }"
+                        :title="d.label + ': ' + d.count"
+                    ></div>
+                </div>
+                <div class="mini-graph-legend">
+                    <span><span class="dot dot-applied"></span> Applied jobs</span>
+                </div>
+            </div>
         </div>
 
         <h2 class="subheading">Applied Jobs (Last 6 Months)</h2>
@@ -64,6 +81,44 @@ export default {
         const statsCustomAnswers = ref<number>(0);
         const statsLastAutofill = ref<string>('');
 
+        const graphDays = ref<{ label: string; count: number; h: number }[]>([]);
+        const graphTitle = ref('Applied jobs per day (last 14 days)');
+
+        const rebuildGraph = () => {
+            // Build counts for last 14 days from appliedJobs list.
+            const days = 14;
+            const now = new Date();
+            const start = new Date(now);
+            start.setDate(start.getDate() - (days - 1));
+            start.setHours(0, 0, 0, 0);
+
+            const buckets: Record<string, number> = {};
+            for (let i = 0; i < days; i++) {
+                const d = new Date(start);
+                d.setDate(start.getDate() + i);
+                const key = d.toISOString().slice(0, 10);
+                buckets[key] = 0;
+            }
+
+            for (const j of appliedJobs.value || []) {
+                const dt = new Date(j?.date || j?.timestamp || '');
+                if (isNaN(dt.getTime())) continue;
+                dt.setHours(0, 0, 0, 0);
+                const key = dt.toISOString().slice(0, 10);
+                if (key in buckets) buckets[key] += 1;
+            }
+
+            const max = Math.max(1, ...Object.values(buckets));
+            graphDays.value = Object.keys(buckets)
+                .sort()
+                .map((k) => {
+                    const c = buckets[k] || 0;
+                    const dt = new Date(k);
+                    const label = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                    return { label, count: c, h: Math.round((c / max) * 100) };
+                });
+        };
+
         const loadJobs = () => {
              if (!chrome.storage) return;
 
@@ -96,6 +151,7 @@ export default {
                      }
                      
                      appliedJobs.value = validJobs.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                     rebuildGraph();
                  });
              });
         };
@@ -235,7 +291,10 @@ export default {
 
             statsAutofills,
             statsCustomAnswers,
-            statsLastAutofill
+            statsLastAutofill,
+
+            graphDays,
+            graphTitle
         };
     }
 };
@@ -318,6 +377,55 @@ export default {
 
 .job-link:hover {
     text-decoration: underline;
+}
+
+.mini-graph {
+    margin-top: 0.75rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.mini-graph-title {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.35rem;
+}
+
+.mini-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 54px;
+    width: 100%;
+}
+
+.mini-bar {
+    flex: 1;
+    min-width: 3px;
+    border-radius: 6px 6px 2px 2px;
+    background: linear-gradient(180deg, rgba(34,197,94,0.95), rgba(34,197,94,0.35));
+    border: 1px solid rgba(34,197,94,0.18);
+}
+
+.mini-graph-legend {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.45rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+.dot-applied {
+    background: rgba(34,197,94,0.9);
 }
 
 .tracker-actions {
