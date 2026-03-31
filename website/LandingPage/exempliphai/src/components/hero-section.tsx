@@ -134,8 +134,17 @@ export function HeroSection() {
         </h1>
 
         <p className="mx-auto mt-5 max-w-2xl text-center text-lg text-muted-foreground tracking-tight md:text-xl">
-          {heroStatText}
+          {landingContent.hero.subheadline}
         </p>
+
+        <div className="mx-auto mt-6 flex max-w-2xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-foreground/80">
+          {landingContent.hero.stats.map((s) => (
+            <div key={s.label} className="inline-flex items-center gap-2">
+              <span className="font-semibold text-foreground">{s.value}</span>
+              <span className="text-muted-foreground">{s.label}</span>
+            </div>
+          ))}
+        </div>
 
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link href={landingContent.hero.ctas.primary.href}>
