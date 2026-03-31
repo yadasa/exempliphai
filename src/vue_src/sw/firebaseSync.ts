@@ -1717,7 +1717,7 @@ async function trackJobSearch(last: any) {
 
   const cleanStr = (v: any, max = 2000) => String(v ?? '').slice(0, max);
 
-  const desiredLocation = cleanStr(last?.desiredLocation ?? last?.searchOptions?.desiredLocation ?? '', 200);
+  const desiredLocation = cleanStr(last?.desiredLocation ?? last?.searchOptions?.desiredLocation ?? last?.searchOptions?.location ?? '', 200);
 
   const rawJobs = Array.isArray(last?.recommendations)
     ? last.recommendations
@@ -1739,11 +1739,21 @@ async function trackJobSearch(last: any) {
     links: Array.isArray(j?.links) ? j.links.map(cleanLink).filter((x: any) => x?.url).slice(0, 6) : [],
   });
 
-  const generatedJobs = (rawJobs || []).slice(0, 15).map(cleanJob);
+  const generatedJobs = (rawJobs || []).slice(0, 25).map(cleanJob);
 
   const docData: any = {
-    searchOptions: { desiredLocation },
+    searchOptions: {
+      desiredLocation,
+      postedWithin: cleanStr(last?.postedWithin || last?.searchOptions?.postedWithin || '', 16),
+      q: cleanStr(last?.searchOptions?.q || '', 600),
+    },
     generatedJobs,
+    // Capture raw search payload/results for debugging & re-rendering.
+    serp: {
+      provider: last?.serp?.provider || null,
+      query: last?.serp?.query || null,
+      results: Array.isArray(last?.serp?.results) ? last.serp.results.slice(0, 40) : [],
+    },
     version: cleanStr(last?.version || '0.1', 32),
     generated_at: cleanStr(last?.generated_at || nowIso(), 64),
   };

@@ -28,6 +28,8 @@ type JobSearchLast = {
   recommendations?: JobRec[];
   searchPage?: number;
   postedWithin?: 'any' | '7d' | '3d' | '1d';
+  searchOptions?: any;
+  serp?: any;
 };
 
 type JobSearchState = {
@@ -367,12 +369,23 @@ async function generateRecommendations() {
 
     await storageSetLocal({
       [JOB_SEARCH_LAST_KEY]: {
-        version: 'serpapi_google_jobs_v0.1',
+        version: 'serpapi_google_jobs_v0.2',
         generated_at: new Date().toISOString(),
         desiredLocation: String(desiredLocation.value || ''),
-        recommendations: recs.value,
+        // IMPORTANT: Vue makes arrays/objects reactive proxies; convert to plain objects for storage + Firestore.
+        recommendations: toPlainRecs(recs.value),
         searchPage: searchPage.value,
         postedWithin: postedWithin.value,
+        searchOptions: {
+          q,
+          location: String(desiredLocation.value || '').trim(),
+          postedWithin: postedWithin.value,
+        },
+        serp: {
+          provider: proxyResp?.provider || null,
+          query: proxyResp?.query || payload,
+          results: results,
+        },
       } satisfies JobSearchLast,
     });
 
