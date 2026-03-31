@@ -21,7 +21,7 @@ export default function SiteHeader() {
   const { user } = useAuth();
   const pathname = usePathname() || "";
 
-  // No separate Account button; navbar link handles Dashboard/Account label.
+  const showAccountButton = !!user;
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 py-4">
@@ -79,7 +79,18 @@ export default function SiteHeader() {
           </section>
 
           <section className="flex items-center gap-2 max-md:gap-2.5">
-            {/* Account link is exposed via the navbar (Dashboard/Account toggle). */}
+            {showAccountButton ? (
+              <Link
+                href={"/account" as any}
+                className={cn(
+                  "inline-flex h-9 items-center justify-center rounded-md border bg-background/70 px-3 text-sm font-semibold text-foreground/80 backdrop-blur",
+                  "shadow-sm transition hover:bg-background/90 hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+              >
+                {uiText("Account")}
+              </Link>
+            ) : null}
 
             <ThemeToggle />
             <a href={siteConfig.links.waitlistUrl} className="max-md:hidden">
