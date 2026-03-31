@@ -326,11 +326,32 @@ async function handleSerpSearch(req, res, action) {
     return;
   }
 
-  const q = String(req.body?.q || '').trim();
+  let q = String(req.body?.q || '').trim();
   const location = String(req.body?.location || '').trim();
   const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 20)));
   const start = Math.max(0, Number(req.body?.start || 0) || 0);
   const no_cache = req.body?.no_cache === true || String(req.body?.no_cache || '') === 'true';
+
+  // Apply user's desired job type preferences (remote/hybrid/in-person) if present.
+  // Stored at /users/{uid}/desiredJobType as an array or a map of booleans.
+  try {
+    const userSnap = await db.doc(`users/${uid}`).get();
+    const dj = userSnap.exists ? userSnap.get('desiredJobType') : null;
+
+    const types = Array.isArray(dj)
+      ? dj.map((x) => String(x || '').trim().toLowerCase()).filter(Boolean)
+      : dj && typeof dj === 'object'
+        ? Object.keys(dj).filter((k) => !!dj[k]).map((k) => String(k).trim().toLowerCase())
+        : [];
+
+    // SerpAPI Google Jobs doesn't have a universally reliable remote/hybrid filter parameter.
+    // For now we bias the query text.
+    if (types.includes('remote') && !/\bremote\b/i.test(q)) q = `${q} remote`;
+    if (types.includes('hybrid') && !/\bhybrid\b/i.test(q)) q = `${q} hybrid`;
+    if ((types.includes('in-person') || types.includes('inperson') || types.includes('onsite') || types.includes('on-site')) && !/\b(on\s*-?site|in\s*-?person)\b/i.test(q)) {
+      q = `${q} onsite`;
+    }
+  } catch (_) {}
   if (!q) {
     res.status(400).json({ ok: false, error: 'missing_q' });
     return;

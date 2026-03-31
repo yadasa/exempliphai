@@ -92,7 +92,7 @@ const isActive = (name: string) => route.name === name;
   overflow: auto;
   padding-top: 0.25rem;
   /* Fix cut-off (e.g., Disability Status) behind fixed tab bar */
-  padding-bottom: calc(var(--tab-bar-height) + 28px);
+  padding-bottom: calc(var(--tab-bar-height) + 72px);
 }
 
 .tab-bar {

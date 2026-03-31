@@ -249,15 +249,17 @@ function recKey(r: any): string {
   return [t, c, u].filter(Boolean).join('||');
 }
 
-function mergeRecs(existing: any[], next: any[]): any[] {
+function mergeRecs(...lists: any[][]): any[] {
   const out: any[] = [];
   const seen = new Set<string>();
 
-  for (const r of [...(existing || []), ...(next || [])]) {
-    const k = recKey(r) || JSON.stringify([r?.title, r?.company, r?.location]);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(r);
+  for (const list of lists) {
+    for (const r of list || []) {
+      const k = recKey(r) || JSON.stringify([r?.title, r?.company, r?.location]);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(r);
+    }
   }
 
   return out;
@@ -357,7 +359,8 @@ async function generateRecommendations() {
         }),
     );
 
-    recs.value = mergeRecs(recs.value, cleaned);
+    // New results should appear at the top.
+    recs.value = mergeRecs(cleaned, recs.value);
 
     await storageSetLocal({
       [JOB_SEARCH_LAST_KEY]: {
