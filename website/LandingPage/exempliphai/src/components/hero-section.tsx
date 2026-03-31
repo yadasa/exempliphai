@@ -117,9 +117,9 @@ export function HeroSection() {
       {/* Soft overlay that adapts to theme */}
       <div className="absolute inset-0 bg-[radial-gradient(70%_70%_at_center_center,rgba(59,130,246,0.22)_0%,rgba(124,58,237,0.12)_42%,transparent_72%)] dark:bg-[radial-gradient(70%_70%_at_center_center,rgba(124,58,237,0.22)_0%,rgba(15,23,42,0.60)_58%,transparent_78%)]" />
 
-      {/* Fade to black at top/bottom edges (transparent in the middle) */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/85 to-transparent md:h-44" />
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/85 to-transparent md:h-44" />
+      {/* Fade into the neighboring section background (transparent in the middle). */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-background to-transparent md:h-44" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-background to-transparent md:h-44" />
 
       {/* Content */}
       <div className="container relative">
