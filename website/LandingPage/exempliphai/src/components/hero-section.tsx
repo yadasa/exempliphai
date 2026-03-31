@@ -2,6 +2,29 @@
 
 import { motion, useScroll, useTransform } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!mq) return;
+
+    const onChange = () => setReduced(Boolean(mq.matches));
+    onChange();
+
+    // Safari < 14
+    // eslint-disable-next-line deprecation/deprecation
+    mq.addEventListener ? mq.addEventListener("change", onChange) : mq.addListener(onChange);
+    return () => {
+      // eslint-disable-next-line deprecation/deprecation
+      mq.removeEventListener ? mq.removeEventListener("change", onChange) : mq.removeListener(onChange);
+    };
+  }, []);
+
+  return reduced;
+}
+
 import BackgroundStars from "@/assets/stars.png";
 import Link from "next/link";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -10,6 +33,8 @@ import { landingContent } from "@/config/landing-content";
 import { getFirebase } from "@/lib/firebase/client";
 
 export function HeroSection() {
+  const reducedMotion = usePrefersReducedMotion();
+
   const sectionRef = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({
     target: sectionRef,
@@ -47,12 +72,22 @@ export function HeroSection() {
   return (
     <motion.section
       id="hero"
-      animate={{ backgroundPositionX: 1200 }}
-      transition={{
-        duration: 120,
-        repeat: Number.POSITIVE_INFINITY,
-        ease: "linear",
-      }}
+      animate={
+        reducedMotion
+          ? undefined
+          : {
+              backgroundPositionX: 1200,
+            }
+      }
+      transition={
+        reducedMotion
+          ? undefined
+          : {
+              duration: 120,
+              repeat: Number.POSITIVE_INFINITY,
+              ease: "linear",
+            }
+      }
       className="relative flex min-h-[560px] items-center overflow-hidden py-20 md:min-h-[820px] md:py-28"
       style={{
         backgroundImage: `url(${BackgroundStars})`,
@@ -60,33 +95,20 @@ export function HeroSection() {
       }}
       ref={sectionRef}
     >
-      {/* Blue/purple glow blurs (agency-style) */}
-      <div className="pointer-events-none absolute -top-40 -left-40 size-[520px] rounded-full bg-gradient-to-br from-blue-500/35 to-purple-500/25 blur-3xl" />
-      <div className="pointer-events-none absolute -bottom-56 -right-56 size-[680px] rounded-full bg-gradient-to-tr from-purple-500/30 to-blue-500/20 blur-3xl" />
+      {/* Subtle moving gradient blobs (replaces planet/rings) */}
+      <div
+        className="pointer-events-none hero-blob hero-blob-1 absolute -top-56 -left-56 size-[720px] rounded-full bg-[radial-gradient(circle_at_30%_30%,rgba(59,130,246,0.35)_0%,rgba(124,58,237,0.18)_45%,transparent_70%)] blur-3xl"
+      />
+      <div
+        className="pointer-events-none hero-blob hero-blob-2 absolute left-1/2 top-1/2 size-[820px] rounded-full bg-[radial-gradient(circle_at_55%_45%,rgba(168,85,247,0.22)_0%,rgba(59,130,246,0.14)_42%,transparent_72%)] blur-3xl"
+        style={{ marginLeft: -410, marginTop: -410 }}
+      />
+      <div
+        className="pointer-events-none hero-blob hero-blob-3 absolute -bottom-72 -right-64 size-[760px] rounded-full bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.20)_0%,rgba(236,72,153,0.10)_40%,transparent_70%)] blur-3xl"
+      />
 
       {/* Soft overlay that adapts to theme */}
-      <div className="absolute inset-0 bg-[radial-gradient(70%_70%_at_center_center,rgba(59,130,246,0.28)_0%,rgba(124,58,237,0.18)_42%,transparent_72%)] dark:bg-[radial-gradient(70%_70%_at_center_center,rgba(124,58,237,0.32)_0%,rgba(15,23,42,0.55)_58%,transparent_78%)]" />
-
-      {/* Decorative "planet" */}
-      <div className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2 size-56 rounded-full border border-foreground/15 bg-[radial-gradient(50%_50%_at_22%_20%,white,rgba(147,197,253,0.85)_35%,rgba(124,58,237,0.55)_70%)] shadow-[0_0_60px_rgba(59,130,246,0.25)] md:size-96 dark:bg-[radial-gradient(50%_50%_at_22%_20%,white,rgba(167,139,250,0.7)_35%,rgba(15,23,42,0.9)_72%)] dark:shadow-[0_0_70px_rgba(124,58,237,0.35)]" />
-
-      {/* Rings */}
-      <motion.div
-        animate={{ rotate: "1turn" }}
-        transition={{ duration: 60, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-        className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2 size-[320px] rounded-full border border-foreground/20 opacity-25 md:size-[580px]"
-      >
-        <div className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-0 size-2 rounded-full bg-foreground/70" />
-        <div className="-translate-x-1/2 -translate-y-1/2 absolute top-0 left-1/2 size-2 rounded-full bg-foreground/70" />
-        <div className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-full inline-flex size-5 items-center justify-center rounded-full border border-foreground/40">
-          <div className="size-2 rounded-full bg-foreground/70" />
-        </div>
-      </motion.div>
-      <motion.div
-        animate={{ rotate: "-1turn" }}
-        transition={{ duration: 60, repeat: Number.POSITIVE_INFINITY, ease: "linear" }}
-        className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2 size-[420px] rounded-full border border-foreground/15 border-dashed md:size-[780px]"
-      />
+      <div className="absolute inset-0 bg-[radial-gradient(70%_70%_at_center_center,rgba(59,130,246,0.22)_0%,rgba(124,58,237,0.12)_42%,transparent_72%)] dark:bg-[radial-gradient(70%_70%_at_center_center,rgba(124,58,237,0.22)_0%,rgba(15,23,42,0.60)_58%,transparent_78%)]" />
 
       {/* Content */}
       <div className="container relative">
