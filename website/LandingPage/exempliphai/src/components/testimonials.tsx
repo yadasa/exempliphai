@@ -336,8 +336,8 @@ export function Testimonials() {
 
         <div className="mask-[linear-gradient(to_right,transparent,black_20%,black_80%,transparent)] mt-10 flex overflow-hidden">
           <motion.div
-            initial={{ x: "-50%" }}
-            animate={{ x: "0" }}
+            initial={{ x: "0" }}
+            animate={{ x: "-50%" }}
             transition={{
               repeat: Number.POSITIVE_INFINITY,
               duration: 50,
