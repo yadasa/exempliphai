@@ -1205,7 +1205,15 @@ async function pullFromCloudAndPopulateLocal() {
           version: String(data.version || '0.1'),
           generated_at: String(data.generated_at || data.timestamp || nowIso()),
           desiredLocation: String(data?.searchOptions?.desiredLocation || ''),
-          recommendations: Array.isArray(data.generatedJobs) ? data.generatedJobs : [],
+          recommendations: Array.isArray(data.generatedJobs)
+            ? data.generatedJobs
+            : Array.isArray(data.recommendations)
+              ? data.recommendations
+              : Array.isArray(data?.docData?.generatedJobs)
+                ? data.docData.generatedJobs
+                : Array.isArray(data?.docData?.recommendations)
+                  ? data.docData.recommendations
+                  : [],
         };
       }
     } catch (_) {}
@@ -1723,7 +1731,11 @@ async function trackJobSearch(last: any) {
     ? last.recommendations
     : Array.isArray(last?.generatedJobs)
       ? last.generatedJobs
-      : [];
+      : Array.isArray(last?.docData?.generatedJobs)
+        ? last.docData.generatedJobs
+        : Array.isArray(last?.docData?.recommendations)
+          ? last.docData.recommendations
+          : [];
 
   const cleanLink = (l: any) => ({
     label: cleanStr(l?.label || '', 120),
