@@ -348,10 +348,10 @@ export function Testimonials() {
             {marqueeItems.map((t, index) => (
               <div
                 key={`${t.name}-${t.role}-${index}`}
-                className="max-w-xs flex-none rounded-xl border border-muted bg-gradient-to-bl from-blue-600/20 to-background p-6 md:max-w-md md:p-10 dark:to-black"
+                className="max-w-xs flex flex-col flex-none rounded-xl border border-muted bg-gradient-to-bl from-blue-600/20 to-background p-6 md:max-w-md md:p-10 dark:to-black"
               >
                 <p className="text-lg tracking-tight md:text-2xl">{t.quote}</p>
-                <div className="mt-5 flex items-center gap-3">
+                <div className="mt-auto pt-6 flex items-center gap-3">
                   <div className="relative before:absolute before:inset-0 before:z-10 before:rounded-lg before:border before:border-white/30 before:content-[''] after:absolute after:inset-0 after:rounded-lg after:bg-[rgb(124,58,237)] after:mix-blend-soft-light after:content-['']">
                     {typeof t.avatarImg === "string" ? (
                       // User submission: data URL
