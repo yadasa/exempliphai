@@ -329,6 +329,8 @@ async function handleSerpSearch(req, res, action) {
   const q = String(req.body?.q || '').trim();
   const location = String(req.body?.location || '').trim();
   const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 20)));
+  const start = Math.max(0, Number(req.body?.start || 0) || 0);
+  const no_cache = req.body?.no_cache === true || String(req.body?.no_cache || '') === 'true';
   if (!q) {
     res.status(400).json({ ok: false, error: 'missing_q' });
     return;
@@ -340,6 +342,8 @@ async function handleSerpSearch(req, res, action) {
     params.set('q', q);
     if (location) params.set('location', location);
     params.set('hl', 'en');
+    if (start) params.set('start', String(start));
+    if (no_cache) params.set('no_cache', 'true');
     params.set('api_key', serpKey);
 
     const url = `https://serpapi.com/search.json?${params.toString()}`;
@@ -383,7 +387,7 @@ async function handleSerpSearch(req, res, action) {
       ok: true,
       action: 'jobs',
       provider: { name: 'serpapi', engine: 'google_jobs' },
-      query: { q, location, limit },
+      query: { q, location, limit, start, no_cache },
       results: out,
       billing: {
         your_usd: SERPAPI_USD_PER_REQUEST,

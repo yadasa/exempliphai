@@ -26,6 +26,7 @@ type JobSearchLast = {
   generated_at?: string;
   desiredLocation?: string;
   recommendations?: JobRec[];
+  searchPage?: number;
 };
 
 type JobSearchState = {
@@ -40,6 +41,9 @@ const desiredLocation = ref('');
 const loading = ref(false);
 const errorMsg = ref('');
 const recs = ref<JobRec[]>([]);
+
+// Pagination for SerpAPI Google Jobs (start offset)
+const searchPage = ref(0);
 
 const appliedKeys = ref<Set<string>>(new Set());
 
@@ -298,6 +302,8 @@ async function generateRecommendations() {
       q,
       location: String(desiredLocation.value || '').trim(),
       limit: 20,
+      start: searchPage.value * 10,
+      no_cache: true,
     };
 
     const proxyResp = await new Promise<any>((resolve, reject) => {
@@ -324,6 +330,8 @@ async function generateRecommendations() {
     }
 
     const results = Array.isArray(proxyResp?.results) ? proxyResp.results : [];
+    // Advance page so subsequent searches pull a different page of results.
+    searchPage.value = searchPage.value + 1;
 
     const cleaned = toPlainRecs(
       results
@@ -357,6 +365,7 @@ async function generateRecommendations() {
         generated_at: new Date().toISOString(),
         desiredLocation: String(desiredLocation.value || ''),
         recommendations: recs.value,
+        searchPage: searchPage.value,
       } satisfies JobSearchLast,
     });
 
@@ -380,8 +389,10 @@ function applyAppliedJobsToSet(jobs: any[]) {
 function applyJobSearchLast(last: any) {
   const prev = last?.recommendations;
   const prevLoc = last?.desiredLocation;
+  const prevPage = last?.searchPage;
 
   if (!desiredLocation.value && typeof prevLoc === 'string') desiredLocation.value = prevLoc;
+  if (Number.isFinite(prevPage)) searchPage.value = Number(prevPage || 0);
   if (Array.isArray(prev) && prev.length) recs.value = toPlainRecs(prev);
 }
 

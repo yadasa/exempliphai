@@ -7,6 +7,22 @@
 
 export function normalizeUrl(url) {
   const u = String(url || '').trim();
+  if (!u) return '';
+
+  // Unwrap common redirectors (e.g., Google /url?q=...)
+  try {
+    const parsed = new URL(u);
+    const host = (parsed.hostname || '').toLowerCase();
+    const path = (parsed.pathname || '').toLowerCase();
+
+    if ((host === 'google.com' || host === 'www.google.com') && path === '/url') {
+      const q = parsed.searchParams.get('q') || parsed.searchParams.get('url');
+      if (q && /^https?:\/\//i.test(q)) return q;
+    }
+  } catch {
+    // ignore
+  }
+
   return u;
 }
 
