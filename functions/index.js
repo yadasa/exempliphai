@@ -6,7 +6,7 @@ const {
   onRequest,
   HttpsError,
 } = require("firebase-functions/v2/https");
-const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { logger } = require("firebase-functions");
 
 // Initialize Admin
@@ -17,6 +17,8 @@ try {
 }
 
 const db = admin.firestore();
+
+const { bumpPublicAggregate, safeNum } = require('./_publicStats');
 
 const REGION = process.env.FUNCTION_REGION || "us-central1";
 
@@ -1083,6 +1085,42 @@ exports.listMyReferrals = onCall({ region: REGION, cors: true, invoker: "public"
     referrals,
   };
 });
+
+// Bonus points when a referred user becomes paid.
+// Heuristic: any of these fields flips falsey -> truthy:
+// - billing.isPaid
+// - billing.planStatus === 'paid'
+// - subscription.status === 'active'
+// - plan.tier === 'pro'
+// Keep a public aggregate count of autofills/custom answers for the marketing homepage.
+exports.onUserStatsAggregate = onDocumentWritten(
+  { region: REGION, document: "users/{uid}" },
+  async (event) => {
+    try {
+      const before = event.data?.before?.data() || {};
+      const after = event.data?.after?.data() || {};
+
+      const beforeAutofills = safeNum(before?.stats?.autofills?.total);
+      const afterAutofills = safeNum(after?.stats?.autofills?.total);
+      const beforeCustom = safeNum(before?.stats?.customAnswersGenerated?.total);
+      const afterCustom = safeNum(after?.stats?.customAnswersGenerated?.total);
+
+      const autofillsDelta = afterAutofills - beforeAutofills;
+      const customDelta = afterCustom - beforeCustom;
+
+      if (!autofillsDelta && !customDelta) return;
+
+      await bumpPublicAggregate({
+        db,
+        admin,
+        autofillsDelta,
+        customAnswersDelta: customDelta,
+      });
+    } catch (e) {
+      logger.error('publicStats aggregate update failed', e);
+    }
+  },
+);
 
 // Bonus points when a referred user becomes paid.
 // Heuristic: any of these fields flips falsey -> truthy:

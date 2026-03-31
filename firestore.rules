@@ -153,6 +153,12 @@ service cloud.firestore {
       allow create, update, delete: if isOrgOwner(orgId);
     }
 
+    // Public aggregate stats used on the marketing site.
+    match /publicStats/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Public testimonials (readable by all; create allowed for signed-in users only).
     match /testimonials/{testimonialId} {
       allow read: if true;

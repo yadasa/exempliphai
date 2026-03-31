@@ -1,11 +1,13 @@
 "use client";
 
 import { motion, useScroll, useTransform } from "motion/react";
-import { useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import BackgroundStars from "@/assets/stars.png";
 import Link from "next/link";
+import { doc, onSnapshot } from "firebase/firestore";
 import { ActionButton } from "@/components/action-button";
 import { landingContent } from "@/config/landing-content";
+import { getFirebase } from "@/lib/firebase/client";
 
 export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -15,6 +17,32 @@ export function HeroSection() {
   });
 
   const backgroundPositionY = useTransform(scrollYProgress, [0, 1], [-300, 300]);
+
+  const [aggregate, setAggregate] = useState<{ autofillsTotal: number; customAnswersTotal: number } | null>(null);
+
+  useEffect(() => {
+    const { db, configured } = getFirebase();
+    if (!configured || !db) return;
+
+    const ref = doc(db, "publicStats", "aggregate");
+    return onSnapshot(ref, (snap) => {
+      const d = (snap.data() as any) || {};
+      const a = Number(d.autofillsTotal || 0);
+      const c = Number(d.customAnswersTotal || 0);
+      setAggregate({
+        autofillsTotal: Number.isFinite(a) ? a : 0,
+        customAnswersTotal: Number.isFinite(c) ? c : 0,
+      });
+    });
+  }, []);
+
+  const heroStatText = useMemo(() => {
+    const A = Number(aggregate?.autofillsTotal || 0);
+    const C = Number(aggregate?.customAnswersTotal || 0);
+    const hours = ((6.7 * A) + (2 * C)) / 60;
+    const hoursText = Number.isFinite(hours) ? hours.toFixed(1) : "0.0";
+    return `${A.toLocaleString()} applications autofilled. ${hoursText} hours saved`;
+  }, [aggregate]);
 
   return (
     <motion.section
@@ -77,17 +105,8 @@ export function HeroSection() {
         </h1>
 
         <p className="mx-auto mt-5 max-w-2xl text-center text-lg text-muted-foreground tracking-tight md:text-xl">
-          {landingContent.hero.subheadline}
+          {heroStatText}
         </p>
-
-        <div className="mx-auto mt-6 flex max-w-2xl flex-wrap items-center justify-center gap-x-6 gap-y-2 text-sm text-foreground/80">
-          {landingContent.hero.stats.map((s) => (
-            <div key={s.label} className="inline-flex items-center gap-2">
-              <span className="font-semibold text-foreground">{s.value}</span>
-              <span className="text-muted-foreground">{s.label}</span>
-            </div>
-          ))}
-        </div>
 
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link href={landingContent.hero.ctas.primary.href}>
