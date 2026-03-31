@@ -218,15 +218,15 @@
   }
 
   .hero-blob-1 {
-    animation: heroBlob1 52s ease-in-out infinite;
+    animation: heroBlob1 30s ease-in-out infinite;
   }
 
   .hero-blob-2 {
-    animation: heroBlob2 64s ease-in-out infinite;
+    animation: heroBlob2 38s ease-in-out infinite;
   }
 
   .hero-blob-3 {
-    animation: heroBlob3 58s ease-in-out infinite;
+    animation: heroBlob3 34s ease-in-out infinite;
   }
 
   @keyframes heroBlob1 {
@@ -234,7 +234,7 @@
       transform: translate3d(0, 0, 0) scale(1);
     }
     50% {
-      transform: translate3d(8vw, 6vh, 0) scale(1.1);
+      transform: translate3d(14vw, 10vh, 0) scale(1.12);
     }
     100% {
       transform: translate3d(0, 0, 0) scale(1);
@@ -246,7 +246,7 @@
       transform: translate3d(0, 0, 0) scale(1);
     }
     50% {
-      transform: translate3d(-7vw, 7vh, 0) scale(1.08);
+      transform: translate3d(-12vw, 12vh, 0) scale(1.1);
     }
     100% {
       transform: translate3d(0, 0, 0) scale(1);
@@ -258,7 +258,7 @@
       transform: translate3d(0, 0, 0) scale(1);
     }
     50% {
-      transform: translate3d(-6vw, -5vh, 0) scale(1.12);
+      transform: translate3d(-11vw, -9vh, 0) scale(1.15);
     }
     100% {
       transform: translate3d(0, 0, 0) scale(1);
