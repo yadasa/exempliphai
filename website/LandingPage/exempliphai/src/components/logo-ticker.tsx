@@ -33,14 +33,14 @@ export function LogoTicker() {
           </div>
           <div className="mask-[linear-gradient(to_right,transparent,black_20%,black_80%,transparent)] flex-1 overflow-hidden">
             <motion.div
-              initial={{ x: "-50%" }}
-              animate={{ x: 0 }}
+              initial={{ x: 0 }}
+              animate={{ x: "-50%" }}
               transition={{
                 repeat: Number.POSITIVE_INFINITY,
                 duration: 30,
                 ease: "linear",
               }}
-              className="-translate-x-1/2 flex flex-none gap-14 pr-14"
+              className="flex flex-none gap-14 pr-14 will-change-transform"
             >
               {[...COMPANIES, ...COMPANIES].map((company, index) => (
                 <Image

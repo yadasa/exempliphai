@@ -16,8 +16,11 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.links.deploymentUrl),
   icons: {
-    icon: "/icons/logo-main.png",
-    apple: "/icons/logo-main.png",
+    icon: [
+      { url: "/favicon-16.png", sizes: "16x16", type: "image/png" },
+      { url: "/favicon-48.png", sizes: "48x48", type: "image/png" },
+    ],
+    apple: "/icons/128.png",
   },
   title: siteConfig.name,
   description: siteConfig.description,
