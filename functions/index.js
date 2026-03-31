@@ -300,6 +300,10 @@ const api = express();
 api.use(cors({ origin: true }));
 api.use(express.json({ limit: '2mb' }));
 
+// Health / rewrite diagnostics
+api.get('/__ping', (req, res) => res.json({ ok: true, service: 'api' }));
+api.get('/__rewrite_test__', (req, res) => res.json({ ok: true, rewrite: true }));
+
 // Referral endpoints for website (avoid callable CORS issues)
 api.get('/referrals/code', async (req, res) => {
   try {
