@@ -253,8 +253,16 @@ function AccountInner() {
         <AccountNavCards className="mb-6" />
 
         <div className="rounded-2xl border bg-card p-6 shadow-sm md:p-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
+            <button
+              className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              onClick={logout}
+              disabled={busy}
+              type="button"
+            >
+              Sign out
+            </button>
           </div>
 
           <p className="mt-2 text-sm text-muted-foreground">
@@ -328,18 +336,11 @@ function AccountInner() {
                   >
                     Save
                   </button>
-                  <button
-                    className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                    onClick={logout}
-                    disabled={busy}
-                    type="button"
-                  >
-                    Sign out
-                  </button>
+                  {/* Sign out button moved to the card header. */}
                 </div>
               </div>
 
-              <div className="mt-6 text-xs text-muted-foreground">UID: {user?.uid}</div>
+              {/* UID intentionally hidden */}
             </>
           ) : (
             <div className="mt-6 grid gap-6">

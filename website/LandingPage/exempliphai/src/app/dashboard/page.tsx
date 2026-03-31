@@ -585,7 +585,11 @@ function DashboardInner() {
         />
 
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{uiText("Dashboard")}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            <Link className="text-primary underline" href={"/account" as any}>
+              {uiText("Account")}
+            </Link>
+          </h1>
           <p className="text-sm text-muted-foreground">
             {uiText("Quick links to your profile and tools.")}
           </p>

@@ -64,7 +64,7 @@ export function AccountNavCards({
 
   return (
     <nav aria-label="Account navigation" className={className}>
-      <div className="flex gap-3 overflow-x-auto pb-1">
+      <div className="flex gap-3 overflow-x-auto overflow-y-visible pb-1 scrollbar-none">
         {list.map((it) => (
           <Link
             key={it.href}
