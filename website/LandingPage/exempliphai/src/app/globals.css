@@ -42,15 +42,6 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* Hide scrollbars while still allowing scroll (used by AccountNavCards). */
-.scrollbar-none {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
-}
-
 :root {
   --radius: 0.65rem;
 
@@ -128,5 +119,95 @@
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.62 0.24 264);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  .container {
+    @apply mx-auto container max-w-7xl px-8;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 5px;
+  }
+}
+
+@layer utilities {
+  .bg-gradient-primary {
+    background-image: var(--gradient-primary);
+  }
+
+  .text-gradient-primary {
+    background-image: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Hide scrollbars while still allowing scroll (used by AccountNavCards). */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Custom cursor (agency-style). Only hide the system cursor for fine pointers. */
+  @media (pointer: fine) {
+    html,
+    body {
+      cursor: none;
+    }
+
+    a,
+    button,
+    [role="button"],
+    input,
+    textarea,
+    select {
+      cursor: none;
+    }
+  }
+
+  .custom-cursor-ring {
+    @apply pointer-events-none fixed top-0 left-0 z-[9999] hidden size-10 rounded-full border;
+    border-color: color-mix(in oklab, var(--color-primary) 70%, transparent);
+    transition: transform 0.12s ease-out;
+  }
+
+  .custom-cursor-dot {
+    @apply pointer-events-none fixed top-0 left-0 z-[9999] hidden size-3 rounded-full;
+    background: color-mix(in oklab, var(--color-primary) 85%, transparent);
+  }
+
+  @media (pointer: fine) {
+    .custom-cursor-ring,
+    .custom-cursor-dot {
+      display: block;
+    }
+  }
 }
