@@ -294,6 +294,195 @@ const api = express();
 api.use(cors({ origin: true }));
 api.use(express.json({ limit: '2mb' }));
 
+// Referral endpoints for website (avoid callable CORS issues)
+api.get('/referrals/code', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+
+    const userRef = db.doc(`users/${uid}`);
+
+    const result = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      const already = snap.get('referral.code');
+      if (isNonEmptyString(already)) return { code: already, created: false };
+
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const code = randomCode(REFERRAL.CODE_LEN);
+        const codeRef = db.doc(`referralCodes/${code}`);
+        const codeSnap = await tx.get(codeRef);
+        if (codeSnap.exists) continue;
+
+        tx.set(codeRef, { uid, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+        tx.set(
+          userRef,
+          {
+            referral: {
+              code,
+              pointsEarned: admin.firestore.FieldValue.increment(0),
+              referralsCount: admin.firestore.FieldValue.increment(0),
+              paidConversionBonusEarned: admin.firestore.FieldValue.increment(0),
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+
+        return { code, created: true };
+      }
+
+      throw new Error('resource_exhausted');
+    });
+
+    res.json({ ok: true, code: result.code });
+  } catch (e) {
+    logger.error('referrals/code failed', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+api.get('/referrals/list', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+
+    const snaps = await db.collection(`users/${uid}/referrals`).orderBy('createdAt', 'desc').limit(200).get();
+
+    const referrals = snaps.docs.map((d) => {
+      const data = d.data() || {};
+      const masked = pickMaskedIdentity({ displayName: data.referredDisplayName, phoneNumber: data.referredPhoneNumber });
+      return {
+        referredUid: String(data.referredUid || d.id),
+        createdAt: data.createdAt ? data.createdAt.toDate?.().toISOString?.() || null : null,
+        pointsAwarded: Number(data.pointsAwarded || 0),
+        who: masked,
+      };
+    });
+
+    const totalPoints = referrals.reduce((sum, r) => sum + (Number.isFinite(r.pointsAwarded) ? r.pointsAwarded : 0), 0);
+
+    res.json({ ok: true, totalReferrals: referrals.length, totalPoints, referrals });
+  } catch (e) {
+    logger.error('referrals/list failed', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+api.post('/referrals/apply', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+    const attributionId = String(req.body?.attributionId || '').trim();
+    if (!isNonEmptyString(attributionId)) {
+      res.status(400).json({ ok: false, error: 'missing_attributionId' });
+      return;
+    }
+
+    const attrRef = db.doc(`referralAttributions/${attributionId}`);
+    const userRef = db.doc(`users/${uid}`);
+
+    const out = await db.runTransaction(async (tx) => {
+      const [attrSnap, userSnap] = await Promise.all([tx.get(attrRef), tx.get(userRef)]);
+      if (!attrSnap.exists) return { ok: false, error: 'not_found' };
+
+      if (attrSnap.get('applied') === true) {
+        return { ok: true, alreadyApplied: true, referrerUid: attrSnap.get('referrerUid') || null };
+      }
+
+      const code = String(attrSnap.get('code') || '').trim().toUpperCase();
+      if (!isNonEmptyString(code)) return { ok: false, error: 'missing_code' };
+
+      const referrerUid = await resolveReferrerUidByCode(code);
+      if (!referrerUid) {
+        tx.set(
+          attrRef,
+          {
+            applied: true,
+            appliedAt: admin.firestore.FieldValue.serverTimestamp(),
+            appliedByUid: uid,
+            referrerUid: null,
+            error: 'unknown_code',
+          },
+          { merge: true },
+        );
+        return { ok: true, applied: true, referrerUid: null };
+      }
+
+      if (referrerUid === uid) {
+        tx.set(
+          attrRef,
+          {
+            applied: true,
+            appliedAt: admin.firestore.FieldValue.serverTimestamp(),
+            appliedByUid: uid,
+            referrerUid,
+            error: 'self_referral',
+          },
+          { merge: true },
+        );
+        return { ok: true, applied: true, referrerUid };
+      }
+
+      const referralDocRef = db.doc(`users/${referrerUid}/referrals/${uid}`);
+      const referralDocSnap = await tx.get(referralDocRef);
+
+      const referredDisplayName = String(userSnap.get('account.displayName') || '');
+      const referredPhoneNumber = String(userSnap.get('account.phoneNumber') || '');
+
+      if (!referralDocSnap.exists) {
+        tx.set(referralDocRef, {
+          referredUid: uid,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          attributionId,
+          pointsAwarded: REFERRAL.SIGNUP_POINTS,
+          referredDisplayName: referredDisplayName || null,
+          referredPhoneNumber: referredPhoneNumber || null,
+        });
+
+        tx.set(
+          db.doc(`users/${referrerUid}`),
+          {
+            referral: {
+              pointsEarned: admin.firestore.FieldValue.increment(REFERRAL.SIGNUP_POINTS),
+              referralsCount: admin.firestore.FieldValue.increment(1),
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
+
+      tx.set(
+        attrRef,
+        {
+          applied: true,
+          appliedAt: admin.firestore.FieldValue.serverTimestamp(),
+          appliedByUid: uid,
+          referrerUid,
+        },
+        { merge: true },
+      );
+
+      tx.set(
+        userRef,
+        {
+          referral: {
+            referredByUid: referrerUid,
+            attributionId,
+            referredByCode: code,
+          },
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      return { ok: true, applied: true, referrerUid };
+    });
+
+    res.json(out);
+  } catch (e) {
+    logger.error('referrals/apply failed', e);
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 // Balance endpoint for UI
 api.get('/billing/balance', async (req, res) => {
   try {
