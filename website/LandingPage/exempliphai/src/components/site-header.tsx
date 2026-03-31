@@ -29,7 +29,7 @@ export default function SiteHeader() {
   return (
     <header className="fixed inset-x-0 top-0 z-50 py-4">
       <div className="container max-md:px-4">
-        <div className="mx-auto flex max-w-5xl items-center justify-between rounded-xl border bg-background/60 p-2.5 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between rounded-xl bg-background/60 p-2.5 backdrop-blur">
           <Link href="/" className="flex items-center gap-3">
             <div className="inline-flex size-10 items-center justify-center rounded-lg bg-transparent">
               <Image
@@ -63,10 +63,10 @@ export default function SiteHeader() {
                 </a>
               ))}
               <Link
-                href={user ? ("/dashboard" as any) : (siteConfig.links.loginUrl as any)}
+                href={user ? ("/account" as any) : (siteConfig.links.loginUrl as any)}
                 className="text-foreground/70 transition hover:text-foreground"
               >
-                {user ? uiText("Dashboard") : uiText("Log in")}
+                {user ? uiText("Account") : uiText("Log in")}
               </Link>
             </nav>
           </section>
@@ -178,10 +178,10 @@ function MobileNav({
                 </MobileAnchor>
               ))}
               <MobileLink
-                href={authed ? "/dashboard" : siteConfig.links.loginUrl}
+                href={authed ? "/account" : siteConfig.links.loginUrl}
                 onOpenChange={setOpen}
               >
-                {authed ? uiText("Dashboard") : uiText("Log in")}
+                {authed ? uiText("Account") : uiText("Log in")}
               </MobileLink>
               <MobileAnchor
                 href={siteConfig.links.waitlistUrl}

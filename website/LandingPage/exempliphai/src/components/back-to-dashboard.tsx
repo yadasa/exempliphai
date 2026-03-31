@@ -7,7 +7,10 @@ import { cn, uiText } from "@/lib/utils";
 export function BackToDashboard({ className }: { className?: string }) {
   const pathname = usePathname() || "";
 
-  const hide = pathname === "/dashboard" || pathname.startsWith("/dashboard/");
+  const hide =
+    pathname === "/" ||
+    pathname === "/dashboard" ||
+    pathname.startsWith("/dashboard/");
   if (hide) return null;
 
   return (

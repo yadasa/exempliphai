@@ -15,6 +15,10 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.links.deploymentUrl),
+  icons: {
+    icon: "/icons/logo-main.png",
+    apple: "/icons/logo-main.png",
+  },
   title: siteConfig.name,
   description: siteConfig.description,
   creator: siteConfig.creator,
