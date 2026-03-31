@@ -91,9 +91,15 @@ export function isDirectApplicationUrl(url) {
   if (host.endsWith('icims.com')) return true;
   if (host === 'app.bamboohr.com') return true;
 
-  // Fallback: accept obvious company career posting URLs.
+  // Common boards surfaced by Google Jobs / SerpAPI.
+  if (host.endsWith('indeed.com')) return true;
+  if (host.endsWith('ziprecruiter.com')) return true;
+  if (host.endsWith('glassdoor.com')) return true;
+  if (host.endsWith('monster.com')) return true;
+
+  // Fallback: accept obvious job posting URLs.
   // (Still rejects search engines above.)
-  if (/\/(job|jobs|careers)\b/.test(path)) return true;
+  if (/\/(job|jobs|careers|viewjob|jobview|position|positions|opportunities)\b/.test(path)) return true;
 
   return false;
 }

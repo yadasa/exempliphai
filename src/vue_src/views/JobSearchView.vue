@@ -27,6 +27,7 @@ type JobSearchLast = {
   desiredLocation?: string;
   recommendations?: JobRec[];
   searchPage?: number;
+  postedWithin?: 'any' | '7d' | '3d' | '1d';
 };
 
 type JobSearchState = {
@@ -38,6 +39,7 @@ const JOB_SEARCH_LAST_KEY = 'jobSearchLast';
 const JOB_SEARCH_STATE_KEY = 'jobSearchState';
 
 const desiredLocation = ref('');
+const postedWithin = ref<'any' | '7d' | '3d' | '1d'>('any');
 const loading = ref(false);
 const errorMsg = ref('');
 const recs = ref<JobRec[]>([]);
@@ -306,6 +308,7 @@ async function generateRecommendations() {
       limit: 20,
       start: searchPage.value * 10,
       no_cache: true,
+      lrad: postedWithin.value === 'any' ? 0 : postedWithin.value === '7d' ? 7 : postedWithin.value === '3d' ? 3 : 1,
     };
 
     const proxyResp = await new Promise<any>((resolve, reject) => {
@@ -369,6 +372,7 @@ async function generateRecommendations() {
         desiredLocation: String(desiredLocation.value || ''),
         recommendations: recs.value,
         searchPage: searchPage.value,
+        postedWithin: postedWithin.value,
       } satisfies JobSearchLast,
     });
 
@@ -393,9 +397,11 @@ function applyJobSearchLast(last: any) {
   const prev = last?.recommendations;
   const prevLoc = last?.desiredLocation;
   const prevPage = last?.searchPage;
+  const prevPosted = last?.postedWithin;
 
   if (!desiredLocation.value && typeof prevLoc === 'string') desiredLocation.value = prevLoc;
   if (Number.isFinite(prevPage)) searchPage.value = Number(prevPage || 0);
+  if (prevPosted && typeof prevPosted === 'string') postedWithin.value = prevPosted as any;
   if (Array.isArray(prev) && prev.length) recs.value = toPlainRecs(prev);
 }
 
@@ -502,6 +508,18 @@ watch(
           placeholder="Desired location (optional)"
           style="flex:1; min-width: 220px; padding: 10px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);"
         />
+
+        <select
+          v-model="postedWithin"
+          style="padding: 10px; border-radius: 10px; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary);"
+          :disabled="loading"
+          title="Filter by recency"
+        >
+          <option value="any">Any time</option>
+          <option value="7d">Last 7 days</option>
+          <option value="3d">Last 3 days</option>
+          <option value="1d">Last 24 hours</option>
+        </select>
 
         <button
           class="action-btn"

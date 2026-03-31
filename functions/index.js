@@ -331,6 +331,7 @@ async function handleSerpSearch(req, res, action) {
   const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 20)));
   const start = Math.max(0, Number(req.body?.start || 0) || 0);
   const no_cache = req.body?.no_cache === true || String(req.body?.no_cache || '') === 'true';
+  const lrad = Math.max(0, Number(req.body?.lrad || 0) || 0); // last result age in days (if supported)
 
   // Apply user's desired job type preferences (remote/hybrid/in-person) if present.
   // Stored at /users/{uid}/desiredJobType as an array or a map of booleans.
@@ -365,6 +366,7 @@ async function handleSerpSearch(req, res, action) {
     params.set('hl', 'en');
     if (start) params.set('start', String(start));
     if (no_cache) params.set('no_cache', 'true');
+    if (lrad) params.set('lrad', String(lrad));
     params.set('api_key', serpKey);
 
     const url = `https://serpapi.com/search.json?${params.toString()}`;
@@ -408,7 +410,7 @@ async function handleSerpSearch(req, res, action) {
       ok: true,
       action: 'jobs',
       provider: { name: 'serpapi', engine: 'google_jobs' },
-      query: { q, location, limit, start, no_cache },
+      query: { q, location, limit, start, no_cache, lrad },
       results: out,
       billing: {
         your_usd: SERPAPI_USD_PER_REQUEST,
