@@ -538,6 +538,53 @@ apiRouter.post('/referrals/apply', async (req, res) => {
 });
 
 // Redeem points for a 1-week Plus pass.
+function isAdminUid(uid) {
+  const allow = String(process.env.ADMIN_UIDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  // Default admin (Kei) fallback if env not set.
+  if (!allow.length) {
+    return uid === 'LYAb2f5EumaPrlAUTr0LQmVj7Gt1';
+  }
+  return allow.includes(uid);
+}
+
+// One-time helper: rebuild the public aggregate stats from all users.
+// Protect this endpoint to avoid expensive scans.
+apiRouter.post('/publicStats/rebuild', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+    if (!isAdminUid(uid)) {
+      res.status(403).json({ ok: false, error: 'forbidden' });
+      return;
+    }
+
+    // Scan all users and sum their stats.
+    const snaps = await db.collection('users').select('stats').get();
+    let autofillsTotal = 0;
+    let customAnswersTotal = 0;
+
+    for (const d of snaps.docs) {
+      const data = d.data() || {};
+      autofillsTotal += safeNum(data?.stats?.autofills?.total);
+      customAnswersTotal += safeNum(data?.stats?.customAnswersGenerated?.total);
+    }
+
+    await db.doc('publicStats/aggregate').set(
+      {
+        autofillsTotal,
+        customAnswersTotal,
+        rebuiltAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    res.json({ ok: true, autofillsTotal, customAnswersTotal });
+  } catch (e) {
+    logger.error('publicStats/rebuild failed', e);
+    sendHttpError(res, e);
+  }
+});
+
 apiRouter.post('/referrals/redeem', async (req, res) => {
   try {
     const uid = await requireUidFromAuthHeader(req);

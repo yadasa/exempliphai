@@ -31,6 +31,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { ActionButton } from "@/components/action-button";
 import { landingContent } from "@/config/landing-content";
 import { getFirebase } from "@/lib/firebase/client";
+import { uiText } from "@/lib/utils";
 
 export function HeroSection() {
   const reducedMotion = usePrefersReducedMotion();
@@ -68,6 +69,12 @@ export function HeroSection() {
     const hoursText = Number.isFinite(hours) ? hours.toFixed(1) : "0.0";
     return `${A.toLocaleString()} applications autofilled. ${hoursText} hours saved`;
   }, [aggregate]);
+
+  const heroPillText = useMemo(() => {
+    // Avoid showing 0/0 while the public aggregate doc hasn't been created/backfilled yet.
+    if (!aggregate) return uiText(landingContent.hero.eyebrow);
+    return heroStatText;
+  }, [aggregate, heroStatText]);
 
   return (
     <motion.section
@@ -115,7 +122,7 @@ export function HeroSection() {
         <div className="flex justify-center">
           <div className="inline-flex items-center gap-2 rounded-full border bg-background/60 px-4 py-2 text-xs text-foreground/80 backdrop-blur">
             <span className="inline-flex size-1.5 rounded-full bg-primary" />
-            {landingContent.hero.eyebrow}
+            {heroPillText}
           </div>
         </div>
 
