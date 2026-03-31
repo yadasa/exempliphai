@@ -1980,18 +1980,29 @@ export function initFirebaseExtensionSync() {
           if (!authState) await tryAuthFromAnyExempliphTab('billing_balance').catch(() => false);
 
           const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
-          const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://us-central1-exempliphai.cloudfunctions.net/api').trim();
-          const url = `${base.replace(/\/$/, '')}/billing/balance`;
+          const configuredBase = String((syncCfg as any)?.AI_PROXY_BASE || '').trim();
+          const defaultBase = 'https://us-central1-exempliphai.cloudfunctions.net/api';
+          const base = configuredBase || defaultBase;
 
-          const res = await authedFetch(url, { method: 'GET' });
-          const json = await res.json().catch(() => ({}));
+          const mkUrl = (b: string) => `${String(b || '').trim().replace(/\/$/, '')}/billing/balance`;
+
+          const attempt = async (b: string) => {
+            const res = await authedFetch(mkUrl(b), { method: 'GET' });
+            const json = await res.json().catch(() => ({}));
+            return { res, json, baseUsed: b };
+          };
+
+          let { res, json, baseUsed } = await attempt(base);
+          if (res.status === 404 && configuredBase && configuredBase !== defaultBase) {
+            ({ res, json, baseUsed } = await attempt(defaultBase));
+          }
 
           if (!res.ok || json?.ok === false) {
-            sendResponse({ ok: false, error: json?.error || `billing_http_${res.status}`, details: json, status: res.status });
+            sendResponse({ ok: false, error: json?.error || `billing_http_${res.status}`, details: { ...json, baseUsed }, status: res.status });
             return;
           }
 
-          sendResponse(json);
+          sendResponse({ ...json, baseUsed });
           return;
         } catch (e: any) {
           sendResponse({ ok: false, error: String(e?.message || e || 'billing_failed') });
@@ -2017,20 +2028,34 @@ export function initFirebaseExtensionSync() {
           }
 
           const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
-          const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://us-central1-exempliphai.cloudfunctions.net/api').trim();
+          const configuredBase = String((syncCfg as any)?.AI_PROXY_BASE || '').trim();
+          const defaultBase = 'https://us-central1-exempliphai.cloudfunctions.net/api';
+          const base = configuredBase || defaultBase;
+
           const action = searchAction === 'googleJobs' ? 'jobs' : searchAction;
-          const url = `${base.replace(/\/$/, '')}/search/${encodeURIComponent(action)}`;
+          const mkUrl = (b: string) => `${String(b || '').trim().replace(/\/$/, '')}/search/${encodeURIComponent(action)}`;
 
           const body = JSON.stringify(payload);
-          const res = await authedFetch(url, { method: 'POST', body });
-          const json = await res.json().catch(() => ({}));
+
+          // If the user points AI_PROXY_BASE at their custom domain before Hosting→Functions rewrites are set up,
+          // they’ll get a 404. In that case, transparently fall back to the canonical cloudfunctions.net URL.
+          const attempt = async (b: string) => {
+            const res = await authedFetch(mkUrl(b), { method: 'POST', body });
+            const json = await res.json().catch(() => ({}));
+            return { res, json, baseUsed: b };
+          };
+
+          let { res, json, baseUsed } = await attempt(base);
+          if (res.status === 404 && configuredBase && configuredBase !== defaultBase) {
+            ({ res, json, baseUsed } = await attempt(defaultBase));
+          }
 
           if (!res.ok || json?.ok === false) {
-            sendResponse({ ok: false, error: json?.error || `search_proxy_http_${res.status}`, details: json, status: res.status });
+            sendResponse({ ok: false, error: json?.error || `search_proxy_http_${res.status}`, details: { ...json, baseUsed }, status: res.status });
             return;
           }
 
-          sendResponse(json);
+          sendResponse({ ...json, baseUsed });
           return;
         } catch (e: any) {
           sendResponse({ ok: false, error: String(e?.message || e || 'search_proxy_failed') });
@@ -2056,21 +2081,32 @@ export function initFirebaseExtensionSync() {
             return;
           }
 
-          // Default to your custom domain. Override by setting chrome.storage.sync['AI_PROXY_BASE'].
           const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
-          const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://us-central1-exempliphai.cloudfunctions.net/api').trim();
-          const url = `${base.replace(/\/$/, '')}/ai/${encodeURIComponent(aiAction)}`;
+          const configuredBase = String((syncCfg as any)?.AI_PROXY_BASE || '').trim();
+          const defaultBase = 'https://us-central1-exempliphai.cloudfunctions.net/api';
+          const base = configuredBase || defaultBase;
+
+          const mkUrl = (b: string) => `${String(b || '').trim().replace(/\/$/, '')}/ai/${encodeURIComponent(aiAction)}`;
 
           const body = JSON.stringify({ model, input });
-          const res = await authedFetch(url, { method: 'POST', body });
-          const json = await res.json().catch(() => ({}));
+
+          const attempt = async (b: string) => {
+            const res = await authedFetch(mkUrl(b), { method: 'POST', body });
+            const json = await res.json().catch(() => ({}));
+            return { res, json, baseUsed: b };
+          };
+
+          let { res, json, baseUsed } = await attempt(base);
+          if (res.status === 404 && configuredBase && configuredBase !== defaultBase) {
+            ({ res, json, baseUsed } = await attempt(defaultBase));
+          }
 
           if (!res.ok || json?.ok === false) {
-            sendResponse({ ok: false, error: json?.error || `ai_proxy_http_${res.status}`, details: json, status: res.status });
+            sendResponse({ ok: false, error: json?.error || `ai_proxy_http_${res.status}`, details: { ...json, baseUsed }, status: res.status });
             return;
           }
 
-          sendResponse(json);
+          sendResponse({ ...json, baseUsed });
           return;
         } catch (e: any) {
           sendResponse({ ok: false, error: String(e?.message || e || 'ai_proxy_failed') });
