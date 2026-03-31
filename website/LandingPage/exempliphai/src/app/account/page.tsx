@@ -249,9 +249,12 @@ function AccountInner() {
         onComplete={completeOnboarding}
       />
 
-      <div className="mx-auto max-w-2xl">
+      {/* Full-width nav cards (should not be constrained by the account card width). */}
+      <div className="mx-auto max-w-7xl">
         <AccountNavCards className="mb-6" />
+      </div>
 
+      <div className="mx-auto max-w-2xl">
         <div className="rounded-2xl border bg-card p-6 shadow-sm md:p-8">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
