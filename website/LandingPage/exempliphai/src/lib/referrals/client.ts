@@ -1,27 +1,21 @@
 "use client";
 
+import { httpsCallable } from "firebase/functions";
+
 import { getFirebase } from "@/lib/firebase/client";
 
-async function authedFetchJson(path: string, init?: RequestInit) {
-  const { auth } = getFirebase();
+async function requireSignedIn() {
+  const { auth, functions } = getFirebase();
   const user = auth?.currentUser;
   if (!user) throw new Error("Not signed in");
-  const token = await user.getIdToken();
+  return { user, functions };
+}
 
-  const res = await fetch(path, {
-    ...(init || {}),
-    headers: {
-      ...(init?.headers || {}),
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || json?.ok === false) {
-    throw new Error(String(json?.error || `http_${res.status}`));
-  }
-
-  return json;
+async function callCallable<TOut = any, TIn = any>(name: string, data?: TIn): Promise<TOut> {
+  const { functions } = await requireSignedIn();
+  const fn = httpsCallable(functions, name);
+  const res = await fn(data || ({} as any));
+  return (res?.data || {}) as TOut;
 }
 
 export type ListMyReferralsResponse = {
@@ -36,20 +30,18 @@ export type ListMyReferralsResponse = {
 };
 
 export async function getOrCreateReferralCode(): Promise<string> {
-  const json = await authedFetchJson("/api/referrals/code");
-  return String(json?.code || "");
+  const out = await callCallable<{ code?: string }>("getOrCreateReferralCode");
+  return String(out?.code || "");
 }
 
 export async function listMyReferrals(): Promise<ListMyReferralsResponse> {
-  const json = await authedFetchJson("/api/referrals/list");
-  return (json || {}) as any;
+  const out = await callCallable<ListMyReferralsResponse>("listMyReferrals");
+  return (out || {}) as any;
 }
 
 export async function applyAttribution(attributionId: string): Promise<any> {
-  const json = await authedFetchJson("/api/referrals/apply", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ attributionId }),
+  const out = await callCallable<any, { attributionId: string }>("applyAttribution", {
+    attributionId: String(attributionId || ""),
   });
-  return json;
+  return out;
 }
