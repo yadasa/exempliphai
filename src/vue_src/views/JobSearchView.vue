@@ -238,9 +238,37 @@ function resetJobSearch() {
   } catch (_) {}
 }
 
+function recKey(r: any): string {
+  const t = String(r?.title || '').trim().toLowerCase();
+  const c = String(r?.company || '').trim().toLowerCase();
+  const u = String(r?.links?.[0]?.url || '').trim().toLowerCase();
+  return [t, c, u].filter(Boolean).join('||');
+}
+
+function mergeRecs(existing: any[], next: any[]): any[] {
+  const out: any[] = [];
+  const seen = new Set<string>();
+
+  for (const r of [...(existing || []), ...(next || [])]) {
+    const k = recKey(r) || JSON.stringify([r?.title, r?.company, r?.location]);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(r);
+  }
+
+  return out;
+}
+
+function removeRecAt(index: number) {
+  const arr = Array.isArray(recs.value) ? [...recs.value] : [];
+  if (index < 0 || index >= arr.length) return;
+  arr.splice(index, 1);
+  recs.value = arr;
+  schedulePersistState();
+}
+
 async function generateRecommendations() {
   errorMsg.value = '';
-  recs.value = [];
   loading.value = true;
 
   try {
@@ -277,7 +305,7 @@ async function generateRecommendations() {
         }))
     );
 
-    recs.value = cleaned;
+    recs.value = mergeRecs(recs.value, cleaned);
 
     await storageSetLocal({
       [JOB_SEARCH_LAST_KEY]: {
@@ -441,7 +469,7 @@ watch(
           class="action-btn export-btn"
           @click="generateRecommendations"
           :disabled="loading"
-          style="white-space:nowrap; width:auto;"
+          style="white-space:nowrap; width: 100%; flex: 1 1 100%;"
         >
           {{ loading ? 'Generating…' : 'Generate' }}
         </button>
@@ -457,7 +485,15 @@ watch(
     </div>
 
     <div v-if="hasRecs" class="data-actions">
-      <div v-for="(rec, idx) in recs" :key="idx" class="action-card">
+      <div v-for="(rec, idx) in recs" :key="idx" class="action-card" style="position: relative;">
+        <button
+          class="action-btn"
+          @click="removeRecAt(idx)"
+          title="Remove"
+          style="position:absolute; top: 10px; right: 10px; width: 28px; height: 28px; min-width: 28px; padding: 0; border-radius: 999px; display:flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text-secondary);"
+        >
+          ×
+        </button>
         <h3 style="margin-bottom: 0.25rem;">{{ rec.title }}</h3>
         <p style="margin: 0.1rem 0; color: var(--text-secondary);">
           <span v-if="rec.company"><b>{{ rec.company }}</b></span>
