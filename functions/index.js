@@ -213,14 +213,36 @@ function pickModelRates(model) {
   return GEMINI_USD_PER_1M[m] || GEMINI_USD_PER_1M['gemini-3-pro-preview'];
 }
 
+function httpStatusFromError(e) {
+  const code = String(e?.code || e?.details?.code || '').toLowerCase();
+  if (code === 'unauthenticated') return 401;
+  if (code === 'permission-denied') return 403;
+  if (code === 'invalid-argument') return 400;
+  if (code === 'failed-precondition') return 400;
+  if (code === 'resource-exhausted') return 402;
+  if (code === 'not-found') return 404;
+  return 500;
+}
+
+function sendHttpError(res, e) {
+  const status = httpStatusFromError(e);
+  const msg = String(e?.message || e);
+  res.status(status).json({ ok: false, error: status === 500 ? 'internal' : msg });
+}
+
 async function requireUidFromAuthHeader(req) {
   const h = String(req.get('authorization') || '');
   const m = h.match(/^Bearer\s+(.+)$/i);
   if (!m) throw new HttpsError('unauthenticated', 'Missing Authorization Bearer token');
   const idToken = m[1];
-  const decoded = await admin.auth().verifyIdToken(idToken);
-  if (!decoded?.uid) throw new HttpsError('unauthenticated', 'Invalid token');
-  return decoded.uid;
+  try {
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    if (!decoded?.uid) throw new HttpsError('unauthenticated', 'Invalid token');
+    return decoded.uid;
+  } catch (err) {
+    // Normalize Firebase Admin errors to a consistent HTTP auth error.
+    throw new HttpsError('unauthenticated', 'Invalid token');
+  }
 }
 
 function extractUsageTokens(geminiJson) {
@@ -354,7 +376,7 @@ apiRouter.get('/referrals/code', async (req, res) => {
     res.json({ ok: true, code: result.code });
   } catch (e) {
     logger.error('referrals/code failed', e);
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
+    sendHttpError(res, e);
   }
 });
 
@@ -380,7 +402,7 @@ apiRouter.get('/referrals/list', async (req, res) => {
     res.json({ ok: true, totalReferrals: referrals.length, totalPoints, referrals });
   } catch (e) {
     logger.error('referrals/list failed', e);
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
+    sendHttpError(res, e);
   }
 });
 
@@ -497,7 +519,7 @@ apiRouter.post('/referrals/apply', async (req, res) => {
     res.json(out);
   } catch (e) {
     logger.error('referrals/apply failed', e);
-    res.status(500).json({ ok: false, error: String(e?.message || e) });
+    sendHttpError(res, e);
   }
 });
 
@@ -509,7 +531,7 @@ apiRouter.get('/billing/balance', async (req, res) => {
     res.json({ ok: true, tokens, low: tokens < LOW_BALANCE_THRESHOLD });
   } catch (e) {
     logger.error('balance failed', e);
-    res.status(401).json({ ok: false, error: String(e?.message || e) });
+    sendHttpError(res, e);
   }
 });
 
