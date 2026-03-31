@@ -300,12 +300,20 @@ const api = express();
 api.use(cors({ origin: true }));
 api.use(express.json({ limit: '2mb' }));
 
+// Some Firebase Hosting rewrites forward the full path (e.g. /api/...)
+// to this service. To keep things robust, serve routes both at the root
+// and under /api.
+const apiRouter = express.Router();
+
 // Health / rewrite diagnostics
-api.get('/__ping', (req, res) => res.json({ ok: true, service: 'api' }));
-api.get('/__rewrite_test__', (req, res) => res.json({ ok: true, rewrite: true }));
+apiRouter.get('/__ping', (req, res) => res.json({ ok: true, service: 'api' }));
+apiRouter.get('/__rewrite_test__', (req, res) => res.json({ ok: true, rewrite: true }));
+
+api.use(apiRouter);
+api.use('/api', apiRouter);
 
 // Referral endpoints for website (avoid callable CORS issues)
-api.get('/referrals/code', async (req, res) => {
+apiRouter.get('/referrals/code', async (req, res) => {
   try {
     const uid = await requireUidFromAuthHeader(req);
 
@@ -350,7 +358,7 @@ api.get('/referrals/code', async (req, res) => {
   }
 });
 
-api.get('/referrals/list', async (req, res) => {
+apiRouter.get('/referrals/list', async (req, res) => {
   try {
     const uid = await requireUidFromAuthHeader(req);
 
@@ -376,7 +384,7 @@ api.get('/referrals/list', async (req, res) => {
   }
 });
 
-api.post('/referrals/apply', async (req, res) => {
+apiRouter.post('/referrals/apply', async (req, res) => {
   try {
     const uid = await requireUidFromAuthHeader(req);
     const attributionId = String(req.body?.attributionId || '').trim();
@@ -494,7 +502,7 @@ api.post('/referrals/apply', async (req, res) => {
 });
 
 // Balance endpoint for UI
-api.get('/billing/balance', async (req, res) => {
+apiRouter.get('/billing/balance', async (req, res) => {
   try {
     const uid = await requireUidFromAuthHeader(req);
     const tokens = await getBalanceTokens(uid);
@@ -678,7 +686,7 @@ async function handleSerpSearch(req, res, action) {
   res.status(400).json({ ok: false, error: 'invalid_action' });
 }
 
-api.post('/search/jobs', async (req, res) => {
+apiRouter.post('/search/jobs', async (req, res) => {
   try {
     await handleSerpSearch(req, res, 'jobs');
   } catch (e) {
@@ -689,7 +697,7 @@ api.post('/search/jobs', async (req, res) => {
   }
 });
 
-api.post('/search/web', async (req, res) => {
+apiRouter.post('/search/web', async (req, res) => {
   try {
     await handleSerpSearch(req, res, 'web');
   } catch (e) {
@@ -700,7 +708,7 @@ api.post('/search/web', async (req, res) => {
   }
 });
 
-api.post('/search/:action', async (req, res) => {
+apiRouter.post('/search/:action', async (req, res) => {
   try {
     const action = String(req.params.action || '').trim();
     await handleSerpSearch(req, res, action);
@@ -713,7 +721,7 @@ api.post('/search/:action', async (req, res) => {
 });
 
 // AI proxy endpoint
-api.post('/ai/:action', async (req, res) => {
+apiRouter.post('/ai/:action', async (req, res) => {
   try {
     const uid = await requireUidFromAuthHeader(req);
     const action = String(req.params.action || '').trim();
