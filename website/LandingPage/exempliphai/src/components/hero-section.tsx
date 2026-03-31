@@ -126,7 +126,7 @@ export function HeroSection() {
           </div>
         </div>
 
-        <h1 className="mt-6 px-2 pb-2 text-center font-semibold text-4xl leading-tight tracking-tighter sm:text-5xl md:text-[88px] md:leading-[0.95]">
+        <h1 className="mt-6 px-2 pb-4 text-center font-semibold text-4xl leading-tight tracking-tighter sm:text-5xl md:text-[88px] md:leading-[0.95]">
           {landingContent.hero.headline.line1}
           <span className="block bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent dark:from-blue-400 dark:to-purple-400">
             {landingContent.hero.headline.emphasis}
