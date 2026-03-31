@@ -222,21 +222,15 @@ function AccountInner() {
       doc(db, "users", user.uid),
       {
         ...profilePatch,
-        onboarding: {
-          version: Number((schema as any).version || 1),
-          completedAt: serverTimestamp(),
-        },
+        onboarding: { version: Number((schema as any).version || 1), completedAt: serverTimestamp() },
         updatedAt: serverTimestamp(),
       },
       { merge: true },
     );
-
-    setUserDoc((prev) => ({ ...(prev || {}), ...profilePatch }));
-    setMsg("Profile saved. You're all set!");
   }
 
   const onboardingInitialProfile = useMemo(() => {
-    const base = (userDoc || {}) as any;
+    const base = (userDoc as any) || {};
     const phoneFromAuth = String(user?.phoneNumber || "").trim();
     const existingPhone = String(base?.phone || "").trim();
 
@@ -272,202 +266,205 @@ function AccountInner() {
             </span>
           </p>
 
-        <div className="mt-6 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setTab("account")}
-            className={`h-10 rounded-md px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              tab === "account"
-                ? "bg-gradient-primary text-primary-foreground"
-                : "border bg-card hover:bg-muted"
-            }`}
-          >
-            Account
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("referrals")}
-            className={`h-10 rounded-md px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-              tab === "referrals"
-                ? "bg-gradient-primary text-primary-foreground"
-                : "border bg-card hover:bg-muted"
-            }`}
-          >
-            Referrals
-          </button>
-        </div>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTab("account")}
+              className={`h-10 rounded-md px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "account"
+                  ? "bg-gradient-primary text-primary-foreground"
+                  : "border bg-card hover:bg-muted"
+              }`}
+            >
+              Account
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("referrals")}
+              className={`h-10 rounded-md px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                tab === "referrals"
+                  ? "bg-gradient-primary text-primary-foreground"
+                  : "border bg-card hover:bg-muted"
+              }`}
+            >
+              Referrals
+            </button>
+          </div>
 
-        <div aria-live="polite" aria-atomic="true">
-          {err ? (
-            <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
-              {err}
-            </div>
-          ) : null}
-          {msg ? (
-            <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
-              {msg}
-            </div>
-          ) : null}
-        </div>
-
-        {tab === "account" ? (
-          <>
-            <div className="mt-6 grid gap-3">
-              <label className="grid gap-1" htmlFor="account-display-name">
-                <span className="text-sm font-medium">Display Name</span>
-                <input
-                  id="account-display-name"
-                  className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="Jane Doe"
-                  disabled={busy}
-                />
-              </label>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  className="bg-gradient-primary h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                  onClick={save}
-                  disabled={busy}
-                  type="button"
-                >
-                  Save
-                </button>
-                <button
-                  className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                  onClick={logout}
-                  disabled={busy}
-                  type="button"
-                >
-                  Sign out
-                </button>
+          <div aria-live="polite" aria-atomic="true">
+            {err ? (
+              <div className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 p-3 text-sm">
+                {err}
               </div>
-            </div>
+            ) : null}
+            {msg ? (
+              <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
+                {msg}
+              </div>
+            ) : null}
+          </div>
 
-            <div className="mt-6 text-xs text-muted-foreground">UID: {user?.uid}</div>
-          </>
-        ) : (
-          <div className="mt-6 grid gap-6">
-            <div className="rounded-xl border bg-background/40 p-4">
-              <div className="text-sm font-semibold">Your referral link</div>
-              <div className="mt-2 grid gap-2">
-                <div className="text-xs text-muted-foreground">
-                  Share this link with friends, earn free Plus membership when they join!
-                </div>
-
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {tab === "account" ? (
+            <>
+              <div className="mt-6 grid gap-3">
+                <label className="grid gap-1" htmlFor="account-display-name">
+                  <span className="text-sm font-medium">Display Name</span>
                   <input
-                    className="h-11 w-full rounded-md border bg-background px-3 text-sm outline-none"
-                    value={referralLink || (refBusy ? "Loading…" : "")}
-                    readOnly
+                    id="account-display-name"
+                    className="h-11 rounded-md border bg-background px-3 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    placeholder="Jane Doe"
+                    disabled={busy}
                   />
+                </label>
+
+                <div className="flex flex-wrap gap-3">
                   <button
+                    className="bg-gradient-primary h-11 rounded-md px-4 text-sm font-semibold text-primary-foreground shadow-sm transition hover:brightness-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                    onClick={save}
+                    disabled={busy}
                     type="button"
-                    className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted disabled:opacity-60"
-                    disabled={!referralLink}
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(referralLink);
-                        setMsg("Copied referral link.");
-                      } catch {
-                        setErr("Could not copy.");
-                      }
-                    }}
                   >
-                    Copy
+                    Save
+                  </button>
+                  <button
+                    className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                    onClick={logout}
+                    disabled={busy}
+                    type="button"
+                  >
+                    Sign out
                   </button>
                 </div>
-
-                <div className="text-xs text-muted-foreground">
-                  Code:{" "}
-                  <span className="font-mono">
-                    {effectiveRefCode || (refBusy ? "…" : "")}
-                  </span>
-                </div>
               </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3">
+              <div className="mt-6 text-xs text-muted-foreground">UID: {user?.uid}</div>
+            </>
+          ) : (
+            <div className="mt-6 grid gap-6">
               <div className="rounded-xl border bg-background/40 p-4">
-                <div className="text-xs text-muted-foreground">Total referrals</div>
-                <div className="mt-1 text-2xl font-semibold">
-                  {refStats?.totalReferrals ?? (refBusy ? "…" : 0)}
-                </div>
-              </div>
-              <div className="rounded-xl border bg-background/40 p-4">
-                <div className="text-xs text-muted-foreground">Points</div>
-                <div className="mt-1 text-2xl font-semibold">
-                  {refStats?.totalPoints ?? (refBusy ? "…" : 0)}
-                </div>
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted disabled:opacity-60"
-                    disabled={refBusy || Number(refStats?.totalPoints || 0) < 10}
-                    onClick={async () => {
-                      try {
-                        setErr(null);
-                        setMsg(null);
-                        setRefBusy(true);
-                        const out = await redeemPlusWeek();
-                        setMsg("Redeemed 10 points for 1 week of Plus.");
+                <div className="text-sm font-semibold">Your referral link</div>
+                <div className="mt-2 grid gap-2">
+                  <div className="text-xs text-muted-foreground">
+                    Share this link with friends, earn free Plus membership when they join!
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      className="h-11 w-full rounded-md border bg-background px-3 text-sm outline-none"
+                      value={referralLink || (refBusy ? "Loading…" : "")}
+                      readOnly
+                    />
+                    <button
+                      type="button"
+                      className="h-11 rounded-md border bg-card px-4 text-sm font-semibold transition hover:bg-muted disabled:opacity-60"
+                      disabled={!referralLink}
+                      onClick={async () => {
                         try {
-                          const stats = await listMyReferrals();
-                          setRefStats(stats);
-                        } catch (_) {}
-                      } catch (e: any) {
-                        setErr(String(e?.message || e));
-                      } finally {
-                        setRefBusy(false);
-                      }
-                    }}
-                  >
-                    Exchange 10 points → 1 week Plus
-                  </button>
+                          await navigator.clipboard.writeText(referralLink);
+                          setMsg("Copied referral link.");
+                        } catch {
+                          setErr("Could not copy.");
+                        }
+                      }}
+                    >
+                      Copy
+                    </button>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground">
+                    Code:{" "}
+                    <span className="font-mono">
+                      {effectiveRefCode || (refBusy ? "…" : "")}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="rounded-xl border bg-background/40 p-4">
-              <div className="text-sm font-semibold">Your referrals</div>
-              <div className="mt-3 overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="py-2 pr-4">Who</th>
-                      <th className="py-2 pr-4">When</th>
-                      <th className="py-2 pr-0 text-right">Points</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(refStats?.referrals || []).length ? (
-                      (refStats?.referrals || []).map((r) => (
-                        <tr key={r.referredUid} className="border-t">
-                          <td className="py-2 pr-4">{r.who}</td>
-                          <td className="py-2 pr-4 text-xs text-muted-foreground">
-                            {r.createdAt
-                              ? new Date(r.createdAt).toLocaleDateString()
-                              : "—"}
-                          </td>
-                          <td className="py-2 pr-0 text-right font-medium">
-                            {r.pointsAwarded}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border bg-background/40 p-4">
+                  <div className="text-xs text-muted-foreground">Total referrals</div>
+                  <div className="mt-1 text-2xl font-semibold">
+                    {refStats?.totalReferrals ?? (refBusy ? "…" : 0)}
+                  </div>
+                </div>
+                <div className="rounded-xl border bg-background/40 p-4">
+                  <div className="text-xs text-muted-foreground">Points</div>
+                  <div className="mt-1 text-2xl font-semibold">
+                    {refStats?.totalPoints ?? (refBusy ? "…" : 0)}
+                  </div>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted disabled:opacity-60"
+                      disabled={refBusy || Number(refStats?.totalPoints || 0) < 10}
+                      onClick={async () => {
+                        try {
+                          setErr(null);
+                          setMsg(null);
+                          setRefBusy(true);
+                          await redeemPlusWeek();
+                          setMsg("Redeemed 10 points for 1 week of Plus.");
+                          try {
+                            const stats = await listMyReferrals();
+                            setRefStats(stats);
+                          } catch (_) {}
+                        } catch (e: any) {
+                          setErr(String(e?.message || e));
+                        } finally {
+                          setRefBusy(false);
+                        }
+                      }}
+                    >
+                      Exchange
+                    </button>
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      10 points → 1 week Plus plan
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border bg-background/40 p-4">
+                <div className="text-sm font-semibold">Your referrals</div>
+                <div className="mt-3 overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs text-muted-foreground">
+                      <tr>
+                        <th className="py-2 pr-4">Who</th>
+                        <th className="py-2 pr-4">When</th>
+                        <th className="py-2 pr-0 text-right">Points</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(refStats?.referrals || []).length ? (
+                        (refStats?.referrals || []).map((r) => (
+                          <tr key={r.referredUid} className="border-t">
+                            <td className="py-2 pr-4">{r.who}</td>
+                            <td className="py-2 pr-4 text-xs text-muted-foreground">
+                              {r.createdAt
+                                ? new Date(r.createdAt).toLocaleDateString()
+                                : "—"}
+                            </td>
+                            <td className="py-2 pr-0 text-right font-medium">
+                              {r.pointsAwarded}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr className="border-t">
+                          <td className="py-3 text-xs text-muted-foreground" colSpan={3}>
+                            {refBusy ? "Loading…" : "No referrals yet."}
                           </td>
                         </tr>
-                      ))
-                    ) : (
-                      <tr className="border-t">
-                        <td className="py-3 text-xs text-muted-foreground" colSpan={3}>
-                          {refBusy ? "Loading…" : "No referrals yet."}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
         </div>
       </div>
     </div>
