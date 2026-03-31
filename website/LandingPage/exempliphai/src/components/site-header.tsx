@@ -63,10 +63,20 @@ export default function SiteHeader() {
                 </a>
               ))}
               <Link
-                href={user ? ("/account" as any) : (siteConfig.links.loginUrl as any)}
+                href={
+                  user
+                    ? (pathname.startsWith("/dashboard")
+                        ? ("/account" as any)
+                        : ("/dashboard" as any))
+                    : (siteConfig.links.loginUrl as any)
+                }
                 className="text-foreground/70 transition hover:text-foreground"
               >
-                {user ? uiText("Account") : uiText("Log in")}
+                {user
+                  ? pathname.startsWith("/dashboard")
+                    ? uiText("Account")
+                    : uiText("Dashboard")
+                  : uiText("Log in")}
               </Link>
             </nav>
           </section>
@@ -93,6 +103,7 @@ export default function SiteHeader() {
               open={isOpen}
               setOpen={setIsOpen}
               authed={!!user}
+              currentPath={pathname}
               className="flex md:hidden"
             />
           </section>
@@ -106,11 +117,13 @@ function MobileNav({
   open,
   setOpen,
   authed,
+  currentPath,
   className,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
   authed: boolean;
+  currentPath: string;
   className?: string;
 }) {
   const contentId = useId();
@@ -178,10 +191,20 @@ function MobileNav({
                 </MobileAnchor>
               ))}
               <MobileLink
-                href={authed ? "/account" : siteConfig.links.loginUrl}
+                href={
+                  authed
+                    ? currentPath.startsWith("/dashboard")
+                      ? "/account"
+                      : "/dashboard"
+                    : siteConfig.links.loginUrl
+                }
                 onOpenChange={setOpen}
               >
-                {authed ? uiText("Account") : uiText("Log in")}
+                {authed
+                  ? currentPath.startsWith("/dashboard")
+                    ? uiText("Account")
+                    : uiText("Dashboard")
+                  : uiText("Log in")}
               </MobileLink>
               <MobileAnchor
                 href={siteConfig.links.waitlistUrl}
