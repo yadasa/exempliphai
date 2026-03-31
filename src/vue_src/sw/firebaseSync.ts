@@ -1946,7 +1946,7 @@ export function initFirebaseExtensionSync() {
         action === 'SYNC_NOW' ||
         action === 'GET_CLOUD_STATE' ||
         action === 'LIST_MODE_AUTOFILL_RESULT' ||
-        action === 'AI_PROXY' || action === 'BILLING_BALANCE');
+        action === 'AI_PROXY' || action === 'BILLING_BALANCE' || action === 'SEARCH_PROXY');
 
     // Let other listeners (e.g., legacyBackground list mode, job context helpers) handle everything else.
     if (!shouldHandle) return;
@@ -1973,6 +1973,44 @@ export function initFirebaseExtensionSync() {
           return;
         } catch (e: any) {
           sendResponse({ ok: false, error: String(e?.message || e || 'billing_failed') });
+          return;
+        }
+      }
+
+      if (msg.action === 'SEARCH_PROXY') {
+        try {
+          if (!authState) authState = await getStoredAuth().catch(() => null);
+          if (!authState) await tryAuthFromAnyExempliphTab('search_proxy').catch(() => false);
+
+          const searchAction = String(msg?.searchAction || '').trim();
+          const payload = msg?.payload;
+
+          if (!searchAction) {
+            sendResponse({ ok: false, error: 'missing_searchAction' });
+            return;
+          }
+          if (!payload || typeof payload !== 'object') {
+            sendResponse({ ok: false, error: 'missing_payload' });
+            return;
+          }
+
+          const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
+          const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://us-central1-exempliphai.cloudfunctions.net/api').trim();
+          const url = `${base.replace(/\/$/, '')}/search/${encodeURIComponent(searchAction)}`;
+
+          const body = JSON.stringify(payload);
+          const res = await authedFetch(url, { method: 'POST', body });
+          const json = await res.json().catch(() => ({}));
+
+          if (!res.ok || json?.ok === false) {
+            sendResponse({ ok: false, error: json?.error || `search_proxy_http_${res.status}`, details: json, status: res.status });
+            return;
+          }
+
+          sendResponse(json);
+          return;
+        } catch (e: any) {
+          sendResponse({ ok: false, error: String(e?.message || e || 'search_proxy_failed') });
           return;
         }
       }

@@ -190,6 +190,10 @@ const TOKENS_PER_USD = 333;
 const MARKUP = 3.33;
 const LOW_BALANCE_THRESHOLD = 30;
 
+// SerpAPI (Google Jobs) billing: SerpAPI does not return per-request cost.
+// We bill a configurable USD amount per request (your cost), then apply the same markup.
+const SERPAPI_USD_PER_REQUEST = Number(process.env.SERPAPI_USD_PER_REQUEST || 0.015); // default ~ $75 / 5000 searches
+
 // Gemini pricing table (USD per 1M tokens). Keep this updated.
 const GEMINI_USD_PER_1M = {
   'gemini-3-flash-preview': { input: 0.35, output: 0.53 },
@@ -240,6 +244,40 @@ function toBillableDeductTokens(billUsd) {
   return Math.max(0, Math.ceil(usd * TOKENS_PER_USD));
 }
 
+async function deductWalletUsd({ uid, your_usd, meta }) {
+  const providerUsd = Number.isFinite(Number(your_usd)) ? Number(your_usd) : 0;
+  const bill_usd = providerUsd * MARKUP;
+  const deduct_tokens = toBillableDeductTokens(bill_usd);
+
+  const walletRef = db.doc(`users/${uid}/wallet/extokens`);
+
+  const new_balance = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(walletRef);
+    const cur = Number(snap.exists ? snap.get('tokens') : 0);
+    const curTokens = Number.isFinite(cur) ? cur : 0;
+    if (curTokens < deduct_tokens) {
+      throw new HttpsError('resource-exhausted', 'insufficient_balance');
+    }
+    const next = curTokens - deduct_tokens;
+
+    tx.set(
+      walletRef,
+      {
+        tokens: next,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lifetimeDeductedTokens: admin.firestore.FieldValue.increment(deduct_tokens),
+        lifetimeProviderUsd: admin.firestore.FieldValue.increment(providerUsd),
+        ...(meta ? { lastCharge: { ...meta, providerUsd, bill_usd, deduct_tokens, at: admin.firestore.FieldValue.serverTimestamp() } } : {}),
+      },
+      { merge: true },
+    );
+
+    return next;
+  });
+
+  return { bill_usd, deducted_tokens: deduct_tokens, new_balance };
+}
+
 async function getBalanceTokens(uid) {
   // Store extension prepaid tokens in a dedicated wallet doc:
   //   users/{uid}/wallet/extokens
@@ -263,6 +301,115 @@ api.get('/billing/balance', async (req, res) => {
   } catch (e) {
     logger.error('balance failed', e);
     res.status(401).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
+// SerpAPI search endpoint(s)
+api.post('/search/:action', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+    const action = String(req.params.action || '').trim();
+
+    // Enforce low-balance gate BEFORE paying SerpAPI.
+    const bal = await getBalanceTokens(uid);
+    if (bal < LOW_BALANCE_THRESHOLD) {
+      res.status(402).json({ ok: false, error: 'low_balance', tokens: bal, threshold: LOW_BALANCE_THRESHOLD });
+      return;
+    }
+
+    const serpKey = process.env.SERPAPI_API_KEY;
+    if (!serpKey) {
+      res.status(500).json({ ok: false, error: 'missing_server_serpapi_key' });
+      return;
+    }
+
+    // Allowlist search actions
+    const allowed = new Set(['googleJobs']);
+    if (!allowed.has(action)) {
+      res.status(400).json({ ok: false, error: 'invalid_action' });
+      return;
+    }
+
+    const q = String(req.body?.q || '').trim();
+    const location = String(req.body?.location || '').trim();
+    const limit = Math.min(50, Math.max(1, Number(req.body?.limit || 20)));
+
+    if (!q) {
+      res.status(400).json({ ok: false, error: 'missing_q' });
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set('engine', 'google_jobs');
+    params.set('q', q);
+    if (location) params.set('location', location);
+    params.set('hl', 'en');
+    params.set('api_key', serpKey);
+
+    const url = `https://serpapi.com/search.json?${params.toString()}`;
+    const sRes = await fetch(url, { method: 'GET' });
+    const json = await sRes.json().catch(() => ({}));
+
+    if (!sRes.ok || json?.error) {
+      res.status(502).json({ ok: false, error: json?.error || `serpapi_http_${sRes.status}`, details: json });
+      return;
+    }
+
+    const jobs = Array.isArray(json?.jobs_results) ? json.jobs_results : [];
+    const out = jobs.slice(0, limit).map((j) => {
+      const apply = Array.isArray(j?.apply_options) ? j.apply_options : [];
+      const related = Array.isArray(j?.related_links) ? j.related_links : [];
+      return {
+        title: String(j?.title || '').trim(),
+        company: String(j?.company_name || '').trim(),
+        location: String(j?.location || '').trim(),
+        via: String(j?.via || '').trim(),
+        description: String(j?.description || '').trim(),
+        job_id: String(j?.job_id || '').trim(),
+        posted_at: String(j?.detected_extensions?.posted_at || '').trim(),
+        schedule_type: String(j?.detected_extensions?.schedule_type || '').trim(),
+        apply_options: apply
+          .map((a) => ({
+            title: String(a?.title || '').trim(),
+            link: String(a?.link || '').trim(),
+          }))
+          .filter((a) => a.link),
+        related_links: related
+          .map((l) => ({
+            text: String(l?.text || '').trim(),
+            link: String(l?.link || '').trim(),
+          }))
+          .filter((l) => l.link),
+      };
+    });
+
+    // Bill SerpAPI as a fixed USD per-request cost.
+    const charge = await deductWalletUsd({
+      uid,
+      your_usd: SERPAPI_USD_PER_REQUEST,
+      meta: { kind: 'search', provider: 'serpapi', engine: 'google_jobs', action, q, location },
+    });
+
+    res.json({
+      ok: true,
+      action,
+      provider: { name: 'serpapi', engine: 'google_jobs' },
+      query: { q, location, limit },
+      results: out,
+      billing: {
+        your_usd: SERPAPI_USD_PER_REQUEST,
+        bill_usd: charge.bill_usd,
+        deducted_tokens: charge.deducted_tokens,
+        tokens_per_usd: TOKENS_PER_USD,
+        markup: MARKUP,
+      },
+      new_balance: charge.new_balance,
+    });
+  } catch (e) {
+    logger.error('search proxy failed', e);
+    const msg = String(e?.message || e);
+    const insufficient = msg.includes('insufficient_balance');
+    res.status(insufficient ? 402 : 500).json({ ok: false, error: insufficient ? 'insufficient_balance' : msg });
   }
 });
 
@@ -292,6 +439,7 @@ api.post('/ai/:action', async (req, res) => {
       'mapFieldsToFillPlan',
       'generateNarrativeAnswer',
       'aiAnswer',
+      'resumeKeywords',
       'resumeTailor',
       'resumeParse',
       'jobRecs',
@@ -326,31 +474,16 @@ api.post('/ai/:action', async (req, res) => {
 
     const { prompt_tokens, completion_tokens } = extractUsageTokens(json);
     const your_usd = calcProviderUsd({ model, prompt_tokens, completion_tokens });
-    const bill_usd = your_usd * MARKUP;
-    const deduct_tokens = toBillableDeductTokens(bill_usd);
 
-    const walletRef = db.doc(`users/${uid}/wallet/extokens`);
-
-    const new_balance = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(walletRef);
-      const cur = Number(snap.exists ? snap.get('tokens') : 0);
-      const curTokens = Number.isFinite(cur) ? cur : 0;
-      if (curTokens < deduct_tokens) {
-        throw new HttpsError('resource-exhausted', 'insufficient_balance');
-      }
-      const next = curTokens - deduct_tokens;
-      tx.set(
-        walletRef,
-        {
-          tokens: next,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          lifetimeDeductedTokens: admin.firestore.FieldValue.increment(deduct_tokens),
-          lifetimeProviderUsd: admin.firestore.FieldValue.increment(your_usd),
-        },
-        { merge: true },
-      );
-      return next;
+    const charge = await deductWalletUsd({
+      uid,
+      your_usd,
+      meta: { kind: 'ai', provider: 'gemini', model, action },
     });
+
+    const bill_usd = charge.bill_usd;
+    const deduct_tokens = charge.deducted_tokens;
+    const new_balance = charge.new_balance;
 
     const outText = json?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
@@ -378,7 +511,7 @@ api.post('/ai/:action', async (req, res) => {
 });
 
 // IMPORTANT: declare secrets so Cloud Functions injects them into process.env
-exports.api = onRequest({ region: REGION, secrets: ['GEMINI_API_KEY'] }, api);
+exports.api = onRequest({ region: REGION, secrets: ['GEMINI_API_KEY', 'SERPAPI_API_KEY'] }, api);
 
 
 exports.applyAttribution = onCall({ region: REGION, cors: true }, async (req) => {

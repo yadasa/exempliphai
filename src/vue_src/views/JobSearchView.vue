@@ -272,7 +272,7 @@ async function generateRecommendations() {
   loading.value = true;
 
   try {
-    // AI proxy: no client-side API key.
+    // SerpAPI (Google Jobs) proxy: no client-side API key.
 
     const resumeDetails = await new Promise<any>((resolve) => {
       chrome.storage.local.get(['Resume_details'], (res) => resolve((res as any)?.Resume_details || {}));
@@ -282,51 +282,85 @@ async function generateRecommendations() {
       chrome.storage.sync.get(null, (res) => resolve(res || {}));
     });
 
-    const promptText = `${buildJobRecsSystemPrompt()}\n\n---\n\n${buildJobRecsUserPrompt({
-      profile,
-      resumeDetails,
-      desiredLocation: desiredLocation.value,
-    })}`;
+    const pick = (...vals: any[]) => vals.map((v) => String(v || '').trim()).find((v) => v) || '';
 
-    const out = (await aiProxyGenerateJson({ promptText })) as JobSearchResponse;
-    const list = Array.isArray(out?.recommendations) ? out.recommendations : [];
+    const q = pick(
+      profile?.desiredJobTitle,
+      profile?.jobTitle,
+      profile?.Title,
+      resumeDetails?.targetRole,
+      resumeDetails?.headline,
+      resumeDetails?.summary,
+      'software engineer',
+    );
+
+    const payload = {
+      q,
+      location: String(desiredLocation.value || '').trim(),
+      limit: 20,
+    };
+
+    const proxyResp = await new Promise<any>((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        {
+          action: 'SEARCH_PROXY',
+          searchAction: 'googleJobs',
+          payload,
+        },
+        (r) => {
+          const err = chrome.runtime.lastError;
+          if (err) return reject(new Error(String(err.message || err)));
+          resolve(r);
+        },
+      );
+    });
+
+    if (!proxyResp || proxyResp.ok === false) {
+      const msg = String(proxyResp?.error || 'Search proxy failed');
+      if (msg === 'low_balance' || msg === 'insufficient_balance') {
+        throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+      }
+      throw new Error(msg);
+    }
+
+    const results = Array.isArray(proxyResp?.results) ? proxyResp.results : [];
 
     const cleaned = toPlainRecs(
-      list
-        .filter((r) => r && typeof (r as any).title === 'string' && String((r as any).title).trim())
-        .slice(0, 15)
-        .map((r) => ({
-          title: String((r as any).title || '').trim(),
-          company: (r as any).company ? String((r as any).company).trim() : '',
-          location: (r as any).location ? String((r as any).location).trim() : '',
-          salary: (r as any).salary ? String((r as any).salary).trim() : '',
-          why_match: (r as any).why_match ? String((r as any).why_match).trim() : '',
-          links: filterDirectApplicationLinks((r as any).links).slice(0, 4),
-        }))
+      results
+        .filter((r: any) => r && String(r.title || '').trim())
+        .slice(0, 20)
+        .map((r: any) => {
+          const apply = Array.isArray(r.apply_options) ? r.apply_options : [];
+          const links = apply
+            .map((a: any) => ({ label: String(a?.title || '').trim() || 'Apply', url: String(a?.link || '').trim() }))
+            .filter((l: any) => l.url);
+
+          // Keep direct-ish links only; if Serp returns a redirector, this may be empty.
+          const directLinks = filterDirectApplicationLinks(links).slice(0, 4);
+
+          return {
+            title: String(r.title || '').trim(),
+            company: String(r.company || '').trim(),
+            location: String(r.location || '').trim(),
+            salary: '',
+            why_match: String(r.description || '').trim().slice(0, 240),
+            links: directLinks,
+          };
+        }),
     );
 
     recs.value = mergeRecs(recs.value, cleaned);
 
     await storageSetLocal({
       [JOB_SEARCH_LAST_KEY]: {
-        version: String((out as any)?.version || '0.1'),
-        generated_at: String((out as any)?.generated_at || new Date().toISOString()),
+        version: 'serpapi_google_jobs_v0.1',
+        generated_at: new Date().toISOString(),
         desiredLocation: String(desiredLocation.value || ''),
-        recommendations: cleaned,
+        recommendations: recs.value,
       } satisfies JobSearchLast,
     });
 
     schedulePersistState();
-
-    // Best-effort: count AI usage in cloud stats.
-    try {
-      chrome.runtime.sendMessage({
-        action: 'FIREBASE_INCREMENT_STATS',
-        customAnswersGenerated: 1,
-        setLastCustomAnswer: true,
-        source: 'job_search',
-      });
-    } catch (_) {}
   } catch (e: any) {
     errorMsg.value = String(e?.message || e);
   } finally {
