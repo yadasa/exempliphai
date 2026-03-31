@@ -91,7 +91,7 @@ const WEB_CORS = [
   /^http:\/\/localhost:\d+$/i,
 ];
 
-exports.getOrCreateReferralCode = onCall({ region: REGION, cors: WEB_CORS }, async (req) => {
+exports.getOrCreateReferralCode = onCall({ region: REGION, cors: true }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
 
@@ -809,7 +809,7 @@ api.post('/ai/:action', async (req, res) => {
 exports.api = onRequest({ region: REGION, secrets: ['GEMINI_API_KEY', 'SERPAPI_API_KEY'] }, api);
 
 
-exports.applyAttribution = onCall({ region: REGION, cors: WEB_CORS }, async (req) => {
+exports.applyAttribution = onCall({ region: REGION, cors: true }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
   const uid = auth.uid;
@@ -946,7 +946,7 @@ exports.applyAttribution = onCall({ region: REGION, cors: WEB_CORS }, async (req
   return out;
 });
 
-exports.listMyReferrals = onCall({ region: REGION, cors: WEB_CORS }, async (req) => {
+exports.listMyReferrals = onCall({ region: REGION, cors: true }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
   const uid = auth.uid;
