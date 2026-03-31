@@ -179,15 +179,15 @@ export const landingContent = {
       },
       {
         quote:
-          "“My schedule is chaotic. Being able to apply in short bursts between shifts is the only way I stay consistent.”",
-        name: "Camryn H.",
-        role: "Registered Nurse",
-      },
-      {
-        quote:
           "“Supply chain roles move quickly. The minute a job goes live, I can tailor and submit before it’s flooded.”",
         name: "Quinn D.",
         role: "Supply Chain Coordinator",
+      },
+      {
+        quote:
+          "“My schedule is chaotic. Being able to apply in short bursts between shifts is the only way I stay consistent.”",
+        name: "Camryn H.",
+        role: "Registered Nurse",
       },
       {
         quote:

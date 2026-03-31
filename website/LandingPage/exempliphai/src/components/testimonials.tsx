@@ -86,14 +86,27 @@ async function resizeImageFileToPngDataUrl(file: File, sizePx = 88) {
   }
 }
 
-const SEED_TESTIMONIALS: Testimonial[] = landingContent.testimonials.items.map(
-  (t, index) => ({
+function buildSeedTestimonials(): Testimonial[] {
+  const seed: Testimonial[] = landingContent.testimonials.items.map((t, index) => ({
     quote: t.quote,
     name: t.name,
     role: t.role,
     avatarImg: AVATARS[index % AVATARS.length],
-  }),
-);
+  }));
+
+  // Kei request: swap ONLY the avatar images for Quinn and Camryn (content stays put).
+  const quinnIdx = seed.findIndex((t) => t.name.startsWith("Quinn"));
+  const camrynIdx = seed.findIndex((t) => t.name.startsWith("Camryn"));
+  if (quinnIdx !== -1 && camrynIdx !== -1) {
+    const tmp = seed[quinnIdx].avatarImg;
+    seed[quinnIdx].avatarImg = seed[camrynIdx].avatarImg;
+    seed[camrynIdx].avatarImg = tmp;
+  }
+
+  return seed;
+}
+
+const SEED_TESTIMONIALS: Testimonial[] = buildSeedTestimonials();
 
 function formatQuote(s: string) {
   const q = String(s || "").trim();
