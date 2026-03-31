@@ -1946,12 +1946,37 @@ export function initFirebaseExtensionSync() {
         action === 'SYNC_NOW' ||
         action === 'GET_CLOUD_STATE' ||
         action === 'LIST_MODE_AUTOFILL_RESULT' ||
-        action === 'AI_PROXY');
+        action === 'AI_PROXY' || action === 'BILLING_BALANCE');
 
     // Let other listeners (e.g., legacyBackground list mode, job context helpers) handle everything else.
     if (!shouldHandle) return;
 
     (async () => {
+      if (msg.action === 'BILLING_BALANCE') {
+        try {
+          if (!authState) authState = await getStoredAuth().catch(() => null);
+          if (!authState) await tryAuthFromAnyExempliphTab('billing_balance').catch(() => false);
+
+          const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
+          const base = String((syncCfg as any)?.AI_PROXY_BASE || 'https://us-central1-exempliphai.cloudfunctions.net/api').trim();
+          const url = `${base.replace(/\/$/, '')}/billing/balance`;
+
+          const res = await authedFetch(url, { method: 'GET' });
+          const json = await res.json().catch(() => ({}));
+
+          if (!res.ok || json?.ok === false) {
+            sendResponse({ ok: false, error: json?.error || `billing_http_${res.status}`, details: json, status: res.status });
+            return;
+          }
+
+          sendResponse(json);
+          return;
+        } catch (e: any) {
+          sendResponse({ ok: false, error: String(e?.message || e || 'billing_failed') });
+          return;
+        }
+      }
+
       if (msg.action === 'AI_PROXY') {
         try {
           if (!authState) authState = await getStoredAuth().catch(() => null);

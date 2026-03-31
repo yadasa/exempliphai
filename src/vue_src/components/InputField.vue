@@ -81,7 +81,7 @@ import { useExplanation } from '@/composables/Explanation.ts';
 import { useResumeDetails } from '@/composables/ResumeDetails';
 import { useToast } from '@/composables/Toast';
 import { simplePdfFromText, uint8ToBase64, downloadBlob } from '@/utils/simplePdf';
-import { buildTailorResumePrompt } from '@/utils/tailorPrompt.js';
+import { buildTailorKeywordsPrompt, buildTailorResumePrompt } from '@/utils/tailorPrompt.js';
 import mammoth from 'mammoth';
 export default {
   components: { CustomDropdown },
@@ -291,6 +291,35 @@ export default {
       });
     };
 
+    const normalizeTailoredTextLocal = (t: string) => {
+      let s = String(t || '');
+      // Normalize line endings
+      s = s.replace(/\r\n/g, '\n');
+      // Convert common bullet symbols to hyphen bullets
+      s = s.replace(/^[\t ]*[\u2022\u2023\u25E6\u2043\u2219\u00B7\*]+[\t ]+/gm, '- ');
+      // Collapse >2 blank lines
+      s = s.replace(/\n{3,}/g, '\n\n');
+      // Strip odd unicode separators that often break PDF layout
+      s = s.replace(/[\u2010-\u2015\u2212]/g, '-');
+      // Trim trailing spaces per line
+      s = s
+        .split('\n')
+        .map((line) => line.replace(/[ \t]+$/g, ''))
+        .join('\n');
+      return s.trim();
+    };
+
+    const getBillingBalance = async () => {
+      if (!chrome?.runtime?.sendMessage) return { ok: false, error: 'no_runtime' };
+      return await new Promise<any>((resolve) => {
+        chrome.runtime.sendMessage({ action: 'BILLING_BALANCE' }, (resp) => {
+          const err = chrome?.runtime?.lastError;
+          if (err) resolve({ ok: false, error: err.message || String(err) });
+          else resolve(resp || { ok: false });
+        });
+      });
+    };
+
     const tailorResume = async () => {
       if (!isResumeLabel.value) return;
       tailorError.value = '';
@@ -299,6 +328,16 @@ export default {
 
       try {
         // AI proxy: no client-side API key.
+
+        // Preflight balance check (avoid provider calls when low).
+        try {
+          const bal = await getBillingBalance();
+          if (bal?.ok && (bal?.low || Number(bal?.tokens || 0) < 30)) {
+            throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+          }
+        } catch (e: any) {
+          // If balance endpoint fails, continue (server will still enforce).
+        }
 
         // Resume upload (base64 + mime type + extracted text)
         const resumeLocal = await new Promise<any>((resolve) => {
@@ -315,11 +354,60 @@ export default {
         const company = String(jobCtx?.company || '').trim();
         const jd = String(jobCtx?.description || jobCtx?.jobDescription || '').trim();
 
+        const jdLen = jd.length;
+
+        // Pass 1: extract job keywords (cheap, small output)
+        const kwPrompt = buildTailorKeywordsPrompt({
+          jobTitle,
+          company,
+          pageUrl,
+          jobDescription: jd,
+          jobDescriptionCharCount: jdLen,
+        });
+
+        const kwInput = {
+          contents: [{ role: 'user', parts: [{ text: kwPrompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            responseMimeType: 'application/json',
+          },
+        };
+
+        const kwResp = await new Promise<any>((resolve, reject) => {
+          chrome.runtime.sendMessage(
+            {
+              action: 'AI_PROXY',
+              aiAction: 'resumeKeywords',
+              model: 'gemini-3-pro-preview',
+              input: kwInput,
+            },
+            (r) => {
+              const err = chrome.runtime.lastError;
+              if (err) return reject(new Error(String(err.message || err)));
+              resolve(r);
+            }
+          );
+        }).catch((e) => ({ ok: false, error: String((e as any)?.message || e) }));
+
+        let extractedKeywords: any = null;
+        if (kwResp && kwResp.ok !== false && kwResp?.result?.text) {
+          try {
+            const s = String(kwResp.result.text);
+            const first = s.indexOf('{');
+            const last = s.lastIndexOf('}');
+            const jsonText = first !== -1 && last !== -1 && last > first ? s.slice(first, last + 1) : s;
+            extractedKeywords = JSON.parse(jsonText);
+          } catch (_) {}
+        }
+
         const prompt = buildTailorResumePrompt({
           jobTitle,
           company,
           pageUrl,
           jobDescription: jd,
+          jobDescriptionCharCount: jdLen,
+          keywords: extractedKeywords,
+          changeBudget: { max_total_bullet_edits: 20, max_edits_per_role: 3 },
         });
 
         if (resumeMime !== 'application/pdf' && !resumeText) {
@@ -350,7 +438,7 @@ export default {
             },
           ],
           generationConfig: {
-            temperature: 1.0,
+            temperature: 0.4,
             responseMimeType: 'application/json',
           },
         };
@@ -388,8 +476,10 @@ export default {
         const jsonText = first !== -1 && last !== -1 && last > first ? s.slice(first, last + 1) : s;
 
         const out = JSON.parse(jsonText);
-        const t = String(out?.tailored_resume_text || '').trim();
-        if (!t) throw new Error('No tailored_resume_text returned.');
+        const tRaw = String(out?.tailored_resume_text || '').trim();
+        if (!tRaw) throw new Error('No tailored_resume_text returned.');
+
+        const t = normalizeTailoredTextLocal(tRaw);
 
         // Guardrail: avoid silent no-op tailoring.
         const norm = (x: string) => String(x || '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -410,6 +500,10 @@ export default {
           pageKey,
           jobTitle: String(out?.job_title || jobTitle || ''),
           company: String(out?.company || company || ''),
+          jobDescriptionChars: jdLen,
+          keywords: extractedKeywords || null,
+          changes: Array.isArray(out?.changes) ? out.changes : [],
+          warnings: Array.isArray(out?.warnings) ? out.warnings : [],
         };
 
         // Best-effort: count AI usage in cloud stats.
