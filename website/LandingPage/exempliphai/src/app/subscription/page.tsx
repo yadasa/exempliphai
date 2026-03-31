@@ -33,7 +33,9 @@ function SubscriptionInner() {
     const { db } = getFirebase();
     return onSnapshot(doc(db, "users", user.uid), (snap) => {
       const data = (snap.data() as any) || {};
-      setPaidPlan(!!data?.paidPlan);
+      const untilMs = data?.paidPlanUntil?.toMillis?.() ? Number(data.paidPlanUntil.toMillis()) : 0;
+      const active = !!data?.paidPlan || (!!untilMs && Date.now() < untilMs);
+      setPaidPlan(active);
     });
   }, [user?.uid]);
 

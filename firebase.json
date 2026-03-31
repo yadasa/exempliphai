@@ -11,10 +11,6 @@
     ],
     "rewrites": [
       {
-        "source": "/__rewrite_test__",
-        "function": "api"
-      },
-      {
         "source": "/api/__ping",
         "function": "api"
       },

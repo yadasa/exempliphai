@@ -22,8 +22,16 @@ const REGION = process.env.FUNCTION_REGION || "us-central1";
 
 const REFERRAL = {
   CODE_LEN: 8,
-  SIGNUP_POINTS: 100,
-  PAID_CONVERSION_BONUS_POINTS: 500,
+
+  // Points
+  JOIN_POINTS: 1,
+  ONBOARDING_POINTS: 1,
+  FIRST_JOB_POINTS: 1,
+  PAID_CONVERSION_POINTS: 6,
+
+  // Redemption
+  REDEEM_PLUS_POINTS_COST: 10,
+  REDEEM_PLUS_DAYS: 7,
 };
 
 function isNonEmptyString(v) {
@@ -91,6 +99,8 @@ const WEB_CORS = [
   /^http:\/\/localhost:\d+$/i,
 ];
 
+// NOTE: Callable referral functions are kept for backwards compatibility, but the website
+// should use same-origin /api/referrals/* endpoints to avoid callable CORS/IAM issues.
 exports.getOrCreateReferralCode = onCall({ region: REGION, cors: true, invoker: "public" }, async (req) => {
   const auth = req.auth;
   if (!auth?.uid) throw new HttpsError("unauthenticated", "Sign in required.");
@@ -329,6 +339,7 @@ const apiRouter = express.Router();
 
 // Health / rewrite diagnostics
 apiRouter.get('/__ping', (req, res) => res.json({ ok: true, service: 'api' }));
+// NOTE: /__rewrite_test__ is temporary; safe to remove once Hosting rewrites are stable.
 apiRouter.get('/__rewrite_test__', (req, res) => res.json({ ok: true, rewrite: true }));
 
 api.use(apiRouter);
@@ -471,7 +482,8 @@ apiRouter.post('/referrals/apply', async (req, res) => {
           referredUid: uid,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
           attributionId,
-          pointsAwarded: REFERRAL.SIGNUP_POINTS,
+          pointsAwarded: REFERRAL.JOIN_POINTS,
+          joinAwarded: true,
           referredDisplayName: referredDisplayName || null,
           referredPhoneNumber: referredPhoneNumber || null,
         });
@@ -480,7 +492,7 @@ apiRouter.post('/referrals/apply', async (req, res) => {
           db.doc(`users/${referrerUid}`),
           {
             referral: {
-              pointsEarned: admin.firestore.FieldValue.increment(REFERRAL.SIGNUP_POINTS),
+              pointsEarned: admin.firestore.FieldValue.increment(REFERRAL.JOIN_POINTS),
               referralsCount: admin.firestore.FieldValue.increment(1),
             },
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -519,6 +531,59 @@ apiRouter.post('/referrals/apply', async (req, res) => {
     res.json(out);
   } catch (e) {
     logger.error('referrals/apply failed', e);
+    sendHttpError(res, e);
+  }
+});
+
+// Redeem points for a 1-week Plus pass.
+apiRouter.post('/referrals/redeem', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+
+    const cost = REFERRAL.REDEEM_PLUS_POINTS_COST;
+    const days = REFERRAL.REDEEM_PLUS_DAYS;
+
+    const userRef = db.doc(`users/${uid}`);
+
+    const result = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      const curPoints = Number(snap.get('referral.pointsEarned') || 0);
+      const points = Number.isFinite(curPoints) ? curPoints : 0;
+      if (points < cost) {
+        return { ok: false, error: 'insufficient_points', points, cost };
+      }
+
+      const nowMs = Date.now();
+      const curUntil = snap.get('paidPlanUntil');
+      const curUntilMs = curUntil?.toMillis?.() ? Number(curUntil.toMillis()) : 0;
+      const baseMs = Math.max(nowMs, curUntilMs);
+      const nextUntil = admin.firestore.Timestamp.fromMillis(baseMs + days * 24 * 60 * 60 * 1000);
+
+      tx.set(
+        userRef,
+        {
+          paidPlan: true,
+          paidPlanUntil: nextUntil,
+          referral: {
+            pointsEarned: admin.firestore.FieldValue.increment(-cost),
+            redeemedPlusWeeks: admin.firestore.FieldValue.increment(1),
+          },
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      return { ok: true, cost, nextUntil: nextUntil.toDate().toISOString() };
+    });
+
+    if (result?.ok === false) {
+      res.status(400).json(result);
+      return;
+    }
+
+    res.json(result);
+  } catch (e) {
+    logger.error('referrals/redeem failed', e);
     sendHttpError(res, e);
   }
 });
@@ -929,7 +994,8 @@ exports.applyAttribution = onCall({ region: REGION, cors: true, invoker: "public
         referredUid: uid,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
         attributionId,
-        pointsAwarded: REFERRAL.SIGNUP_POINTS,
+        pointsAwarded: REFERRAL.JOIN_POINTS,
+        joinAwarded: true,
         referredDisplayName: referredDisplayName || null,
         referredPhoneNumber: referredPhoneNumber || null,
       });
@@ -939,7 +1005,7 @@ exports.applyAttribution = onCall({ region: REGION, cors: true, invoker: "public
         {
           referral: {
             pointsEarned: admin.firestore.FieldValue.increment(
-              REFERRAL.SIGNUP_POINTS,
+              REFERRAL.JOIN_POINTS,
             ),
             referralsCount: admin.firestore.FieldValue.increment(1),
           },
@@ -1032,12 +1098,14 @@ exports.onUserPaidPlan = onDocumentUpdated(
     const uid = event.params.uid;
 
     const beforePaid =
+      !!before?.paidPlan ||
       !!before?.billing?.isPaid ||
       String(before?.billing?.planStatus || "").toLowerCase() === "paid" ||
       String(before?.subscription?.status || "").toLowerCase() === "active" ||
       String(before?.plan?.tier || "").toLowerCase() === "pro";
 
     const afterPaid =
+      !!after?.paidPlan ||
       !!after?.billing?.isPaid ||
       String(after?.billing?.planStatus || "").toLowerCase() === "paid" ||
       String(after?.subscription?.status || "").toLowerCase() === "active" ||
@@ -1049,7 +1117,21 @@ exports.onUserPaidPlan = onDocumentUpdated(
     if (!isNonEmptyString(referrerUid)) return;
 
     const bonusApplied = !!after?.referral?.paidConversionBonusApplied;
-    if (bonusApplied) return;
+
+    const beforeOnboarding = !!before?.onboarding?.completedAt;
+    const afterOnboarding = !!after?.onboarding?.completedAt;
+
+    const beforeAutofills = Number(before?.stats?.autofills?.total || 0) || 0;
+    const afterAutofills = Number(after?.stats?.autofills?.total || 0) || 0;
+
+    const hitOnboarding = !beforeOnboarding && afterOnboarding;
+    const hitFirstJob = beforeAutofills <= 0 && afterAutofills > 0;
+
+    // If nothing to do, bail.
+    if ((beforePaid || !afterPaid || bonusApplied) && !hitOnboarding && !hitFirstJob) {
+      // paid conversion already handled or not applicable, and no milestones
+      if (!hitOnboarding && !hitFirstJob) return;
+    }
 
     const referralDocRef = db.doc(`users/${referrerUid}/referrals/${uid}`);
 
@@ -1061,48 +1143,103 @@ exports.onUserPaidPlan = onDocumentUpdated(
       ]);
 
       const cur = userSnap.data() || {};
-      if (cur?.referral?.paidConversionBonusApplied) return;
+      if (!referralSnap.exists) return; // must have applied attribution
 
-      // Only award if referral record exists (ensures attribution path).
-      if (!referralSnap.exists) return;
+      const referralData = referralSnap.data() || {};
 
-      tx.set(
-        db.doc(`users/${referrerUid}`),
-        {
-          referral: {
-            pointsEarned: admin.firestore.FieldValue.increment(
-              REFERRAL.PAID_CONVERSION_BONUS_POINTS,
-            ),
-            paidConversionBonusEarned: admin.firestore.FieldValue.increment(
-              REFERRAL.PAID_CONVERSION_BONUS_POINTS,
-            ),
+      // Paid conversion
+      if (!cur?.referral?.paidConversionBonusApplied && afterPaid && !beforePaid) {
+        tx.set(
+          db.doc(`users/${referrerUid}`),
+          {
+            referral: {
+              pointsEarned: admin.firestore.FieldValue.increment(REFERRAL.PAID_CONVERSION_POINTS),
+              paidConversionBonusEarned: admin.firestore.FieldValue.increment(REFERRAL.PAID_CONVERSION_POINTS),
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
+          { merge: true },
+        );
 
-      tx.set(
-        referralDocRef,
-        {
-          paidConversionBonusAwarded: REFERRAL.PAID_CONVERSION_BONUS_POINTS,
-          paidConversionAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      tx.set(
-        userRef,
-        {
-          referral: {
-            paidConversionBonusApplied: true,
+        tx.set(
+          referralDocRef,
+          {
+            pointsAwarded: admin.firestore.FieldValue.increment(REFERRAL.PAID_CONVERSION_POINTS),
+            paidConversionBonusAwarded: REFERRAL.PAID_CONVERSION_POINTS,
+            paidConversionAt: admin.firestore.FieldValue.serverTimestamp(),
           },
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
+          { merge: true },
+        );
+
+        tx.set(
+          userRef,
+          {
+            referral: {
+              paidConversionBonusApplied: true,
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
+
+      // Onboarding milestone
+      if (hitOnboarding && !referralData?.onboardingAwarded) {
+        tx.set(
+          db.doc(`users/${referrerUid}`),
+          {
+            referral: {
+              pointsEarned: admin.firestore.FieldValue.increment(REFERRAL.ONBOARDING_POINTS),
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+
+        tx.set(
+          referralDocRef,
+          {
+            pointsAwarded: admin.firestore.FieldValue.increment(REFERRAL.ONBOARDING_POINTS),
+            onboardingAwarded: true,
+            onboardingAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
+
+      // First job milestone (first autofill)
+      if (hitFirstJob && !referralData?.firstJobAwarded) {
+        tx.set(
+          db.doc(`users/${referrerUid}`),
+          {
+            referral: {
+              pointsEarned: admin.firestore.FieldValue.increment(REFERRAL.FIRST_JOB_POINTS),
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+
+        tx.set(
+          referralDocRef,
+          {
+            pointsAwarded: admin.firestore.FieldValue.increment(REFERRAL.FIRST_JOB_POINTS),
+            firstJobAwarded: true,
+            firstJobAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
     });
 
-    logger.info("Paid conversion bonus awarded", { uid, referrerUid });
+    if (afterPaid && !beforePaid && !bonusApplied) {
+      logger.info("Paid conversion bonus awarded", { uid, referrerUid });
+    }
+    if (hitOnboarding) {
+      logger.info("Referral onboarding milestone awarded", { uid, referrerUid });
+    }
+    if (hitFirstJob) {
+      logger.info("Referral first job milestone awarded", { uid, referrerUid });
+    }
   },
 );

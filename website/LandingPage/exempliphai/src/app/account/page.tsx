@@ -11,6 +11,7 @@ import {
   applyAttribution,
   getOrCreateReferralCode,
   listMyReferrals,
+  redeemPlusWeek,
   type ListMyReferralsResponse,
 } from "@/lib/referrals/client";
 import schema from "@/config/local_profile_schema.json";
@@ -263,7 +264,12 @@ function AccountInner() {
           </div>
 
           <p className="mt-2 text-sm text-muted-foreground">
-            Signed in as <span className="font-medium">{user?.phoneNumber}</span>
+            Signed in as{" "}
+            <span className="font-medium">
+              {String(displayName || "").trim() ||
+                String((userDoc as any)?.first_name || "").trim() ||
+                String(user?.phoneNumber || "").trim()}
+            </span>
           </p>
 
         <div className="mt-6 flex flex-wrap gap-2">
@@ -347,7 +353,7 @@ function AccountInner() {
               <div className="text-sm font-semibold">Your referral link</div>
               <div className="mt-2 grid gap-2">
                 <div className="text-xs text-muted-foreground">
-                  Share this link with friends. When they sign up and become paid, you earn points.
+                  Share this link with friends, earn free Plus membership when they join!
                 </div>
 
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -390,9 +396,35 @@ function AccountInner() {
                 </div>
               </div>
               <div className="rounded-xl border bg-background/40 p-4">
-                <div className="text-xs text-muted-foreground">Points earned</div>
+                <div className="text-xs text-muted-foreground">Points</div>
                 <div className="mt-1 text-2xl font-semibold">
                   {refStats?.totalPoints ?? (refBusy ? "…" : 0)}
+                </div>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="h-10 rounded-md border bg-card px-3 text-sm font-semibold transition hover:bg-muted disabled:opacity-60"
+                    disabled={refBusy || Number(refStats?.totalPoints || 0) < 10}
+                    onClick={async () => {
+                      try {
+                        setErr(null);
+                        setMsg(null);
+                        setRefBusy(true);
+                        const out = await redeemPlusWeek();
+                        setMsg("Redeemed 10 points for 1 week of Plus.");
+                        try {
+                          const stats = await listMyReferrals();
+                          setRefStats(stats);
+                        } catch (_) {}
+                      } catch (e: any) {
+                        setErr(String(e?.message || e));
+                      } finally {
+                        setRefBusy(false);
+                      }
+                    }}
+                  >
+                    Exchange 10 points → 1 week Plus
+                  </button>
                 </div>
               </div>
             </div>

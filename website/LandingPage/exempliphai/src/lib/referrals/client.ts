@@ -53,3 +53,12 @@ export async function applyAttribution(attributionId: string): Promise<any> {
   });
   return json;
 }
+
+export async function redeemPlusWeek(): Promise<any> {
+  const json = await authedFetchJson("/api/referrals/redeem", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  return json;
+}
