@@ -83,7 +83,13 @@ exports.mintCustomToken = onCall({ region: REGION, cors: true }, async (req) => 
   return { token };
 });
 
-const WEB_CORS = [/^https:\/\/(www\.)?exempliph\.ai$/i, /^http:\/\/localhost:\d+$/i];
+// Allowed web origins for callable functions.
+// Note: callable endpoints still perform CORS checks in the browser.
+const WEB_CORS = [
+  /^https:\/\/(www\.)?exempliph\.ai$/i,
+  /^https:\/\/exempliphai\.(web\.app|firebaseapp\.com)$/i,
+  /^http:\/\/localhost:\d+$/i,
+];
 
 exports.getOrCreateReferralCode = onCall({ region: REGION, cors: WEB_CORS }, async (req) => {
   const auth = req.auth;
