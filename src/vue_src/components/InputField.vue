@@ -804,7 +804,9 @@ Ensure all keys match the UI labels exactly. For yes/no fields, return "Yes" or 
         }
 
         if (!extracted) {
-          showToast('Upload saved, but could not extract text. Try a different file.', { variant: 'error' });
+          // Best-effort extraction: some PDFs are image-based or otherwise not text-extractable.
+          // Keep the upload (PDF is still stored) and skip field parsing.
+          showToast('Upload saved. (Could not extract text from this PDF — parsing skipped.)', { variant: 'warning' });
           return;
         }
 
