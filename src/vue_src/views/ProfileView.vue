@@ -15,7 +15,8 @@ async function refreshStatus() {
 
 function prettyStatus(s: string) {
   if (s === 'saving') return 'Saving…';
-  if (s === 'synced') return 'Synced';
+  // Kei preference: hide "Synced" label (too noisy).
+  if (s === 'synced') return '';
   if (s === 'offline') return 'Offline (queued)';
   return '';
 }

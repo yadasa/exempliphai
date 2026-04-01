@@ -153,16 +153,21 @@ const isActive = (name: string) => route.name === name;
 .headerBalance {
   position: absolute;
   right: 1.35rem;
-  bottom: -0.55rem;
+  bottom: -0.95rem;
   font-size: 0.72rem;
-  font-weight: 600;
-  padding: 0.28rem 0.5rem;
+  font-weight: 700;
+  padding: 0.3rem 0.55rem;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-primary) 74%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow-1);
+}
+
+/* Force space for the floating token pill so it never overlaps adjacent UI */
+.headerWrap {
+  padding-bottom: 0.95rem;
 }
 
 .content-area {

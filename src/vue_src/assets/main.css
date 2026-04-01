@@ -34,9 +34,9 @@
   /* Theme tokens */
   --font-sans: "SF Pro", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
 
-  /* Header overlay (white -> transparent) */
-  --header-overlay-solid: rgba(255, 255, 255, 1);
-  --header-overlay-fade: rgba(255, 255, 255, 0);
+  /* Header overlay (bg color -> transparent) */
+  --header-overlay-solid: var(--bg-primary);
+  --header-overlay-fade: transparent;
   --header-brand-text: rgba(255, 255, 255, 0.98);
 
   --bg-primary: #0b1220; /* dark default */
@@ -78,8 +78,8 @@
   /* Light mode — white background + modern gradients */
   --bg-primary: #ffffff;
 
-  --header-overlay-solid: rgba(255, 255, 255, 1);
-  --header-overlay-fade: rgba(255, 255, 255, 0);
+  --header-overlay-solid: var(--bg-primary);
+  --header-overlay-fade: transparent;
   --header-brand-text: rgba(15, 23, 42, 0.92); /* light mode */
   --bg-secondary: #f6f7fb;
 
@@ -110,8 +110,8 @@
 /* System light fallback if no explicit data-theme */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
-    --header-overlay-solid: rgba(255, 255, 255, 1);
-    --header-overlay-fade: rgba(255, 255, 255, 0);
+    --header-overlay-solid: var(--bg-primary);
+    --header-overlay-fade: transparent;
     --header-brand-text: rgba(15, 23, 42, 0.92); /* light mode */
     --bg-primary: #ffffff;
     --bg-secondary: #f6f7fb;
@@ -252,7 +252,7 @@ h1 {
     to right,
     var(--header-overlay-solid) 0%,
     var(--header-overlay-solid) 10%,
-    var(--header-overlay-fade) 45%
+    var(--header-overlay-fade) 33%
   );
   pointer-events: none;
 }
