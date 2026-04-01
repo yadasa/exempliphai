@@ -1153,11 +1153,25 @@ window.addEventListener("load", async (_) => {
   console.log("exempliphai: found job page.");
 
   // Detect ATS using Simplify-derived URL patterns (best-effort)
+  // Robustness: prefer a detailed detector w/ confidence when available.
   try {
-    const det = globalThis.__SmartApply?.atsConfig?.detectATSKeyForUrl;
-    if (typeof det === 'function') {
-      const atsKey = await det(window.location.href);
-      if (atsKey) console.log('exempliphai: detected ATS', atsKey);
+    const det2 = globalThis.__SmartApply?.atsConfig?.detectATSForUrlDetailed;
+    if (typeof det2 === 'function') {
+      const info = await det2(window.location.href);
+      if (info?.key) {
+        console.log(
+          'exempliphai: detected ATS',
+          info.key,
+          `(confidence ${Number(info.confidence || 0).toFixed(2)})`,
+          info.source || '',
+        );
+      }
+    } else {
+      const det = globalThis.__SmartApply?.atsConfig?.detectATSKeyForUrl;
+      if (typeof det === 'function') {
+        const atsKey = await det(window.location.href);
+        if (atsKey) console.log('exempliphai: detected ATS', atsKey);
+      }
     }
   } catch (e) {
     console.warn('exempliphai: ATS detection failed', e);
@@ -2880,10 +2894,25 @@ async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = 
 async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
   try {
     const det = globalThis.__SmartApply?.atsConfig?.detectATSKeyForUrl;
+    const det2 = globalThis.__SmartApply?.atsConfig?.detectATSForUrlDetailed;
     const getCfg = globalThis.__SmartApply?.atsConfig?.getATSConfig;
-    if (typeof det !== 'function' || typeof getCfg !== 'function') return { ok: false, reason: 'no_ats_config' };
+    if (typeof getCfg !== 'function') return { ok: false, reason: 'no_ats_config' };
 
-    const atsKey = await det(url || window.location.href);
+    let atsKey = null;
+    let atsConfidence = 0;
+    if (typeof det2 === 'function') {
+      const info = await det2(url || window.location.href);
+      atsKey = info?.key || null;
+      atsConfidence = Number(info?.confidence || 0);
+      // If confidence is too low, skip config-driven fill (avoid wrong ATS).
+      if (atsKey && atsConfidence && atsConfidence < 0.45) {
+        return { ok: false, reason: 'low_confidence_match', atsKey, atsConfidence };
+      }
+    } else if (typeof det === 'function') {
+      atsKey = await det(url || window.location.href);
+      atsConfidence = atsKey ? 0.9 : 0;
+    }
+
     if (!atsKey) return { ok: false, reason: 'no_match' };
 
     const fullCfg = await getCfg();

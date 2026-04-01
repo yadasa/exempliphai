@@ -80,27 +80,67 @@
     return rx;
   }
 
-  // Detect ATS key for current URL
-  atsConfig.detectATSKeyForUrl = async (url) => {
+  function _inferAtsFromDomOrHost(u) {
+    try {
+      const url = new URL(String(u || '').trim());
+      const host = String(url.hostname || '').toLowerCase();
+
+      // These are intentionally conservative fallbacks; URL patterns remain primary.
+      if (host.includes('greenhouse.io')) return { key: 'Greenhouse', score: 0.55, signal: 'host:greenhouse' };
+      if (host.includes('jobs.lever.co') || host.includes('lever.co')) return { key: 'Lever', score: 0.55, signal: 'host:lever' };
+      if (host.includes('myworkdayjobs.com') || host.includes('workday')) return { key: 'Workday', score: 0.50, signal: 'host:workday' };
+
+      // Light DOM signals (only if document is available)
+      const doc = typeof document !== 'undefined' ? document : null;
+      if (doc) {
+        if (doc.querySelector('meta[name="application-name"][content*="Greenhouse"]')) {
+          return { key: 'Greenhouse', score: 0.50, signal: 'dom:meta:greenhouse' };
+        }
+        if (doc.querySelector('[data-qa*="lever"], a[href*="lever.co"], form[action*="lever"]')) {
+          return { key: 'Lever', score: 0.45, signal: 'dom:lever' };
+        }
+        if (doc.querySelector('[data-automation-id], [data-automation-widget]')) {
+          // Workday commonly uses data-automation-id attributes.
+          return { key: 'Workday', score: 0.40, signal: 'dom:workday' };
+        }
+      }
+    } catch (_) {}
+
+    return null;
+  }
+
+  // Detailed ATS detection with confidence.
+  atsConfig.detectATSForUrlDetailed = async (url) => {
     const config = await loadConfig();
     const u = String(url || '').trim();
-    if (!u) return null;
+    if (!u) return { key: null, confidence: 0, source: null, signal: null };
 
     for (const [atsKey, atsData] of Object.entries(config.ATS || {})) {
       for (const pattern of atsData.urls || []) {
         const regex = _cachedRegex(pattern);
-        if (regex && regex.test(u)) return atsKey;
+        if (regex && regex.test(u)) return { key: atsKey, confidence: 0.95, source: 'urls', signal: pattern };
       }
     }
 
     for (const [boardKey, boardData] of Object.entries(config.Boards || {})) {
       for (const pattern of boardData.urls || []) {
         const regex = _cachedRegex(pattern);
-        if (regex && regex.test(u)) return boardKey;
+        if (regex && regex.test(u)) return { key: boardKey, confidence: 0.9, source: 'boards.urls', signal: pattern };
       }
     }
 
-    return null;
+    const inf = _inferAtsFromDomOrHost(u);
+    if (inf && config.ATS && Object.prototype.hasOwnProperty.call(config.ATS, inf.key)) {
+      return { key: inf.key, confidence: inf.score, source: 'heuristic', signal: inf.signal };
+    }
+
+    return { key: null, confidence: 0, source: null, signal: null };
+  };
+
+  // Detect ATS key for current URL (back-compat string API)
+  atsConfig.detectATSKeyForUrl = async (url) => {
+    const det = await atsConfig.detectATSForUrlDetailed(url);
+    return det?.key || null;
   };
 
   atsConfig.getATSConfig = async () => await loadConfig();
