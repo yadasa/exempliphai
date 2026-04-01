@@ -107,9 +107,16 @@ const isActive = (name: string) => route.name === name;
           <PrivacyToggle />
         </div>
       </div>
-      <div v-if="tokensBalance !== null" class="headerBalance">
+      <a
+        v-if="tokensBalance !== null"
+        class="headerBalance"
+        href="https://exempliph.ai/tokens/"
+        target="_blank"
+        rel="noreferrer"
+        title="Open tokens"
+      >
         {{ tokensBalance.toLocaleString() }} tokens
-      </div>
+      </a>
     </div>
 
     <div class="content-area px-4">
@@ -169,7 +176,7 @@ const isActive = (name: string) => route.name === name;
   right: 1.35rem;
   bottom: -0.45rem;
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 800;
   padding: 0.3rem 0.55rem;
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
@@ -177,6 +184,19 @@ const isActive = (name: string) => route.name === name;
   color: var(--text-secondary);
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow-1);
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease, border-color 160ms ease;
+}
+
+.headerBalance:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent-color) 45%, var(--border-color));
+  filter: drop-shadow(0 0 14px color-mix(in srgb, var(--accent-color) 40%, transparent));
+}
+
+.headerBalance:active {
+  transform: translateY(0px) scale(0.99);
 }
 
 /* Reserve a little space for the floating token pill */
