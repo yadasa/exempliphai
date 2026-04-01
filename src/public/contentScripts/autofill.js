@@ -2457,8 +2457,16 @@ async function _saApplySelectorEntry(entry, { root, key, fillValue, profile } = 
     // Default: fill into controls, click for buttons.
     const tag = (el.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-      _saSetInputValue(el, String(fillValue ?? ''));
-      return true;
+      const v = String(fillValue ?? '');
+      _saSetInputValue(el, v);
+      // Robustness: verify the value stuck (framework rerenders can revert).
+      await _saSleep(30);
+      if (!_saVerifyFilled(el, v)) {
+        try { el.focus?.(); } catch (_) {}
+        _saSetInputValue(el, v);
+        await _saSleep(60);
+      }
+      return _saVerifyFilled(el, v);
     }
     try { el.click?.(); } catch (_) {}
     return true;
@@ -2554,8 +2562,15 @@ async function _saApplySelectorEntry(entry, { root, key, fillValue, profile } = 
   // Default fill if it's an input-like element
   const tag = (el.tagName || '').toLowerCase();
   if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-    _saSetInputValue(el, String(effectiveValue ?? ''));
-    return true;
+    const v = String(effectiveValue ?? '');
+    _saSetInputValue(el, v);
+    await _saSleep(30);
+    if (!_saVerifyFilled(el, v)) {
+      try { el.focus?.(); } catch (_) {}
+      _saSetInputValue(el, v);
+      await _saSleep(60);
+    }
+    return _saVerifyFilled(el, v);
   }
 
   // As a last resort, attempt click.
@@ -2577,6 +2592,42 @@ function _saLooksEmpty(el) {
     }
   } catch (_) {}
   return false;
+}
+
+function _saVerifyFilled(el, expected) {
+  try {
+    if (!el) return false;
+    const tag = (el.tagName || '').toLowerCase();
+    const type = (el.getAttribute?.('type') || '').toLowerCase();
+
+    if (tag === 'input' || tag === 'textarea') {
+      if (type === 'checkbox' || type === 'radio' || type === 'file') return true;
+      const cur = String(el.value ?? '').trim();
+      const exp = String(expected ?? '').trim();
+      // For text inputs, require non-empty + exact match when expected provided.
+      if (!cur) return false;
+      if (exp && cur !== exp) return false;
+      return true;
+    }
+
+    if (tag === 'select') {
+      const cur = String(el.value ?? '').trim();
+      const exp = String(expected ?? '').trim();
+      if (!cur) return false;
+      if (exp && cur !== exp) {
+        // Allow matches by visible text too.
+        const opt = Array.from(el.options || []).find((o) => String(o?.value || '').trim() === cur);
+        const txt = String(opt?.textContent || '').trim();
+        if (txt && txt.toLowerCase() === exp.toLowerCase()) return true;
+        return false;
+      }
+      return true;
+    }
+
+    return true;
+  } catch (_) {
+    return true;
+  }
 }
 
 function _saTextFromFirstPath(paths, root) {
