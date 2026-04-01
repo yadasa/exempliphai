@@ -894,16 +894,24 @@ Ensure all keys match the UI labels exactly. For yes/no fields, return "Yes" or 
             });
           });
 
-          // Save Profile details to sync storage for other InputFields
+          // Save Profile details to sync storage for other InputFields.
+          // IMPORTANT: do NOT overwrite existing user-entered values with empty strings/nulls.
           if (resObj.profile && typeof resObj.profile === 'object') {
-            const profileFields = Object.keys(resObj.profile).filter((k) => (resObj.profile as any)[k]);
+            const patch: any = {};
+            for (const [k, v] of Object.entries(resObj.profile as any)) {
+              const s = typeof v === 'string' ? v.trim() : v;
+              if (s === '' || s == null) continue;
+              patch[k] = s;
+            }
+
+            const profileFields = Object.keys(patch);
             if (profileFields.length > 0) {
-              chrome.storage.sync.set(resObj.profile, () => {
-                console.log('Profile fields updated in sync storage:', resObj.profile);
+              chrome.storage.sync.set(patch, () => {
+                console.log('Profile fields updated in sync storage:', patch);
                 showToast(`Success! Identified ${profileFields.length} profile fields from ${props.label}.`, { variant: 'success' });
               });
             } else {
-              console.warn('Gemini returned an empty profile object.');
+              console.warn('Gemini returned an empty profile object (or only blanks).');
               showToast('Uploaded successfully, but no profile fields were found.', { variant: 'warning' });
             }
           } else {
