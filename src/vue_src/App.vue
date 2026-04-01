@@ -39,6 +39,13 @@ const refreshBalance = async () => {
 onMounted(() => {
   loadTheme();
 
+  // Nudge SW on popup open:
+  // - pull auth from any open exempliph.ai tab (if needed)
+  // - pull latest Firestore profile → chrome.storage
+  try {
+    chrome.runtime?.sendMessage?.({ action: 'FIREBASE_POPUP_OPENED', source: 'App' });
+  } catch (_) {}
+
   // Initial token balance for the header.
   void refreshBalance();
   balanceTimer = setInterval(() => void refreshBalance(), 30_000);
