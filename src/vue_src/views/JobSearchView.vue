@@ -380,6 +380,7 @@ Return ONLY valid JSON:
 }
 
 Rules:
+- Write in SECOND PERSON, addressing the user as "you" (not "the candidate" / "they").
 - 2-3 sentences.
 - Mention 1-2 concrete alignments (domain/tools) that are present in the candidate resume details.
 - Do NOT invent experience.
