@@ -30,10 +30,10 @@ test('aiFillPlan: attaches to __SmartApply.aiFillPlan', () => {
     Date,
     Math,
     globalThis: null,
-    __exempliphaiProviders: {
+    __SmartApplyProviders: {
       gemini: { mapFieldsToFillPlan: async () => ({ actions: [] }) },
     },
-    __exempliphaiFillPlan: { validate: validateFillPlan },
+    __SmartApplyFillPlan: { validate: validateFillPlan },
     location: { hostname: 'example.com', href: 'https://example.com/apply' },
   };
   ctx.globalThis = ctx;
@@ -55,8 +55,8 @@ test('aiFillPlan.generateTier1: calls gemini, validates plan, returns actionable
     Math,
     globalThis: null,
     location: { hostname: 'boards.greenhouse.io', href: 'https://boards.greenhouse.io/example/job' },
-    __exempliphaiFillPlan: { validate: validateFillPlan },
-    __exempliphaiProviders: {
+    __SmartApplyFillPlan: { validate: validateFillPlan },
+    __SmartApplyProviders: {
       gemini: {
         mapFieldsToFillPlan: async (args) => {
           calls.push(args);
@@ -165,8 +165,8 @@ test('aiFillPlan.generateTier1: retries once on transient provider error', async
     Math,
     globalThis: null,
     location: { hostname: 'example.com', href: 'https://example.com/apply' },
-    __exempliphaiFillPlan: { validate: validateFillPlan },
-    __exempliphaiProviders: {
+    __SmartApplyFillPlan: { validate: validateFillPlan },
+    __SmartApplyProviders: {
       gemini: {
         mapFieldsToFillPlan: async () => {
           n++;
@@ -213,8 +213,8 @@ test('aiFillPlan.generateTier1: respects explicit allowAiMapping=false (does not
     Math,
     globalThis: null,
     location: { hostname: 'example.com', href: 'https://example.com/apply' },
-    __exempliphaiFillPlan: { validate: validateFillPlan },
-    __exempliphaiProviders: {
+    __SmartApplyFillPlan: { validate: validateFillPlan },
+    __SmartApplyProviders: {
       gemini: {
         mapFieldsToFillPlan: async () => {
           called = true;

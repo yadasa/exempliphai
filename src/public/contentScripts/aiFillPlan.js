@@ -79,7 +79,7 @@
       if (providerName === 'gemini') {
         if (!args?.apiKey) throw new Error('AI mapping requires Gemini API Key');
         // Support either a provider factory or a provider object in the global context.
-        const gemini = global.__exempliphaiProviders?.gemini;
+        const gemini = global.__SmartApplyProviders?.gemini;
         if (typeof gemini === 'function') {
           provider = gemini({ apiKey: args.apiKey, model: args.model, timeoutMs: args.timeoutMs, maxRetries: args.maxRetries });
         } else {
@@ -112,7 +112,7 @@
     }));
 
     // get validateFillPlan from global context
-    const validate = global.__exempliphaiFillPlan?.validate;
+    const validate = global.__SmartApplyFillPlan?.validate;
     const v = validate ? validate(plan) : { ok: false, errors: [{path: '', message: 'validateFillPlan not found in global context'}] };
 
     if (!v.ok) {
@@ -250,7 +250,7 @@
     // Resolve provider (supports either a factory or a provider object).
     let provider = consents?.provider;
     if (!provider) {
-      const gemini = global.__exempliphaiProviders?.gemini;
+      const gemini = global.__SmartApplyProviders?.gemini;
       if (typeof gemini === 'function') {
         provider = gemini({ apiKey, model: consents?.model, timeoutMs: consents?.timeoutMs, maxRetries: consents?.maxRetries });
       } else {
@@ -305,7 +305,7 @@
       plan.actions = _sanitizeActions(plan.actions || [], { allowedFpsSet, allowedProfileKeysSet });
 
       // Validate after sanitization
-      const validate = global.__exempliphaiFillPlan?.validate;
+      const validate = global.__SmartApplyFillPlan?.validate;
       const v = validate ? validate(plan) : { ok: false, errors: [{ path: '', message: 'validateFillPlan not found in global context' }] };
       if (!v.ok) {
         const msg = (v.errors || []).map((e) => `${e.path || '<root>'}: ${e.message}`).join('\n');

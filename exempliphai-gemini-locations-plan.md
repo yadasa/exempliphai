@@ -79,7 +79,7 @@ Search patterns used (grep): `gemini|generativelanguage|generateContent|GEMINI|g
   - `generateNarrativeAnswer(args)` (line **402**)
 
 **Global exposure used by other scripts:**
-- `globalThis.__exempliphaiProviders.gemini = { ... }` (line **415**)
+- `globalThis.__SmartApplyProviders.gemini = { ... }` (line **415**)
 
 #### `dist/contentScripts/providers/gemini.js`
 
@@ -186,7 +186,7 @@ Direct Gemini call block (around lines **1677–1712**):
 4227	  try {
 4228	    await import(chrome.runtime.getURL('contentScripts/providers/gemini.js'));
 4229	  } catch (e) {
-4230	    console.warn('SmartApply: Failed to load gemini provider', e);
+4230	    console.warn('exempliphai: Failed to load gemini provider', e);
 4231	    return false;
 4232	  }
 ```
@@ -195,7 +195,7 @@ Direct Gemini call block (around lines **1677–1712**):
   - `_saAiPickBestDropdownOptionText(...)` → `provider.generateNarrativeAnswer(...)` (line **4305**)
 
 ```js
-4289	    const provider = globalThis.__exempliphaiProviders?.gemini;
+4289	    const provider = globalThis.__SmartApplyProviders?.gemini;
 4290	    if (!provider?.generateNarrativeAnswer) return null;
 ...
 4304	    const text = await _saEnqueueAiDropdownTask(() =>

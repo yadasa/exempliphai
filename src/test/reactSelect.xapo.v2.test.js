@@ -362,22 +362,22 @@ test('SIMULATION: console output comparison', () => {
   // Document what console output looked like before vs after for the xapo scenario
 
   const beforeConsoleSim = [
-    'SmartApply: React-Select "experience years" — dropdown menu not found after typing "6"',
-    'SmartApply: React-Select "experience years" — no option match, skipped (cleared input)',
-    'SmartApply: React-Select "total experience" — dropdown menu not found after typing "6"',
-    'SmartApply: React-Select "total experience" — no option match, skipped (cleared input)',
-    'SmartApply: React-Select "relevant experience" — dropdown menu not found after typing "6"',
-    'SmartApply: React-Select "relevant experience" — no option match, skipped (cleared input)',
-    'SmartApply: React-Select "how many years of experience" — dropdown menu not found after typing "6"',
-    'SmartApply: React-Select "how many years of experience" — no option match, skipped (cleared input)',
+    'exempliphai: React-Select "experience years" — dropdown menu not found after typing "6"',
+    'exempliphai: React-Select "experience years" — no option match, skipped (cleared input)',
+    'exempliphai: React-Select "total experience" — dropdown menu not found after typing "6"',
+    'exempliphai: React-Select "total experience" — no option match, skipped (cleared input)',
+    'exempliphai: React-Select "relevant experience" — dropdown menu not found after typing "6"',
+    'exempliphai: React-Select "relevant experience" — no option match, skipped (cleared input)',
+    'exempliphai: React-Select "how many years of experience" — dropdown menu not found after typing "6"',
+    'exempliphai: React-Select "how many years of experience" — no option match, skipped (cleared input)',
     '// ^^^ LOOPS through all YoE param names on same combobox'
   ];
 
   const afterConsoleSim = [
-    'SmartApply: React-Select "experience years" — dropdown menu not found after 2s for "6"',
-    'SmartApply: React-Select "experience years" — no option match, skipped (cleared input)',
-    'SmartApply: Skip recently-skipped total experience (question_29351026003)',
-    'SmartApply: Skip already-attempted-this-pass relevant experience (question_29351026003)',
+    'exempliphai: React-Select "experience years" — dropdown menu not found after 2s for "6"',
+    'exempliphai: React-Select "experience years" — no option match, skipped (cleared input)',
+    'exempliphai: Skip recently-skipped total experience (question_29351026003)',
+    'exempliphai: Skip already-attempted-this-pass relevant experience (question_29351026003)',
     '// ^^^ Stops immediately — no redundant typing/clearing'
   ];
 

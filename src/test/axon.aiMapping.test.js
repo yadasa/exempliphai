@@ -35,10 +35,10 @@ function buildVmForAtsFixture(html) {
   ctx.CSS = window.CSS;
 
   // Provide validator + provider stubs for aiFillPlan
-  ctx.__exempliphaiFillPlan = { validate: validateFillPlan };
+  ctx.__SmartApplyFillPlan = { validate: validateFillPlan };
 
   const calls = [];
-  ctx.__exempliphaiProviders = {
+  ctx.__SmartApplyProviders = {
     gemini: {
       mapFieldsToFillPlan: async (args) => {
         calls.push(args);

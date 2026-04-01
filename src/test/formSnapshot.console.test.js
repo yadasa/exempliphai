@@ -90,9 +90,9 @@ test('autofill: logs AI-prompt-ready form snapshot JSON on page load', () => {
   ctx.dispatchEvent(new Ev('load'));
 
   const snapshotCall = recConsole.calls.find(
-    (c) => c.level === 'log' && c.args && String(c.args[0] || '').includes('SmartApply: Form Snapshot JSON:')
+    (c) => c.level === 'log' && c.args && String(c.args[0] || '').includes('exempliphai: Form Snapshot JSON:')
   );
-  assert.ok(snapshotCall, 'Should console.log the SmartApply: Form Snapshot JSON: message');
+  assert.ok(snapshotCall, 'Should console.log the exempliphai: Form Snapshot JSON: message');
 
   const jsonStr = snapshotCall.args[1];
   assert.equal(typeof jsonStr, 'string');

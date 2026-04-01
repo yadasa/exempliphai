@@ -275,7 +275,7 @@ test('xapo react-select: ArrowRight open → poll → best match → ArrowDown/E
   const ok = await sandbox.fillReactSelectKeyboard(input, '6', 'Years of experience', {
     timeoutMs: 3000,
     minScore: 40,
-    tag: 'SmartApply: React-Select "Years of experience"',
+    tag: 'exempliphai: React-Select "Years of experience"',
   });
 
   assert.equal(ok, true, 'should select an option via keyboard');
@@ -326,7 +326,7 @@ test('react-select dropdown: AI fallback picks option when fuzzy match is low', 
 
   // Pretend AI deps already loaded; inject a fake provider.
   sandbox._smartApplyAiDepsLoaded = true;
-  sandbox.__exempliphaiProviders = {
+  sandbox.__SmartApplyProviders = {
     gemini: {
       generateNarrativeAnswer: async () => '6+ years',
     },
@@ -338,7 +338,7 @@ test('react-select dropdown: AI fallback picks option when fuzzy match is low', 
   const ok = await sandbox.fillReactSelectKeyboard(input, '6', 'Years of experience', {
     timeoutMs: 3000,
     minScore: 95,
-    tag: 'SmartApply: React-Select "Years of experience"',
+    tag: 'exempliphai: React-Select "Years of experience"',
     ai: {
       enabled: true,
       apiKey: 'test-key',

@@ -14,9 +14,9 @@
     try {
       const resp = await fetch(chrome.runtime.getURL('config/simplify_ats.json'));
       packaged = await resp.json();
-      console.log('SmartApply: Loaded packaged ATS config with', Object.keys(packaged?.ATS || {}).length, 'ATS');
+      console.log('exempliphai: Loaded packaged ATS config with', Object.keys(packaged?.ATS || {}).length, 'ATS');
     } catch (e) {
-      console.warn('SmartApply: ATS packaged config load failed:', e);
+      console.warn('exempliphai: ATS packaged config load failed:', e);
       packaged = {};
     }
 
@@ -27,11 +27,11 @@
       if (override && typeof override === 'object') {
         atsConfig.config = override;
         atsConfig.loaded = true;
-        console.log('SmartApply: Using ATS config OVERRIDE with', Object.keys(atsConfig.config?.ATS || {}).length, 'ATS');
+        console.log('exempliphai: Using ATS config OVERRIDE with', Object.keys(atsConfig.config?.ATS || {}).length, 'ATS');
         return atsConfig.config;
       }
     } catch (e) {
-      console.warn('SmartApply: ATS override read failed:', e);
+      console.warn('exempliphai: ATS override read failed:', e);
     }
 
     atsConfig.config = packaged;
@@ -106,5 +106,5 @@
   atsConfig.getATSConfig = async () => await loadConfig();
 
   window.__SmartApply.atsConfig = atsConfig;
-  console.log('SmartApply: ATS Config loader injected');
+  console.log('exempliphai: ATS Config loader injected');
 })();

@@ -120,7 +120,7 @@ test('greenhouse: tryAutofillNow auto-runs and triggers optional tabs when unfoc
   assert.equal(autofillCalled, true, 'should call autofill');
   assert.equal(tabCalled, true, 'should request optional tabs when no active field is focused');
   assert.ok(
-    logs.some((l) => l.includes('SmartApply: Optional tabs (x6) → Starting autofill')),
+    logs.some((l) => l.includes('exempliphai: Optional tabs (x6) → Starting autofill')),
     'should log optional tabs count before filling'
   );
 });

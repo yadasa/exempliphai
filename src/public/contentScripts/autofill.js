@@ -101,11 +101,11 @@ function _saAppendAiUsageLog(entry) {
 
         await new Promise((resolve) => chrome.storage.local.set({ aiUsageLog: next }, () => resolve(true)));
       } catch (e) {
-        console.warn('SmartApply: failed to write aiUsageLog', e);
+        console.warn('exempliphai: failed to write aiUsageLog', e);
       }
     })
     .catch((e) => {
-      console.warn('SmartApply: aiUsageLog queue failed', e);
+      console.warn('exempliphai: aiUsageLog queue failed', e);
     });
 
   return _saAiUsageLogQueue;
@@ -547,7 +547,7 @@ async function _saGenerateAiAnswer(element, opts = {}) {
 
     if (!apiKey) {
       if (!noAlert) alert('Please set your Gemini API Key in the Autofill Jobs extension settings.');
-      else if (!quiet) console.warn('SmartApply: Missing Gemini API key for AI answer');
+      else if (!quiet) console.warn('exempliphai: Missing Gemini API key for AI answer');
       return;
     }
 
@@ -803,7 +803,7 @@ options:
         }
       }
     } catch (e) {
-      console.warn('SmartApply: AI dropdown/combobox constrain failed; falling back to free-text answer', e);
+      console.warn('exempliphai: AI dropdown/combobox constrain failed; falling back to free-text answer', e);
     }
 
     // Default: text-only (most reliable). Attach PDFs only when valid.
@@ -819,7 +819,7 @@ options:
       const msg = String(e?.message || e || '').toLowerCase();
       // Graceful fallback: retry without PDFs when Gemini cannot parse the document.
       if (hadPdf && (msg.includes('no pages') || msg.includes('document has no pages'))) {
-        console.warn('SmartApply: Gemini PDF parse failed; retrying text-only');
+        console.warn('exempliphai: Gemini PDF parse failed; retrying text-only');
         answer = await callGemini([buildTextPart()]);
       } else {
         throw e;
@@ -871,7 +871,7 @@ function _saEnqueueAiBatchTask(fn) {
   _saAiBatchQueue = _saAiBatchQueue
     .then(() => fn())
     .catch((e) => {
-      console.warn('SmartApply: AI batch task failed', e);
+      console.warn('exempliphai: AI batch task failed', e);
       return { ok: false, error: String(e?.message || e) };
     });
   return _saAiBatchQueue;
@@ -1150,17 +1150,17 @@ try {
 } catch (_) {}
 
 window.addEventListener("load", async (_) => {
-  console.log("SmartApply: found job page.");
+  console.log("exempliphai: found job page.");
 
   // Detect ATS using Simplify-derived URL patterns (best-effort)
   try {
     const det = globalThis.__SmartApply?.atsConfig?.detectATSKeyForUrl;
     if (typeof det === 'function') {
       const atsKey = await det(window.location.href);
-      if (atsKey) console.log('SmartApply: detected ATS', atsKey);
+      if (atsKey) console.log('exempliphai: detected ATS', atsKey);
     }
   } catch (e) {
-    console.warn('SmartApply: ATS detection failed', e);
+    console.warn('exempliphai: ATS detection failed', e);
   }
 
   // Console-friendly, AI-prompt-ready form snapshot
@@ -1169,10 +1169,10 @@ window.addEventListener("load", async (_) => {
     const fs = globalThis.__SmartApply?.formSnapshot;
     if (form && fs?.findControls) {
       const snapshot = fs.findControls(form);
-      console.log('SmartApply: Form Snapshot JSON:', JSON.stringify(snapshot, null, 2));
+      console.log('exempliphai: Form Snapshot JSON:', JSON.stringify(snapshot, null, 2));
     }
   } catch (e) {
-    console.warn('SmartApply: Form snapshot failed', e);
+    console.warn('exempliphai: Form snapshot failed', e);
   }
 
   initTime = new Date().getTime();
@@ -1281,7 +1281,7 @@ async function tabToFirstInput(opts = {}) {
   const first = _findFirstInputLike(root, doc);
   if (!first) return null;
 
-  if (!quiet) console.log(`SmartApply: Tabbing to first field (Tab x${tabCount})`);
+  if (!quiet) console.log(`exempliphai: Tabbing to first field (Tab x${tabCount})`);
 
   // Prefer the utils.js factories when present, else create a best-effort event
   // using the element's realm.
@@ -1760,7 +1760,7 @@ async function _saMaybeAutoTailorBeforeAutofill({ source = 'autofill' } = {}) {
     _saShowToast('Auto-tailor: saved tailored resume');
     return { ok: true, reason: 'tailored' };
   } catch (e) {
-    console.warn('SmartApply: auto-tailor failed', e);
+    console.warn('exempliphai: auto-tailor failed', e);
     try { _saShowToast('Auto-tailor failed (see console)'); } catch (_) {}
     return { ok: false, reason: 'exception', error: String(e?.message || e) };
   } finally {
@@ -2080,7 +2080,7 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
 
   const now = Date.now();
   if (st.clicks >= MAX_CLICKS_PER_URL) {
-    console.log('SmartApply: Auto-submit enabled, but max clicks reached for this URL');
+    console.log('exempliphai: Auto-submit enabled, but max clicks reached for this URL');
     return {
       enabled: true,
       attempted: true,
@@ -2134,7 +2134,7 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
 
       const still = _saFindPendingAiAnswerElements({ limit: 1 }).length;
       if (still) {
-        console.log('SmartApply: Auto-submit: custom questions still pending; skipping submit');
+        console.log('exempliphai: Auto-submit: custom questions still pending; skipping submit');
         _saShowToast('Auto-submit paused: custom questions still pending.', { timeoutMs: 2200 });
 
         return {
@@ -2151,13 +2151,13 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
       }
     }
   } catch (e) {
-    console.warn('SmartApply: Auto-submit: AI-customs step failed', e);
+    console.warn('exempliphai: Auto-submit: AI-customs step failed', e);
   }
 
 
   const found = _saFindSubmitCandidate({ submitButtonPaths });
   if (!found?.el) {
-    console.log(`SmartApply: Auto-submit enabled, but no submit/next button found (${source})`);
+    console.log(`exempliphai: Auto-submit enabled, but no submit/next button found (${source})`);
     return {
       enabled: true,
       attempted: true,
@@ -2174,7 +2174,7 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
   const clickedText = _saGetActionText(found.el);
   const sig = _saElementSig(found.el);
   if (sig && sig === st.lastClickedSig) {
-    console.log('SmartApply: Auto-submit: refusing to click same element twice');
+    console.log('exempliphai: Auto-submit: refusing to click same element twice');
     return {
       enabled: true,
       attempted: true,
@@ -2190,7 +2190,7 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
 
   // Require at least a modest confidence score for heuristic-based picks.
   if (found.why !== 'ats.submitButtonPaths' && (found.score || 0) < 55) {
-    console.log('SmartApply: Auto-submit: best candidate score too low — skipping', { score: found.score, text: clickedText });
+    console.log('exempliphai: Auto-submit: best candidate score too low — skipping', { score: found.score, text: clickedText });
     return {
       enabled: true,
       attempted: true,
@@ -2204,7 +2204,7 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
     };
   }
 
-  console.log('SmartApply: Auto-submit enabled — clicking', {
+  console.log('exempliphai: Auto-submit enabled — clicking', {
     source,
     why: found.why,
     score: found.score,
@@ -2409,7 +2409,7 @@ async function _saUploadFromLocalBase64(fileInputEl, base64, filename, mimeType)
     try { fileInputEl.dispatchEvent(changeEvent); } catch (_) { dispatchInputAndChange(fileInputEl); }
     return true;
   } catch (e) {
-    console.warn('SmartApply: file upload failed', e);
+    console.warn('exempliphai: file upload failed', e);
     return false;
   }
 }
@@ -2429,7 +2429,7 @@ async function _saExecuteActions(actions = [], ctx = {}) {
     if (action.path && action.removed) {
       const sel = _saWithValue(action.path, value);
       const ok = await _saWaitFor({ sel, root, present: false, timeoutMs: action.time || 4000 });
-      if (!ok) console.log('SmartApply: wait-for-removed timed out', action.path);
+      if (!ok) console.log('exempliphai: wait-for-removed timed out', action.path);
       continue;
     }
 
@@ -2820,7 +2820,7 @@ async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = 
   }
 
   if (filled) {
-    console.log('SmartApply: tracked inputs fuzzy-fill', { filled, considered });
+    console.log('exempliphai: tracked inputs fuzzy-fill', { filled, considered });
   }
 
   return { ok: true, filled, considered };
@@ -2851,7 +2851,7 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
       }
     }
 
-    console.log('SmartApply: ATS config match', atsKey, 'root=', root === document ? 'document' : root);
+    console.log('exempliphai: ATS config match', atsKey, 'root=', root === document ? 'document' : root);
 
     // Apply selectors sequentially
     for (const row of ats.inputSelectors) {
@@ -2881,7 +2881,7 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
           await _saSleep(120);
         }
       } catch (e) {
-        console.warn('SmartApply: ATS selector row failed', row?.[0], e);
+        console.warn('exempliphai: ATS selector row failed', row?.[0], e);
       }
     }
 
@@ -2892,7 +2892,7 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
     try {
       await _saAutofillTrackedInputs({ ats, root, profile, force });
     } catch (e) {
-      console.warn('SmartApply: tracked inputs autofill failed', e);
+      console.warn('exempliphai: tracked inputs autofill failed', e);
     }
 
     // Optional AI mapping for remaining custom questions (explicit user-triggered runs only).
@@ -2901,7 +2901,7 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
         const res = await getStorageDataSync();
         await tryHybridAiMapping(root, res);
       } catch (e) {
-        console.warn('SmartApply: ATS-mode AI mapping skipped/failed', e);
+        console.warn('exempliphai: ATS-mode AI mapping skipped/failed', e);
       }
     }
 
@@ -2913,7 +2913,7 @@ async function tryAutofillUsingAtsConfig({ url, force = false } = {}) {
       submitButtonPaths: Array.isArray(ats.submitButtonPaths) ? ats.submitButtonPaths : [],
     };
   } catch (e) {
-    console.warn('SmartApply: ATS config autofill failed', e);
+    console.warn('exempliphai: ATS config autofill failed', e);
     return { ok: false, reason: 'exception', error: String(e) };
   }
 }
@@ -2981,7 +2981,7 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
   try {
     const atsAttempt = await tryAutofillUsingAtsConfig({ url: window.location.href, force });
     if (atsAttempt?.ok) {
-      console.log('SmartApply: ATS-config autofill complete', atsAttempt.atsKey);
+      console.log('exempliphai: ATS-config autofill complete', atsAttempt.atsKey);
 
       let autoSubmitInfo = null;
       try {
@@ -2990,7 +2990,7 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
           submitButtonPaths: Array.isArray(atsAttempt.submitButtonPaths) ? atsAttempt.submitButtonPaths : [],
         });
       } catch (e) {
-        console.warn('SmartApply: auto-submit skipped/failed (ats-config)', e);
+        console.warn('exempliphai: auto-submit skipped/failed (ats-config)', e);
         autoSubmitInfo = {
           enabled: false,
           attempted: false,
@@ -3073,7 +3073,7 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
         const activeOk = _isUsableFormControl(focusEl) && (!root?.contains || root.contains(focusEl));
         if (!activeOk) {
           const tabCount = 6 + Math.floor(Math.random() * 2); // 6–7
-          console.log(`SmartApply: Optional tabs (x${tabCount}) → Starting autofill`);
+          console.log(`exempliphai: Optional tabs (x${tabCount}) → Starting autofill`);
           await tabToFirstInput({
             root,
             document,
@@ -3092,7 +3092,7 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
     try {
       autoSubmitInfo = await _saMaybeAutoSubmitAfterAutofill({ source: 'legacy' });
     } catch (e) {
-      console.warn('SmartApply: auto-submit skipped/failed (legacy)', e);
+      console.warn('exempliphai: auto-submit skipped/failed (legacy)', e);
       autoSubmitInfo = {
         enabled: false,
         attempted: false,
@@ -3115,7 +3115,7 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
 
     return true;
   } catch (e) {
-    console.error('SmartApply: Autofill failed', { reason, e });
+    console.error('exempliphai: Autofill failed', { reason, e });
 
     _saSendListModeAutofillResult({
       ok: false,
@@ -3349,7 +3349,7 @@ function dispatchInputAndChange(el) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function fillReactSelectKeyboard(inputElement, fillValue, jobParam, ctx = {}) {
-  const TAG = ctx.tag || `SmartApply: React-Select "${jobParam}"`;
+  const TAG = ctx.tag || `exempliphai: React-Select "${jobParam}"`;
   const timeoutMs = ctx.timeoutMs ?? 3000;
   const minScore = ctx.minScore ?? 40;
   const settleMs = ctx.settleMs ?? 500;
@@ -3699,7 +3699,7 @@ async function setBestSelectOption(selectEl, fillValue, ctx = {}) {
     if (countryCode) {
       const match = options.find(o => o.value === countryCode);
       if (match) {
-        console.log(`SmartApply: Country select "${fillValue}" → "${match.textContent.trim()}" (code ${countryCode})`);
+        console.log(`exempliphai: Country select "${fillValue}" → "${match.textContent.trim()}" (code ${countryCode})`);
         selectEl.value = match.value;
         match.selected = true;
         dispatchInputAndChange(selectEl);
@@ -3739,7 +3739,7 @@ async function setBestSelectOption(selectEl, fillValue, ctx = {}) {
 
   if (!best.opt) return false;
   if (best.score < 50) {
-    console.log(`SmartApply: SKIP select option — best score ${best.score} < 50 for "${fillValue}" (best option: "${best.opt?.textContent?.trim()}")`);
+    console.log(`exempliphai: SKIP select option — best score ${best.score} < 50 for "${fillValue}" (best option: "${best.opt?.textContent?.trim()}")`);
 
     // AI fallback (privacy-preserving): let the provider pick among visible options
     // based on label + allowed profile KEY NAMES.
@@ -3767,7 +3767,7 @@ async function setBestSelectOption(selectEl, fillValue, ctx = {}) {
           }
 
           if (bestAi.opt && bestAi.score >= 55) {
-            console.log(`SmartApply: AI Select "${label}" → "${bestAi.opt.textContent.trim() || bestAi.opt.value}" (score ${bestAi.score})`);
+            console.log(`exempliphai: AI Select "${label}" → "${bestAi.opt.textContent.trim() || bestAi.opt.value}" (score ${bestAi.score})`);
             selectEl.value = bestAi.opt.value;
             bestAi.opt.selected = true;
             dispatchInputAndChange(selectEl);
@@ -3776,13 +3776,13 @@ async function setBestSelectOption(selectEl, fillValue, ctx = {}) {
         }
       }
     } catch (e) {
-      console.warn('SmartApply: AI select fallback failed', e);
+      console.warn('exempliphai: AI select fallback failed', e);
     }
 
     return false;
   }
 
-  console.log(`SmartApply: Select "${fillValue}" → "${best.opt.textContent.trim() || best.opt.value}" (score ${best.score})`);
+  console.log(`exempliphai: Select "${fillValue}" → "${best.opt.textContent.trim() || best.opt.value}" (score ${best.score})`);
 
   selectEl.value = best.opt.value;
   best.opt.selected = true;
@@ -3940,7 +3940,7 @@ function getWorkAuthOverride(radioEl, currentFillValue) {
 
     // Pattern 1: "are you legally authorized to work in the united states" → "yes"
     if (questionText.includes('authorized to work') && questionText.includes('united states')) {
-      console.log(`SmartApply: Work auth override — question asks about US authorization → "yes"`);
+      console.log(`exempliphai: Work auth override — question asks about US authorization → "yes"`);
       return 'yes';
     }
 
@@ -3948,7 +3948,7 @@ function getWorkAuthOverride(radioEl, currentFillValue) {
     if ((questionText.includes('require sponsorship') || questionText.includes('require visa') ||
          questionText.includes('need sponsorship') || questionText.includes('employment visa')) &&
         (questionText.includes('will you') || questionText.includes('do you'))) {
-      console.log(`SmartApply: Sponsorship override — question asks about future sponsorship → "no"`);
+      console.log(`exempliphai: Sponsorship override — question asks about future sponsorship → "no"`);
       return 'no';
     }
   } catch (_) {}
@@ -4082,11 +4082,11 @@ function inputQuery(jobParam, form) {
   }
 
   if (bestMatch.el && bestMatch.score >= 50) {
-    console.log(`SmartApply: Fuzzy match "${jobParam}" → "${bestMatch.el.id || bestMatch.el.name || bestMatch.el.type}" (score ${bestMatch.score})`);
+    console.log(`exempliphai: Fuzzy match "${jobParam}" → "${bestMatch.el.id || bestMatch.el.name || bestMatch.el.type}" (score ${bestMatch.score})`);
     return bestMatch.el;
   }
   if (bestMatch.el && bestMatch.score > 0) {
-    console.log(`SmartApply: SKIP fuzzy match "${jobParam}" — best score ${bestMatch.score} < 50 (element: ${bestMatch.el.id || bestMatch.el.name || '?'})`);
+    console.log(`exempliphai: SKIP fuzzy match "${jobParam}" — best score ${bestMatch.score} < 50 (element: ${bestMatch.el.id || bestMatch.el.name || '?'})`);
   }
   return null;
 }
@@ -4132,7 +4132,7 @@ async function awaitForm() {
 }
 
 async function autofill(form) {
-  console.log("SmartApply: Starting autofill.");
+  console.log("exempliphai: Starting autofill.");
   let res = await getStorageDataSync();
   res["Current Date"] = curDateStr();
   await sleep(delays.initial);
@@ -4165,7 +4165,7 @@ async function autofill(form) {
   }
 
   if (!matchFound && fields.generic) {
-    console.log("SmartApply: No specific config found, using generic.");
+    console.log("exempliphai: No specific config found, using generic.");
     await processFields('generic', fields.generic, form, res);
   }
 
@@ -4176,7 +4176,7 @@ async function autofill(form) {
     try {
       await tryHybridAiMapping(form, res);
     } catch (e) {
-      console.warn('SmartApply: Hybrid AI mapping skipped/failed', e);
+      console.warn('exempliphai: Hybrid AI mapping skipped/failed', e);
     }
   }
 }
@@ -4197,7 +4197,7 @@ async function ensureAiDepsLoaded() {
 
   // If a provider is already attached (e.g., preloaded in-page or in tests),
   // don't attempt dynamic imports.
-  if (globalThis.__exempliphaiProviders?.gemini) {
+  if (globalThis.__SmartApplyProviders?.gemini) {
     _smartApplyAiDepsLoaded = true;
     return true;
   }
@@ -4205,19 +4205,19 @@ async function ensureAiDepsLoaded() {
   if (!chrome?.runtime?.getURL) return false;
 
   // Load the ESM validator + provider so they attach to globals:
-  // - __exempliphaiFillPlan
-  // - __exempliphaiProviders.gemini
+  // - __SmartApplyFillPlan
+  // - __SmartApplyProviders.gemini
   try {
     await import(chrome.runtime.getURL('contentScripts/fillPlanValidator.js'));
   } catch (e) {
-    console.warn('SmartApply: Failed to load fillPlanValidator', e);
+    console.warn('exempliphai: Failed to load fillPlanValidator', e);
     return false;
   }
 
   try {
     await import(chrome.runtime.getURL('contentScripts/providers/gemini.js'));
   } catch (e) {
-    console.warn('SmartApply: Failed to load gemini provider', e);
+    console.warn('exempliphai: Failed to load gemini provider', e);
     return false;
   }
 
@@ -4245,7 +4245,7 @@ function _saEnqueueAiDropdownTask(fn) {
   _smartApplyAiDropdownQueue = _smartApplyAiDropdownQueue
     .then(() => fn())
     .catch((e) => {
-      console.warn('SmartApply: AI dropdown task failed', e);
+      console.warn('exempliphai: AI dropdown task failed', e);
       return null;
     });
   return _smartApplyAiDropdownQueue;
@@ -4276,7 +4276,7 @@ async function _saAiPickBestDropdownOptionText({
     const depsOk = await ensureAiDepsLoaded();
     if (!depsOk) return null;
 
-    const provider = globalThis.__exempliphaiProviders?.gemini;
+    const provider = globalThis.__SmartApplyProviders?.gemini;
     if (!provider?.generateNarrativeAnswer) return null;
 
     const cleanOptions = Array.from(
@@ -4320,7 +4320,7 @@ async function _saAiPickBestDropdownOptionText({
     if (best.t && best.score >= 55) return best.t;
     return null;
   } catch (e) {
-    console.warn('SmartApply: AI pick best dropdown option failed', e);
+    console.warn('exempliphai: AI pick best dropdown option failed', e);
     return null;
   }
 }
@@ -4434,11 +4434,11 @@ async function tryHybridAiMapping(form, res) {
   const fillExecutor = globalThis.__SmartApply?.fillExecutor;
 
   if (!fs?.findControls || !fs?.stableFingerprint || !fs?.computeBestLabel) {
-    console.warn('SmartApply: formSnapshot not loaded; cannot run hybrid mapping');
+    console.warn('exempliphai: formSnapshot not loaded; cannot run hybrid mapping');
     return;
   }
   if (!policy || !aiFillPlan || !fillExecutor) {
-    console.warn('SmartApply: Phase-2 modules missing (policy/aiFillPlan/fillExecutor)');
+    console.warn('exempliphai: Phase-2 modules missing (policy/aiFillPlan/fillExecutor)');
     return;
   }
 
@@ -4519,7 +4519,7 @@ async function tryHybridAiMapping(form, res) {
 
   _smartApplyHybridLastRunAt = now;
 
-  console.log('SmartApply: Hybrid mapping candidates', unresolved_fields.length);
+  console.log('exempliphai: Hybrid mapping candidates', unresolved_fields.length);
 
   const tier1 = await aiFillPlan.generateTier1(
     {
@@ -4533,7 +4533,7 @@ async function tryHybridAiMapping(form, res) {
   );
 
   if (!tier1?.ok) {
-    console.warn('SmartApply: AI mapping failed', tier1?.error);
+    console.warn('exempliphai: AI mapping failed', tier1?.error);
     return;
   }
 
@@ -4544,7 +4544,7 @@ async function tryHybridAiMapping(form, res) {
     confidenceThreshold: 0.75,
   });
 
-  console.log('SmartApply: Hybrid AI mapping executor result', execRes);
+  console.log('exempliphai: Hybrid AI mapping executor result', execRes);
 }
 
 async function processFields(jobForm, fieldMap, form, res) {
@@ -4588,7 +4588,7 @@ async function processFields(jobForm, fieldMap, form, res) {
       const parentGroupText = parentGroupLabel ? (document.getElementById(parentGroupLabel)?.textContent || '').toLowerCase() : '';
       
       if (elId.includes('cover') || elName.includes('cover') || elLabel.includes('cover') || parentGroupText.includes('cover')) {
-        console.log(`SmartApply: SKIP resume upload to cover letter input: ${elId || elName}`);
+        console.log(`exempliphai: SKIP resume upload to cover letter input: ${elId || elName}`);
         _filledElements.add(el);
         continue;
       }
@@ -4608,7 +4608,7 @@ async function processFields(jobForm, fieldMap, form, res) {
       el.files = dt.files;
       el.dispatchEvent(changeEvent);
       await sleep(delays.short);
-      console.log(`SmartApply: Uploaded resume to ${elId || elName || 'file input'}`);
+      console.log(`exempliphai: Uploaded resume to ${elId || elName || 'file input'}`);
 
       _filledElements.add(el);
       continue;
@@ -4685,32 +4685,32 @@ async function processFields(jobForm, fieldMap, form, res) {
 
     let fillValue = res[param];
     if (!fillValue) {
-      console.log(`SmartApply: SKIP "${jobParam}" (param="${param}") — no stored value`);
+      console.log(`exempliphai: SKIP "${jobParam}" (param="${param}") — no stored value`);
       continue;
     }
     let inputElement = inputQuery(jobParam, form);
     if (!inputElement) {
-      console.log(`SmartApply: SKIP "${jobParam}" (param="${param}") — no matching element found in form`);
+      console.log(`exempliphai: SKIP "${jobParam}" (param="${param}") — no matching element found in form`);
       continue;
     }
 
     // Skip already-filled (permanent phone overwrite fix across passes)
     if (_filledElements.has(inputElement)) {
-      console.log(`SmartApply: Skip filled ${jobParam} (${inputElement.name || inputElement.id || inputElement.type}): already has "${inputElement.value}"`);
+      console.log(`exempliphai: Skip filled ${jobParam} (${inputElement.name || inputElement.id || inputElement.type}): already has "${inputElement.value}"`);
       continue;
     }
 
     // Skip elements that were recently attempted but had no matching option
     // (prevents "experience years"/"total experience"/"relevant experience" looping)
     if (isRecentlySkipped(inputElement)) {
-      console.log(`SmartApply: Skip recently-skipped ${jobParam} (${inputElement.name || inputElement.id || inputElement.type})`);
+      console.log(`exempliphai: Skip recently-skipped ${jobParam} (${inputElement.name || inputElement.id || inputElement.type})`);
       continue;
     }
 
     // Skip elements already attempted in this processFields pass (dedup across
     // different param names that fuzzy-match to the same DOM element)
     if (_attemptedThisPass.has(inputElement)) {
-      console.log(`SmartApply: Skip already-attempted-this-pass ${jobParam} (${inputElement.name || inputElement.id || inputElement.type})`);
+      console.log(`exempliphai: Skip already-attempted-this-pass ${jobParam} (${inputElement.name || inputElement.id || inputElement.type})`);
       continue;
     }
     _attemptedThisPass.add(inputElement);
@@ -4733,11 +4733,11 @@ async function processFields(jobForm, fieldMap, form, res) {
         const isRelevant = score >= 45 || labelText.includes(paramNorm);
         
         if (!isRelevant && score < 30) {
-          console.log(`SmartApply: SKIP combobox "${labelText}" — doesn't match param "${jobParam}" (score ${score} < 30)`);
+          console.log(`exempliphai: SKIP combobox "${labelText}" — doesn't match param "${jobParam}" (score ${score} < 30)`);
           continue;
         }
         if (!isRelevant) {
-          console.log(`SmartApply: WARN combobox "${labelText}" — weak match for param "${jobParam}" (score ${score}), proceeding anyway`);
+          console.log(`exempliphai: WARN combobox "${labelText}" — weak match for param "${jobParam}" (score ${score}), proceeding anyway`);
         }
       }
     }
@@ -4801,7 +4801,7 @@ async function processFields(jobForm, fieldMap, form, res) {
           selectShell,
           timeoutMs: 3000,
           minScore: 40,
-          tag: `SmartApply: React-Select "${jobParam}"`,
+          tag: `exempliphai: React-Select "${jobParam}"`,
           ai: {
             enabled: res?.aiMappingEnabled === true,
             apiKey: res?.['API Key'],
@@ -4814,11 +4814,11 @@ async function processFields(jobForm, fieldMap, form, res) {
         } else {
           // fillReactSelectKeyboard already cleared/escaped; we add the canonical
           // skip log + recently-skipped marker to prevent retry loops.
-          console.log(`SmartApply: React-Select "${jobParam}" — no option match, skipped (cleared input)`);
+          console.log(`exempliphai: React-Select "${jobParam}" — no option match, skipped (cleared input)`);
           markRecentlySkipped(inputElement);
         }
       } catch (e) {
-        console.error(`SmartApply: Error handling React-Select for "${jobParam}"`, e);
+        console.error(`exempliphai: Error handling React-Select for "${jobParam}"`, e);
         markRecentlySkipped(inputElement);
       }
       continue;
@@ -4865,7 +4865,7 @@ async function processFields(jobForm, fieldMap, form, res) {
     await sleep(delays.short);
   }
   // Removed global scrollToTop(); per-field scrolling now handles it
-  console.log(`SmartApply: Complete in ${getTimeElapsed(initTime)}s.`);
+  console.log(`exempliphai: Complete in ${getTimeElapsed(initTime)}s.`);
 
   // Track Applied Job
   try {
@@ -4892,7 +4892,7 @@ async function processFields(jobForm, fieldMap, form, res) {
           jobs.unshift(jobEntry); // Add to top
 
           chrome.storage.local.set({ AppliedJobs: jobs }, () => {
-            console.log("SmartApply: Job tracked in local history.");
+            console.log("exempliphai: Job tracked in local history.");
           });
 
           if (syncEnabled) {
@@ -4901,14 +4901,14 @@ async function processFields(jobForm, fieldMap, form, res) {
             // Limit to 100 for sync storage constraints
             syncJobs = syncJobs.slice(0, 100);
             chrome.storage.sync.set({ AppliedJobsSync: syncJobs }, () => {
-              console.log("SmartApply: Job tracked in cloud history.");
+              console.log("exempliphai: Job tracked in cloud history.");
             });
           }
         }
       });
     });
   } catch (e) {
-    console.error("SmartApply: Error tracking job", e);
+    console.error("exempliphai: Error tracking job", e);
   }
 
 }
