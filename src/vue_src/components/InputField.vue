@@ -777,8 +777,15 @@ Ensure all keys match the UI labels exactly. For yes/no fields, return "Yes" or 
 
         inputValue.value = file.name;
 
-        // Extract plain text for Gemini.
-        const extracted = String((await extractTextFromUpload(kind, buf)) || '').trim();
+        // Extract plain text for Gemini (best-effort; do not fail the upload if extraction fails).
+        let extracted = '';
+        try {
+          extracted = String((await extractTextFromUpload(kind, buf)) || '').trim();
+        } catch (e: any) {
+          console.warn('Resume text extraction failed (continuing):', e);
+          extracted = '';
+        }
+
         if (props.label === 'Resume') {
           try {
             chrome.storage.local.set({ Resume_extracted_text: extracted } as any);

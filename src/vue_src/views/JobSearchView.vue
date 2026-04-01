@@ -277,10 +277,10 @@ function removeRecAt(index: number) {
   schedulePersistState();
 }
 
-async function inferRolesFromResume({ resumeText, resumeDetails }: { resumeText: string; resumeDetails: any }) {
+async function inferRolesFromResume({ resumeText, resumePdfB64, resumeDetails }: { resumeText: string; resumePdfB64?: string; resumeDetails: any }) {
   const promptText = `You are a job search strategist.
 
-Given the candidate resume (text) and any parsed resume details, infer up to 3 job roles that best match the candidate's experience AND seniority.
+Given the candidate resume (text and/or attached PDF) and any parsed resume details, infer up to 3 job roles that best match the candidate's experience AND seniority.
 
 Return ONLY valid JSON with this exact structure:
 {
@@ -313,8 +313,14 @@ ${String(resumeText || '').slice(0, 12000)}
 --- RESUME_TEXT_END ---
 `;
 
+  const parts: any[] = [{ text: promptText }];
+  const pdf = String(resumePdfB64 || '').trim();
+  if (pdf) {
+    parts.push({ inline_data: { data: pdf, mime_type: 'application/pdf' } });
+  }
+
   const input = {
-    contents: [{ role: 'user', parts: [{ text: promptText }] }],
+    contents: [{ role: 'user', parts }],
     generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
   };
 
@@ -432,14 +438,27 @@ async function generateRecommendations() {
     // SerpAPI (Google Jobs) proxy: no client-side API key.
 
     const resumeDetails = await new Promise<any>((resolve) => {
-      chrome.storage.local.get(['Resume_details', 'Resume_extracted_text'], (res) => resolve(res || {}));
+      chrome.storage.local.get(
+        ['Resume_details', 'Resume_extracted_text', 'Resume', 'Resume_mimeType'],
+        (res) => resolve(res || {}),
+      );
     });
 
     const parsedDetails = (resumeDetails as any)?.Resume_details || {};
     const resumeText = String((resumeDetails as any)?.Resume_extracted_text || '').trim();
-    if (!resumeText) throw new Error('Upload your resume first so we can tailor job search to your experience.');
+    const resumeB64 = String((resumeDetails as any)?.Resume || '').trim();
+    const resumeMime = String((resumeDetails as any)?.Resume_mimeType || '').trim();
 
-    const roles = await inferRolesFromResume({ resumeText, resumeDetails: parsedDetails });
+    // Prefer extracted text, but fall back to sending the PDF to Gemini Flash if extraction failed.
+    if (!resumeText && !(resumeMime === 'application/pdf' && resumeB64)) {
+      throw new Error('Upload your resume first so we can tailor job search to your experience.');
+    }
+
+    const roles = await inferRolesFromResume({
+      resumeText,
+      resumePdfB64: resumeMime === 'application/pdf' ? resumeB64 : '',
+      resumeDetails: parsedDetails,
+    });
     if (!roles.length) throw new Error('Could not infer roles from resume. Try re-uploading your resume.');
 
     const discovered: any[] = [];
