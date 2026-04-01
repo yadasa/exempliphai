@@ -6,18 +6,29 @@
             <div class="stat-row"><b>Custom answers generated:</b> {{ statsCustomAnswers.toLocaleString() }}</div>
             <div class="stat-row" v-if="statsLastAutofill"><b>Last autofill:</b> {{ formatDate(statsLastAutofill) }}</div>
 
-            <!-- Mini activity graph (extension-friendly) -->
+            <!-- Mini activity graph (line chart, extension-friendly) -->
             <div class="mini-graph">
                 <div class="mini-graph-title">Last 14 days</div>
-                <div class="mini-bars" :title="graphTitle">
-                    <div
-                        v-for="(d, i) in graphDays"
-                        :key="i"
-                        class="mini-bar"
-                        :style="{ height: d.h + '%', opacity: d.count > 0 ? 0.95 : 0.25 }"
-                        :title="d.label + ': ' + d.count"
-                    ></div>
+
+                <div class="mini-chart" :title="graphTitle">
+                    <svg viewBox="0 0 100 40" preserveAspectRatio="none" class="mini-chart-svg">
+                        <defs>
+                            <linearGradient id="miniLine" x1="0" y1="0" x2="1" y2="0">
+                                <stop offset="0%" stop-color="#7c3aed" />
+                                <stop offset="100%" stop-color="#2563eb" />
+                            </linearGradient>
+                            <linearGradient id="miniFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.55" />
+                                <stop offset="70%" stop-color="#2563eb" stop-opacity="0.20" />
+                                <stop offset="100%" stop-color="#2563eb" stop-opacity="0.05" />
+                            </linearGradient>
+                        </defs>
+
+                        <path :d="chartAreaPath" fill="url(#miniFill)" />
+                        <path :d="chartLinePath" fill="none" stroke="url(#miniLine)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
                 </div>
+
                 <div class="mini-graph-legend">
                     <span><span class="dot dot-applied"></span> Applied jobs</span>
                 </div>
@@ -84,6 +95,9 @@ export default {
         const graphDays = ref<{ label: string; count: number; h: number }[]>([]);
         const graphTitle = ref('Applied jobs per day (last 14 days)');
 
+        const chartLinePath = ref<string>('');
+        const chartAreaPath = ref<string>('');
+
         const rebuildGraph = () => {
             // Build counts for last 14 days from appliedJobs list.
             const days = 14;
@@ -117,6 +131,27 @@ export default {
                     const label = dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
                     return { label, count: c, h: Math.round((c / max) * 100) };
                 });
+
+            // Build SVG paths in a 100x40 viewBox.
+            const pts = graphDays.value.map((d, i) => {
+                const x = (i / Math.max(1, graphDays.value.length - 1)) * 100;
+                const y = 36 - (d.count / max) * 30; // keep some top/bottom padding
+                return { x, y };
+            });
+
+            if (!pts.length) {
+                chartLinePath.value = '';
+                chartAreaPath.value = '';
+                return;
+            }
+
+            const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ');
+            chartLinePath.value = line;
+
+            // Area: line + down to baseline and back.
+            const baselineY = 38;
+            const area = `${line} L 100 ${baselineY} L 0 ${baselineY} Z`;
+            chartAreaPath.value = area;
         };
 
         const loadJobs = () => {
@@ -294,7 +329,9 @@ export default {
             statsLastAutofill,
 
             graphDays,
-            graphTitle
+            graphTitle,
+            chartLinePath,
+            chartAreaPath
         };
     }
 };
@@ -382,7 +419,7 @@ export default {
 .mini-graph {
     margin-top: 0.75rem;
     padding-top: 0.65rem;
-    border-top: 1px solid rgba(255,255,255,0.08);
+    border-top: 1px solid var(--card-border);
 }
 
 .mini-graph-title {
@@ -391,20 +428,19 @@ export default {
     margin-bottom: 0.35rem;
 }
 
-.mini-bars {
-    display: flex;
-    align-items: flex-end;
-    gap: 4px;
-    height: 54px;
+.mini-chart {
+    height: 70px;
     width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--card-border);
+    background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+    overflow: hidden;
 }
 
-.mini-bar {
-    flex: 1;
-    min-width: 3px;
-    border-radius: 6px 6px 2px 2px;
-    background: linear-gradient(180deg, rgba(34,197,94,0.95), rgba(34,197,94,0.35));
-    border: 1px solid rgba(34,197,94,0.18);
+.mini-chart-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
 }
 
 .mini-graph-legend {

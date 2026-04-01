@@ -504,7 +504,7 @@ watch(
 
 <template>
   <div>
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem;">
+    <div style="display:flex; align-items:center; justify-content:flex-start; gap:0.6rem;">
       <h2 class="subheading" style="margin: 0;">Job Search</h2>
       <PlusOnlyBadge />
     </div>

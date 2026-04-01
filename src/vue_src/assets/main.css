@@ -252,6 +252,7 @@ h1 {
     to right,
     var(--header-overlay-solid) 0%,
     var(--header-overlay-solid) 10%,
+    color-mix(in srgb, var(--header-overlay-solid) 33%, transparent) 17%,
     var(--header-overlay-fade) 33%
   );
   pointer-events: none;

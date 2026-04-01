@@ -167,7 +167,7 @@ const isActive = (name: string) => route.name === name;
 .headerBalance {
   position: absolute;
   right: 1.35rem;
-  bottom: -0.95rem;
+  bottom: -0.45rem;
   font-size: 0.72rem;
   font-weight: 700;
   padding: 0.3rem 0.55rem;
@@ -179,9 +179,9 @@ const isActive = (name: string) => route.name === name;
   box-shadow: var(--shadow-1);
 }
 
-/* Force space for the floating token pill so it never overlaps adjacent UI */
+/* Reserve a little space for the floating token pill */
 .headerWrap {
-  padding-bottom: 0.95rem;
+  padding-bottom: 0.32rem;
 }
 
 .content-area {

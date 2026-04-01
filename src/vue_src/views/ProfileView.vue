@@ -41,8 +41,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div>
-    <div v-if="prettyStatus(syncStatus)" style="margin-bottom: 10px; font-size: 12px; opacity: 0.8">
+  <div style="position: relative;">
+    <div v-if="prettyStatus(syncStatus)" class="syncStatusPill">
       {{ prettyStatus(syncStatus) }}
     </div>
     <InputField label="First Name" placeHolder="John" />
@@ -104,3 +104,20 @@ onBeforeUnmount(() => {
     />
   </div>
 </template>
+
+<style scoped>
+.syncStatusPill {
+  position: absolute;
+  top: 0;
+  right: 0;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 75%, transparent);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  backdrop-filter: blur(10px);
+  pointer-events: none;
+}
+</style>
