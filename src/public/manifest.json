@@ -93,6 +93,10 @@
     {
       "resources": ["config/simplify_ats.json"],
       "matches": ["<all_urls>"]
+    },
+    {
+      "resources": ["assets/pdf.worker-*.mjs", "assets/pdf.worker-*.js"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

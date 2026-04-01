@@ -602,9 +602,18 @@ export default {
 
     const extractTextFromPdf = async (buf: ArrayBuffer): Promise<string> => {
       // pdfjs-dist is large; dynamic import keeps initial popup load smaller.
-      // NOTE: We keep disableWorker=true for MV3 CSP safety.
+      // Try to use a bundled pdf.js worker (more reliable text extraction on some PDFs).
       const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
-      const task = pdfjs.getDocument({ data: buf, disableWorker: true });
+      try {
+        const worker: any = await import('pdfjs-dist/legacy/build/pdf.worker.mjs?url');
+        if (worker?.default) {
+          pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+        }
+      } catch (_) {
+        // Worker is best-effort.
+      }
+
+      const task = pdfjs.getDocument({ data: buf, disableWorker: false });
       const pdf = await task.promise;
       const pages: string[] = [];
 
