@@ -277,6 +277,153 @@ function removeRecAt(index: number) {
   schedulePersistState();
 }
 
+async function inferRolesFromResume({ resumeText, resumeDetails }: { resumeText: string; resumeDetails: any }) {
+  const promptText = `You are a job search strategist.
+
+Given the candidate resume (text) and any parsed resume details, infer up to 3 job roles that best match the candidate's experience AND seniority.
+
+Return ONLY valid JSON with this exact structure:
+{
+  "version": "0.1",
+  "roles": [
+    {
+      "role": "",
+      "seniority": "intern|new_grad|junior|mid|senior|staff|principal|manager",
+      "confidence": 0,
+      "keywords": [""],
+      "why": ""
+    }
+  ]
+}
+
+Rules:
+- roles length: 1-3.
+- role must be a concrete job title (e.g. "Data Analyst", "Backend Software Engineer", "Product Designer").
+- seniority must be one of the allowed enum values.
+- confidence: 0-1.
+- keywords: 6-16 items.
+- Do not invent experience not present in the resume.
+
+Parsed resume details (if any):
+${JSON.stringify(resumeDetails || {}, null, 2)}
+
+Resume text:
+--- RESUME_TEXT_START ---
+${String(resumeText || '').slice(0, 12000)}
+--- RESUME_TEXT_END ---
+`;
+
+  const input = {
+    contents: [{ role: 'user', parts: [{ text: promptText }] }],
+    generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
+  };
+
+  const resp = await new Promise<any>((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { action: 'AI_PROXY', aiAction: 'resumeRoleScan', model: 'gemini-3-flash-preview', input },
+      (r) => {
+        const err = chrome.runtime.lastError;
+        if (err) return reject(new Error(String(err.message || err)));
+        resolve(r);
+      },
+    );
+  });
+
+  if (!resp || resp.ok === false) {
+    const msg = String(resp?.error || 'AI proxy failed');
+    if (msg === 'low_balance' || msg === 'insufficient_balance') {
+      throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+    }
+    throw new Error(msg);
+  }
+
+  const text = String(resp?.result?.text || '');
+  const jsonText = extractFirstJsonObject(text) || text;
+  const out = JSON.parse(jsonText);
+  const roles = Array.isArray(out?.roles) ? out.roles : [];
+  return roles
+    .filter((x: any) => x && typeof x.role === 'string' && String(x.role).trim())
+    .slice(0, 3)
+    .map((x: any) => ({
+      role: String(x.role).trim(),
+      seniority: String(x.seniority || '').trim(),
+      confidence: Number(x.confidence || 0),
+      keywords: Array.isArray(x.keywords) ? x.keywords.map((k: any) => String(k)).filter(Boolean).slice(0, 16) : [],
+      why: String(x.why || '').trim(),
+    }));
+}
+
+function scorePreferredLinks(links: Array<{ label: string; url: string }>) {
+  const u = (links || []).map((l) => String(l?.url || '').toLowerCase());
+  const hasLever = u.some((x) => x.includes('jobs.lever.co'));
+  const hasGreenhouse = u.some((x) => x.includes('greenhouse.io') || x.includes('job-boards.greenhouse.io') || x.includes('boards.greenhouse.io'));
+  const hasAggregator = u.some((x) => x.includes('indeed.com') || x.includes('ziprecruiter.com') || x.includes('glassdoor.com') || x.includes('talent.com'));
+  let score = 0;
+  if (hasLever) score += 3;
+  if (hasGreenhouse) score += 3;
+  if (hasAggregator) score -= 1;
+  return score;
+}
+
+async function generateWhyMatch({ resumeDetails, roleHint, job }: { resumeDetails: any; roleHint: any; job: any }) {
+  const promptText = `Write a concise why-this-job-is-a-match blurb for the candidate.
+
+Return ONLY valid JSON:
+{
+  "why_match": ""
+}
+
+Rules:
+- 2-3 sentences.
+- Mention 1-2 concrete alignments (domain/tools) that are present in the candidate resume details.
+- Do NOT invent experience.
+- Avoid hype. Make it specific.
+
+Candidate resume details:
+${JSON.stringify(resumeDetails || {}, null, 2)}
+
+Role hint (from resume scan):
+${JSON.stringify(roleHint || {}, null, 2)}
+
+Job:
+${JSON.stringify({ title: job?.title, company: job?.company, location: job?.location, description: String(job?.description || '').slice(0, 1200) }, null, 2)}
+`;
+
+  const input = {
+    contents: [{ role: 'user', parts: [{ text: promptText }] }],
+    generationConfig: { temperature: 0.5, responseMimeType: 'application/json' },
+  };
+
+  const resp = await new Promise<any>((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { action: 'AI_PROXY', aiAction: 'jobWhyMatch', model: 'gemini-3-flash-preview', input },
+      (r) => {
+        const err = chrome.runtime.lastError;
+        if (err) return reject(new Error(String(err.message || err)));
+        resolve(r);
+      },
+    );
+  });
+
+  if (!resp || resp.ok === false) throw new Error(String(resp?.error || 'AI proxy failed'));
+  const text = String(resp?.result?.text || '');
+  const jsonText = extractFirstJsonObject(text) || text;
+  const out = JSON.parse(jsonText);
+  return String(out?.why_match || '').trim();
+}
+
+async function getRandomHistoricalItems(count = 5) {
+  return await new Promise<any[]>((resolve) => {
+    chrome.runtime.sendMessage({ action: 'JOBSEARCH_HISTORY_SAMPLE', count, maxDocs: 25 }, (r) => {
+      const err = chrome.runtime.lastError;
+      if (err) return resolve([]);
+      if (!r || r.ok === false) return resolve([]);
+      const items = Array.isArray((r as any)?.items) ? (r as any).items : [];
+      resolve(items);
+    });
+  });
+}
+
 async function generateRecommendations() {
   errorMsg.value = '';
   loading.value = true;
@@ -285,108 +432,151 @@ async function generateRecommendations() {
     // SerpAPI (Google Jobs) proxy: no client-side API key.
 
     const resumeDetails = await new Promise<any>((resolve) => {
-      chrome.storage.local.get(['Resume_details'], (res) => resolve((res as any)?.Resume_details || {}));
+      chrome.storage.local.get(['Resume_details', 'Resume_extracted_text'], (res) => resolve(res || {}));
     });
 
-    const profile = await new Promise<any>((resolve) => {
-      chrome.storage.sync.get(null, (res) => resolve(res || {}));
-    });
+    const parsedDetails = (resumeDetails as any)?.Resume_details || {};
+    const resumeText = String((resumeDetails as any)?.Resume_extracted_text || '').trim();
+    if (!resumeText) throw new Error('Upload your resume first so we can tailor job search to your experience.');
 
-    const pick = (...vals: any[]) => vals.map((v) => String(v || '').trim()).find((v) => v) || '';
+    const roles = await inferRolesFromResume({ resumeText, resumeDetails: parsedDetails });
+    if (!roles.length) throw new Error('Could not infer roles from resume. Try re-uploading your resume.');
 
-    const q = pick(
-      profile?.desiredJobTitle,
-      profile?.jobTitle,
-      profile?.Title,
-      resumeDetails?.targetRole,
-      resumeDetails?.headline,
-      resumeDetails?.summary,
-      'software engineer',
-    );
+    const discovered: any[] = [];
 
-    const payload = {
-      q,
-      location: String(desiredLocation.value || '').trim(),
-      limit: 20,
-      start: searchPage.value * 10,
-      no_cache: true,
-      lrad: postedWithin.value === 'any' ? 0 : postedWithin.value === '7d' ? 7 : postedWithin.value === '3d' ? 3 : 1,
-    };
+    // Search each inferred role.
+    for (const rh of roles) {
+      const q = String(rh?.role || '').trim();
+      if (!q) continue;
 
-    const proxyResp = await new Promise<any>((resolve, reject) => {
-      chrome.runtime.sendMessage(
-        {
-          action: 'SEARCH_PROXY',
-          searchAction: 'jobs',
-          payload,
-        },
-        (r) => {
-          const err = chrome.runtime.lastError;
-          if (err) return reject(new Error(String(err.message || err)));
-          resolve(r);
-        },
-      );
-    });
+      const payload = {
+        q,
+        location: String(desiredLocation.value || '').trim(),
+        limit: 20,
+        start: 0,
+        no_cache: true,
+        lrad: postedWithin.value === 'any' ? 0 : postedWithin.value === '7d' ? 7 : postedWithin.value === '3d' ? 3 : 1,
+      };
 
-    if (!proxyResp || proxyResp.ok === false) {
-      const msg = String(proxyResp?.error || 'Search proxy failed');
-      if (msg === 'low_balance' || msg === 'insufficient_balance') {
-        throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+      const proxyResp = await new Promise<any>((resolve, reject) => {
+        chrome.runtime.sendMessage(
+          {
+            action: 'SEARCH_PROXY',
+            searchAction: 'jobs',
+            payload,
+          },
+          (r) => {
+            const err = chrome.runtime.lastError;
+            if (err) return reject(new Error(String(err.message || err)));
+            resolve(r);
+          },
+        );
+      });
+
+      if (!proxyResp || proxyResp.ok === false) {
+        const msg = String(proxyResp?.error || 'Search proxy failed');
+        if (msg === 'low_balance' || msg === 'insufficient_balance') {
+          throw new Error('Insufficient ExempliPhai token balance. Please top up to continue.');
+        }
+        throw new Error(msg);
       }
-      throw new Error(msg);
-    }
 
-    const results = Array.isArray(proxyResp?.results) ? proxyResp.results : [];
-    // Advance page so subsequent searches pull a different page of results.
-    searchPage.value = searchPage.value + 1;
+      const results = Array.isArray(proxyResp?.results) ? proxyResp.results : [];
 
-    const cleaned = toPlainRecs(
-      results
+      const cleaned = results
         .filter((r: any) => r && String(r.title || '').trim())
-        .slice(0, 20)
+        .slice(0, 25)
         .map((r: any) => {
           const apply = Array.isArray(r.apply_options) ? r.apply_options : [];
           const links = apply
             .map((a: any) => ({ label: String(a?.title || '').trim() || 'Apply', url: String(a?.link || '').trim() }))
             .filter((l: any) => l.url);
 
-          // Keep direct-ish links only; if Serp returns a redirector, this may be empty.
           const directLinks = filterDirectApplicationLinks(links).slice(0, 4);
-
           return {
             title: String(r.title || '').trim(),
             company: String(r.company || '').trim(),
             location: String(r.location || '').trim(),
             salary: '',
-            why_match: String(r.description || '').trim().slice(0, 240),
+            why_match: '',
             links: directLinks,
+            description: String(r.description || '').trim(),
+            _sourceRole: q,
+            _preferScore: scorePreferredLinks(directLinks),
           };
-        }),
-    );
+        })
+        // Prefer jobs with Lever/Greenhouse links, but keep flexibility.
+        .sort((a: any, b: any) => Number(b._preferScore || 0) - Number(a._preferScore || 0));
 
-    // New results should appear at the top.
-    recs.value = mergeRecs(cleaned, recs.value);
+      discovered.push(...cleaned);
+
+      // Store this search snapshot (so it lands in Firestore via trackJobSearch).
+      await storageSetLocal({
+        [JOB_SEARCH_LAST_KEY]: {
+          version: 'serpapi_multi_role_v0.1',
+          generated_at: new Date().toISOString(),
+          desiredLocation: String(desiredLocation.value || ''),
+          postedWithin: postedWithin.value,
+          searchOptions: {
+            q,
+            location: String(desiredLocation.value || '').trim(),
+            postedWithin: postedWithin.value,
+          },
+          recommendations: toPlainRecs(cleaned),
+          rolesUsed: roles,
+          serp: {
+            provider: proxyResp?.provider || null,
+            query: proxyResp?.query || payload,
+            results: results,
+          },
+        } as any,
+      });
+    }
+
+    // Pick 10 random from discovered
+    const shuffled = [...discovered].sort(() => Math.random() - 0.5);
+    const pickedNew = shuffled.slice(0, 10);
+
+    // Pick 5 random from historical searches
+    const hist = await getRandomHistoricalItems(5);
+    const pickedHist = toPlainRecs(hist).sort(() => Math.random() - 0.5).slice(0, 5);
+
+    // Merge and trim to 15
+    const combined = mergeRecs(pickedNew as any, pickedHist as any).slice(0, 15);
+
+    // Generate why_match for items that don't have one
+    const enriched: any[] = [];
+    for (const j of combined) {
+      const why = String((j as any)?.why_match || '').trim();
+      if (why) {
+        enriched.push(j);
+        continue;
+      }
+      try {
+        const gen = await generateWhyMatch({ resumeDetails: parsedDetails, roleHint: roles?.[0] || null, job: j });
+        enriched.push({ ...j, why_match: gen });
+      } catch (_) {
+        enriched.push({ ...j, why_match: '' });
+      }
+    }
+
+    // Final list shown to the user
+    recs.value = toPlainRecs(enriched);
 
     await storageSetLocal({
       [JOB_SEARCH_LAST_KEY]: {
-        version: 'serpapi_google_jobs_v0.2',
+        version: 'serpapi_multi_role_mix_v0.1',
         generated_at: new Date().toISOString(),
         desiredLocation: String(desiredLocation.value || ''),
-        // IMPORTANT: Vue makes arrays/objects reactive proxies; convert to plain objects for storage + Firestore.
-        recommendations: toPlainRecs(recs.value),
-        searchPage: searchPage.value,
         postedWithin: postedWithin.value,
+        recommendations: toPlainRecs(recs.value),
         searchOptions: {
-          q,
+          q: roles.map((r: any) => String(r?.role || '').trim()).filter(Boolean).join(' | '),
           location: String(desiredLocation.value || '').trim(),
           postedWithin: postedWithin.value,
         },
-        serp: {
-          provider: proxyResp?.provider || null,
-          query: proxyResp?.query || payload,
-          results: results,
-        },
-      } satisfies JobSearchLast,
+        rolesUsed: roles,
+      } as any,
     });
 
     schedulePersistState();

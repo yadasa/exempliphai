@@ -2014,7 +2014,7 @@ export function initFirebaseExtensionSync() {
         action === 'SYNC_NOW' ||
         action === 'GET_CLOUD_STATE' ||
         action === 'LIST_MODE_AUTOFILL_RESULT' ||
-        action === 'AI_PROXY' || action === 'BILLING_BALANCE' || action === 'SEARCH_PROXY');
+        action === 'AI_PROXY' || action === 'BILLING_BALANCE' || action === 'SEARCH_PROXY' || action === 'JOBSEARCH_HISTORY_SAMPLE');
 
     // Let other listeners (e.g., legacyBackground list mode, job context helpers) handle everything else.
     if (!shouldHandle) return;
@@ -2116,6 +2116,67 @@ export function initFirebaseExtensionSync() {
           return;
         } catch (e: any) {
           sendResponse({ ok: false, error: String(e?.message || e || 'search_proxy_failed') });
+          return;
+        }
+      }
+
+      if (msg.action === 'JOBSEARCH_HISTORY_SAMPLE') {
+        try {
+          if (!authState) authState = await getStoredAuth().catch(() => null);
+          if (!authState) await tryAuthFromAnyExempliphTab('jobsearch_history').catch(() => false);
+          if (!authState) {
+            sendResponse({ ok: false, error: 'no_auth' });
+            return;
+          }
+
+          const uid = authState.uid;
+          const want = Math.max(0, Math.min(15, Number(msg?.count || 5) || 0));
+          const maxDocs = Math.max(1, Math.min(50, Number(msg?.maxDocs || 25) || 0));
+
+          const parent = `users/${uid}`;
+          const structuredQuery = {
+            from: [{ collectionId: 'jobSearches' }],
+            orderBy: [{ field: { fieldPath: 'timestamp' }, direction: 'DESCENDING' }],
+            limit: maxDocs,
+          };
+
+          const rows = await firestoreRunQuery(parent, structuredQuery).catch(() => []);
+          const all: any[] = [];
+
+          for (const r of rows || []) {
+            const doc = (r as any)?.document;
+            const data = doc?.fields ? fromFirestoreValue({ mapValue: { fields: doc.fields } }) : null;
+            const recs = Array.isArray(data?.recommendations)
+              ? data.recommendations
+              : Array.isArray(data?.generatedJobs)
+                ? data.generatedJobs
+                : Array.isArray(data?.docData?.generatedJobs)
+                  ? data.docData.generatedJobs
+                  : Array.isArray(data?.docData?.recommendations)
+                    ? data.docData.recommendations
+                    : [];
+
+            for (const j of recs || []) {
+              if (!j) continue;
+              all.push(j);
+            }
+          }
+
+          // Random sample without replacement.
+          const picked: any[] = [];
+          const used = new Set<number>();
+          const n = Math.min(want, all.length);
+          while (picked.length < n) {
+            const idx = Math.floor(Math.random() * all.length);
+            if (used.has(idx)) continue;
+            used.add(idx);
+            picked.push(all[idx]);
+          }
+
+          sendResponse({ ok: true, items: picked });
+          return;
+        } catch (e: any) {
+          sendResponse({ ok: false, error: String(e?.message || e || 'jobsearch_history_failed') });
           return;
         }
       }

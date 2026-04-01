@@ -1008,7 +1008,9 @@ apiRouter.post('/ai/:action', async (req, res) => {
       'resumeKeywords',
       'resumeTailor',
       'resumeParse',
+      'resumeRoleScan',
       'jobRecs',
+      'jobWhyMatch',
     ]);
     if (!allowedActions.has(action)) {
       res.status(400).json({ ok: false, error: 'invalid_action' });
