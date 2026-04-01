@@ -124,25 +124,35 @@ Task:
 Surgically tailor the resume to the job description.
 
 Hard rules:
-- Make minimal, high-impact edits; preserve the candidate's original facts.
-- Do NOT change contact info, headings, dates, company names, employer names, or job titles.
+- Preserve the candidate's original facts. Do NOT invent employers, degrees, certifications, dates, metrics, or technologies.
+- You MAY rewrite bullets to sound much more tailored to the role (stronger verbs, clearer scope, role-relevant framing) as long as every claim remains defensible from the resume.
+- You MAY make small job-title alignment edits (e.g. "Software Engineer" → "Backend Software Engineer") ONLY when clearly supported by the bullets/skills already present in the resume.
+  - Do NOT inflate seniority (e.g. Engineer→Senior/Lead/Manager) unless the resume already supports it.
+  - Do NOT change employer/company names or dates.
+- Do NOT change contact info or section headings.
 - Only adjust: Summary + Skills + up to ${maxPerRole} bullet points per role (max ${maxTotal} bullet edits total).
-- Align keywords and tooling ONLY if they already exist in the resume.
-- Do NOT invent employers, degrees, certifications, job titles, dates, metrics, or technologies.
-- If the JD requires something not found in the resume, do NOT claim it.
+- Align keywords/tooling ONLY if they already exist somewhere in the resume.
+- If the JD requires something not found in the resume, do NOT claim it; instead add a warning.
 
 Output:
 Return ONLY valid JSON with this exact structure (no extra keys):
 {
-  "version": "0.2",
+  "version": "0.3",
   "job_title": "",
   "company": "",
   "tailored_resume_text": "",
   "changes": [
     {"section":"","type":"","before":"","after":""}
   ],
+  "title_changes": [
+    {"before":"","after":"","evidence":""}
+  ],
   "warnings": [""]
 }
+
+Notes:
+- If you do not change any job titles, return an empty title_changes array.
+- evidence should quote the resume text that supports the alignment.
 
 Formatting constraints for tailored_resume_text:
 - Plain text, ATS-friendly (single column; no tables; no markdown)

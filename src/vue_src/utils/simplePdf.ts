@@ -7,7 +7,37 @@ function pdfEscape(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 
-export function simplePdfFromText(text: string, { maxLines = 58 } = {}): Uint8Array {
+function wrapLine(s: string, maxChars: number): string[] {
+  const t = String(s || '');
+  if (!t) return [''];
+  if (!maxChars || t.length <= maxChars) return [t];
+
+  const out: string[] = [];
+  let cur = t;
+  while (cur.length > maxChars) {
+    // Prefer breaking on spaces.
+    let cut = cur.lastIndexOf(' ', maxChars);
+    if (cut < Math.floor(maxChars * 0.6)) cut = maxChars;
+    out.push(cur.slice(0, cut).trimEnd());
+    cur = cur.slice(cut).trimStart();
+  }
+  if (cur) out.push(cur);
+  return out.length ? out : [''];
+}
+
+function isHeadingLine(s: string): boolean {
+  const t = String(s || '').trim();
+  if (!t) return false;
+  // Common resume headings.
+  if (/^(summary|skills|experience|work experience|education|projects|certifications|certification|leadership|volunteer|awards)$/i.test(t)) return true;
+  // All-caps short lines often used as headings.
+  if (t.length <= 28 && t === t.toUpperCase() && /[A-Z]/.test(t)) return true;
+  // Lines ending with ':' are often section labels.
+  if (t.length <= 40 && /:$/.test(t)) return true;
+  return false;
+}
+
+export function simplePdfFromText(text: string, { maxLines = 62 } = {}): Uint8Array {
   const raw = toAsciiSafe(text || '');
   const lines = raw
     .replace(/\r\n/g, '\n')
@@ -15,21 +45,52 @@ export function simplePdfFromText(text: string, { maxLines = 58 } = {}): Uint8Ar
     .split('\n')
     .map((l) => l.trimEnd());
 
-  const clipped = lines.slice(0, maxLines);
+  // Wrap long lines for a cleaner ATS PDF.
+  const wrapped: string[] = [];
+  for (const l of lines) {
+    const w = wrapLine(l, 92);
+    wrapped.push(...w);
+  }
+
+  const clipped = wrapped.slice(0, maxLines);
 
   // Basic text stream
   const fontSize = 10;
-  const left = 54; // 0.75 inch
-  const top = 760;
+  const left = 50; // slightly wider margins
+  const top = 770;
   const leading = 12;
 
   let stream = 'BT\n';
   stream += `/F1 ${fontSize} Tf\n`;
   stream += `${left} ${top} Td\n`;
 
+  let prevWasBlank = false;
   for (let i = 0; i < clipped.length; i++) {
-    const line = pdfEscape(clipped[i] || '');
-    stream += `(${line}) Tj\n`;
+    const rawLine = clipped[i] || '';
+    const lineTrim = String(rawLine).trim();
+    const isBlank = !lineTrim;
+    const heading = isHeadingLine(lineTrim);
+
+    // Extra spacing between sections (but compress multiple blank lines).
+    if (isBlank) {
+      if (prevWasBlank) continue;
+      prevWasBlank = true;
+      stream += `() Tj\n`;
+      stream += `0 -${leading} Td\n`;
+      continue;
+    }
+    prevWasBlank = false;
+
+    // Bold-ish headings via Helvetica-Bold.
+    if (heading) {
+      stream += `/F2 ${fontSize + 0.5} Tf\n`;
+    } else {
+      stream += `/F1 ${fontSize} Tf\n`;
+    }
+
+    const escaped = pdfEscape(rawLine);
+    stream += `(${escaped}) Tj\n`;
+
     if (i !== clipped.length - 1) stream += `0 -${leading} Td\n`;
   }
 
@@ -41,9 +102,10 @@ export function simplePdfFromText(text: string, { maxLines = 58 } = {}): Uint8Ar
   objects.push('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n');
   objects.push('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n');
   objects.push(
-    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>\nendobj\n'
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 6 0 R >> >> /Contents 5 0 R >>\nendobj\n'
   );
   objects.push('4 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n');
+  objects.push('6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\nendobj\n');
   objects.push(`5 0 obj\n<< /Length ${stream.length} >>\nstream\n${stream}endstream\nendobj\n`);
 
   // Build xref
@@ -59,14 +121,15 @@ export function simplePdfFromText(text: string, { maxLines = 58 } = {}): Uint8Ar
 
   const xrefStart = header.length + body.length;
 
-  let xref = 'xref\n0 6\n';
+  const size = offsets.length;
+  let xref = `xref\n0 ${size}\n`;
   xref += '0000000000 65535 f \n';
   for (let i = 1; i < offsets.length; i++) {
     const off = offsets[i];
     xref += String(off).padStart(10, '0') + ' 00000 n \n';
   }
 
-  const trailer = `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
+  const trailer = `trailer\n<< /Size ${size} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
 
   const pdf = header + body + xref + trailer;
   return new TextEncoder().encode(pdf);
