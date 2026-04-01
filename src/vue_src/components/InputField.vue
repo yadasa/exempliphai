@@ -602,6 +602,7 @@ export default {
 
     const extractTextFromPdf = async (buf: ArrayBuffer): Promise<string> => {
       // pdfjs-dist is large; dynamic import keeps initial popup load smaller.
+      // NOTE: We keep disableWorker=true for MV3 CSP safety.
       const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf.mjs');
       const task = pdfjs.getDocument({ data: buf, disableWorker: true });
       const pdf = await task.promise;
@@ -609,15 +610,21 @@ export default {
 
       for (let i = 1; i <= (pdf.numPages || 0); i++) {
         const page = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        const line = (content.items || [])
-          .map((it: any) => String(it?.str || '').trim())
-          .filter(Boolean)
-          .join(' ');
-        if (line) pages.push(line);
+        const content = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false } as any);
+
+        // pdf.js often returns many tiny items; trimming each can accidentally erase meaningful whitespace.
+        // Join first, then normalize.
+        const raw = (content.items || []).map((it: any) => String(it?.str ?? '')).join(' ');
+        const normalized = raw
+          .replace(/\u00a0/g, ' ') // nbsp
+          .replace(/[\t\r\n]+/g, ' ')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+
+        if (normalized) pages.push(normalized);
       }
 
-      return pages.join('\n\n');
+      return pages.join('\n\n').trim();
     };
 
     const extractTextFromDocx = async (buf: ArrayBuffer): Promise<string> => {
