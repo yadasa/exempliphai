@@ -25,7 +25,6 @@ const refreshBalance = async () => {
     chrome.runtime.sendMessage({ action: 'BILLING_BALANCE' }, (resp) => {
       const err = chrome?.runtime?.lastError;
       if (err) {
-        tokensBalance.value = null;
         resolve();
         return;
       }
@@ -36,8 +35,20 @@ const refreshBalance = async () => {
   });
 };
 
+const onStorageChanged = (changes: any, area: string) => {
+  if (area !== 'local') return;
+  if (changes?.ui_tokensBalance) {
+    const next = Number(changes.ui_tokensBalance.newValue ?? 0);
+    tokensBalance.value = Number.isFinite(next) ? next : 0;
+  }
+};
+
 onMounted(() => {
   loadTheme();
+
+  try {
+    chrome.storage?.onChanged?.addListener(onStorageChanged as any);
+  } catch (_) {}
 
   // Nudge SW on popup open:
   // - pull auth from any open exempliph.ai tab (if needed)
@@ -62,6 +73,9 @@ onMounted(() => {
 onUnmounted(() => {
   if (balanceTimer) clearInterval(balanceTimer);
   balanceTimer = null;
+  try {
+    chrome.storage?.onChanged?.removeListener(onStorageChanged as any);
+  } catch (_) {}
 });
 
 const go = async (path: string) => {

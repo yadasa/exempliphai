@@ -486,7 +486,53 @@ async function authedFetch(url: string, init: RequestInit = {}) {
     headers.set('Content-Type', 'application/json');
   }
 
+  // Best-effort: broadcast when anything triggers a balance check.
+  // (The UI pill listens to storage changes for instant updates.)
+  try {
+    if (String(url || '').includes('/billing/balance')) {
+      await chrome.storage.local.set({ ui_tokensBalanceCheckingAt: Date.now() });
+    }
+  } catch (_) {}
+
   return await fetch(url, { ...init, headers });
+}
+
+async function refreshUiTokenBalance(reason: string) {
+  try {
+    // Mirror BILLING_BALANCE logic, but without blocking caller.
+    if (!authState) authState = await getStoredAuth().catch(() => null);
+    if (!authState) await tryAuthFromAnyExempliphTab(`ui_balance:${reason}`).catch(() => false);
+
+    const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
+    const configuredBase = String((syncCfg as any)?.AI_PROXY_BASE || '').trim();
+    const defaultBase = 'https://us-central1-exempliphai.cloudfunctions.net/api';
+    const base = configuredBase || defaultBase;
+
+    const mkUrl = (b: string) => `${String(b || '').trim().replace(/\/$/, '')}/billing/balance`;
+
+    const attempt = async (b: string) => {
+      const res = await authedFetch(mkUrl(b), { method: 'GET' });
+      const json = await res.json().catch(() => ({}));
+      return { res, json, baseUsed: b };
+    };
+
+    let { res, json } = await attempt(base);
+    if (res.status === 404 && configuredBase && configuredBase !== defaultBase) {
+      ({ res, json } = await attempt(defaultBase));
+    }
+
+    if (!res.ok || json?.ok === false) return;
+
+    const t = Number(json?.tokens ?? 0);
+    const tokens = Number.isFinite(t) ? t : 0;
+    await chrome.storage.local.set({
+      ui_tokensBalance: tokens,
+      ui_tokensBalanceUpdatedAt: Date.now(),
+      ui_tokensBalanceSource: String(reason || ''),
+    });
+  } catch (_) {
+    // ignore
+  }
 }
 
 async function firestoreGetDoc(path: string): Promise<any | null> {
@@ -2002,6 +2048,16 @@ export function initFirebaseExtensionSync() {
             return;
           }
 
+          // Update UI token pill immediately.
+          try {
+            const t = Number(json?.tokens ?? 0);
+            await chrome.storage.local.set({
+              ui_tokensBalance: Number.isFinite(t) ? t : 0,
+              ui_tokensBalanceUpdatedAt: Date.now(),
+              ui_tokensBalanceSource: 'billing_balance',
+            });
+          } catch (_) {}
+
           sendResponse({ ...json, baseUsed });
           return;
         } catch (e: any) {
@@ -2056,6 +2112,7 @@ export function initFirebaseExtensionSync() {
           }
 
           sendResponse({ ...json, baseUsed });
+          void refreshUiTokenBalance(`search_proxy:${searchAction || 'unknown'}`);
           return;
         } catch (e: any) {
           sendResponse({ ok: false, error: String(e?.message || e || 'search_proxy_failed') });
@@ -2107,6 +2164,7 @@ export function initFirebaseExtensionSync() {
           }
 
           sendResponse({ ...json, baseUsed });
+          void refreshUiTokenBalance(`ai_proxy:${aiAction || 'unknown'}`);
           return;
         } catch (e: any) {
           sendResponse({ ok: false, error: String(e?.message || e || 'ai_proxy_failed') });
