@@ -175,6 +175,7 @@ const isActive = (name: string) => route.name === name;
   position: absolute;
   right: 1.35rem;
   bottom: -0.45rem;
+  z-index: 9999;
   font-size: 0.72rem;
   font-weight: 800;
   padding: 0.3rem 0.55rem;
