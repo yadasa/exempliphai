@@ -1077,7 +1077,13 @@ apiRouter.post('/ai/:action', async (req, res) => {
 });
 
 // IMPORTANT: declare secrets so Cloud Functions injects them into process.env
-exports.api = onRequest({ region: REGION, secrets: ['GEMINI_API_KEY', 'SERPAPI_API_KEY'] }, api);
+exports.api = onRequest(
+  {
+    region: REGION,
+    secrets: ['GEMINI_API_KEY', 'SERPAPI_API_KEY', 'STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET'],
+  },
+  api,
+);
 
 
 exports.applyAttribution = onCall({ region: REGION, cors: true, invoker: "public" }, async (req) => {
