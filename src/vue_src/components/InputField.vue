@@ -608,18 +608,60 @@ export default {
       const pdf = await task.promise;
       const pages: string[] = [];
 
-      for (let i = 1; i <= (pdf.numPages || 0); i++) {
-        const page = await pdf.getPage(i);
-        const content = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false } as any);
-
-        // pdf.js often returns many tiny items; trimming each can accidentally erase meaningful whitespace.
-        // Join first, then normalize.
-        const raw = (content.items || []).map((it: any) => String(it?.str ?? '')).join(' ');
-        const normalized = raw
+      const normalize = (raw: string) =>
+        String(raw || '')
           .replace(/\u00a0/g, ' ') // nbsp
           .replace(/[\t\r\n]+/g, ' ')
           .replace(/\s{2,}/g, ' ')
           .trim();
+
+      const extractByGrouping = (items: any[]): string => {
+        // Group text items into lines using their Y coordinate.
+        const rows = (items || [])
+          .map((it: any) => {
+            const s = String(it?.str ?? '');
+            const tr = Array.isArray(it?.transform) ? it.transform : null;
+            const x = tr && Number.isFinite(tr[4]) ? Number(tr[4]) : 0;
+            const y = tr && Number.isFinite(tr[5]) ? Number(tr[5]) : 0;
+            return { s, x, y };
+          })
+          .filter((r: any) => r.s && r.s.trim());
+
+        // Sort top-to-bottom, then left-to-right.
+        rows.sort((a: any, b: any) => (b.y - a.y) || (a.x - b.x));
+
+        const lines: Array<{ y: number; parts: string[] }> = [];
+        const Y_TOL = 2.2;
+
+        for (const r of rows) {
+          const last = lines[lines.length - 1];
+          if (!last || Math.abs(last.y - r.y) > Y_TOL) {
+            lines.push({ y: r.y, parts: [r.s] });
+          } else {
+            last.parts.push(r.s);
+          }
+        }
+
+        const text = lines
+          .map((ln) => normalize(ln.parts.join(' ')))
+          .filter(Boolean)
+          .join('\n');
+
+        return text;
+      };
+
+      for (let i = 1; i <= (pdf.numPages || 0); i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false } as any);
+
+        // Attempt 1: simple join
+        const raw = (content.items || []).map((it: any) => String(it?.str ?? '')).join(' ');
+        let normalized = normalize(raw);
+
+        // Attempt 2: positional line grouping fallback (handles many resumes better)
+        if (!normalized) {
+          normalized = normalize(extractByGrouping(content.items || []));
+        }
 
         if (normalized) pages.push(normalized);
       }
