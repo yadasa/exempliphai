@@ -993,11 +993,41 @@ apiRouter.post('/ai/:action', async (req, res) => {
     }
 
     const model = String(req.body?.model || 'gemini-3-pro-preview').trim();
-    const input = req.body?.input;
+    let input = req.body?.input;
 
     if (!input || typeof input !== 'object') {
       res.status(400).json({ ok: false, error: 'missing_input' });
       return;
+    }
+
+    // Allow structured args for certain actions so prompt templates can stay server-side.
+    if (input?.args && !input?.contents && (action === 'mapFieldsToFillPlan' || action === 'generateNarrativeAnswer')) {
+      const args = input.args;
+
+      if (action === 'mapFieldsToFillPlan') {
+        const systemPrompt = `You are a form-field mapping engine for a browser extension.\n\nReturn ONLY valid JSON matching the FillPlan schema.\n\nRules:\n- Do NOT invent new profile keys.\n- Prefer mapping to an existing profile key. If none fits, set value.source=\"skip\".\n- Never propose checking consent/terms/acknowledgement checkboxes.\n- If the field is sensitive (EEO/disability/veteran/visa), set policy.requires_review=true unless explicitly allowed.\n- Output JSON only.`;
+        const userPrompt = JSON.stringify(args || {}, null, 2);
+
+        input = {
+          contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${userPrompt}` }] }],
+          generationConfig: {
+            ...(input.generationConfig || {}),
+            responseMimeType: 'application/json',
+          },
+        };
+      }
+
+      if (action === 'generateNarrativeAnswer') {
+        const systemPrompt = `You write concise, professional job-application answers in second person.\nReturn only the answer text.\nAddress the user as \"you\".\nDo not include placeholders like [Company] or [Your Name].`;
+        const userPrompt = JSON.stringify(args || {}, null, 2);
+
+        input = {
+          contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${userPrompt}` }] }],
+          generationConfig: {
+            ...(input.generationConfig || {}),
+          },
+        };
+      }
     }
 
     // Allowlist actions (defense in depth)

@@ -270,24 +270,34 @@ async function geminiGenerateContent({
   temperature = 0.2,
   aiAction = 'generateNarrativeAnswer',
   useProxy = true,
+  args,
 }) {
   // Gemini REST (generativelanguage) supports a top-level systemInstruction in newer APIs,
   // but not consistently across models/versions. We embed system+user prompts into one message
   // to keep behavior predictable.
   const combined = `${systemPrompt}\n\n---\n\n${userPrompt}`;
 
-  const input = {
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: combined }],
-      },
-    ],
-    generationConfig: {
-      temperature,
-      ...(responseMimeType ? { responseMimeType } : {}),
-    },
-  };
+  const input = args
+    ? {
+        // Server will build the full prompt from structured args.
+        args,
+        generationConfig: {
+          temperature,
+          ...(responseMimeType ? { responseMimeType } : {}),
+        },
+      }
+    : {
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: combined }],
+          },
+        ],
+        generationConfig: {
+          temperature,
+          ...(responseMimeType ? { responseMimeType } : {}),
+        },
+      };
 
   if (useProxy) {
     const resp = /** @type {any} */ (await proxyGenerateContent({ aiAction, model, input, timeoutMs }));
@@ -371,20 +381,23 @@ export function createGeminiProvider(cfg) {
 
   return {
     async mapFieldsToFillPlan(args) {
-      const systemPrompt = buildTier1MappingSystemPrompt();
-      const userPrompt = buildTier1MappingUserPrompt(args);
+      // IMPORTANT: keep Tier-1 prompt templates off-device when proxying.
+      // Send only the structured payload; the server constructs the full prompt.
+      const payload = buildTier1MappingUserPayload(args);
 
       const { text } = await withRetry(
         () =>
           geminiGenerateContent({
             apiKey,
             model: args?.model || model,
-            systemPrompt,
-            userPrompt,
+            systemPrompt: '',
+            userPrompt: '',
             timeoutMs: args?.timeoutMs ?? timeoutMs,
             responseMimeType: 'application/json',
             aiAction: 'mapFieldsToFillPlan',
             useProxy,
+            // Pass structured args to the server; it will build the prompt.
+            args: payload,
           }),
         { maxRetries: args?.maxRetries ?? maxRetries }
       );
@@ -403,19 +416,29 @@ export function createGeminiProvider(cfg) {
     },
 
     async generateNarrativeAnswer(args) {
-      const systemPrompt = buildTier2NarrativeSystemPrompt();
-      const userPrompt = buildTier2NarrativeUserPrompt(args);
+      // IMPORTANT: keep Tier-2 prompt templates off-device when proxying.
+      // Send only the structured args; the server constructs the full prompt.
+      const minimal = {
+        questionText: args?.questionText,
+        maxWords: args?.maxWords,
+        tone: args?.tone,
+        resumeDetailsMin: args?.resumeDetailsMin,
+        profileSubset: args?.profileSubset,
+        siteGuidance: args?.siteGuidance,
+        synonymHint: args?.synonymHint,
+      };
 
       const { text } = await withRetry(
         () =>
           geminiGenerateContent({
             apiKey,
             model: args?.model || model,
-            systemPrompt,
-            userPrompt,
+            systemPrompt: '',
+            userPrompt: '',
             timeoutMs: args?.timeoutMs ?? timeoutMs,
             aiAction: 'generateNarrativeAnswer',
             useProxy,
+            args: minimal,
           }),
         { maxRetries: args?.maxRetries ?? maxRetries }
       );
