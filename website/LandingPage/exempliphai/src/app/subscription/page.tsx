@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AccountNavCards } from "@/components/AccountNavCards";
 import { doc, onSnapshot } from "firebase/firestore";
 import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
+import { createPlusSubscriptionCheckout } from "@/lib/subscription/client";
 
 const FREE_PLAN_FEATURES = [
   "Autofill applications",
@@ -23,8 +25,8 @@ const PLUS_PLAN_FEATURES = [
   "400 tokens per week",
 ] as const;
 
-const STRIPE_SUBSCRIPTION_URL =
-  process.env.NEXT_PUBLIC_STRIPE_SUBSCRIPTION_URL || "";
+// (Upgrade link is now created server-side via /api/subscription/checkout)
+
 
 export default function SubscriptionPage() {
   return (
@@ -36,7 +38,10 @@ export default function SubscriptionPage() {
 
 function SubscriptionInner() {
   const { user } = useAuth();
+  const sp = useSearchParams();
   const [paidPlan, setPaidPlan] = useState(false);
+  const [banner, setBanner] = useState<null | { kind: "success" | "error"; text: string }>(null);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -48,6 +53,35 @@ function SubscriptionInner() {
       setPaidPlan(active);
     });
   }, [user?.uid]);
+
+  // Short-lived success/cancel banner when returning from Stripe.
+  useEffect(() => {
+    const success = sp?.get("success") === "1";
+    const canceled = sp?.get("canceled") === "1";
+
+    if (success) setBanner({ kind: "success", text: "Payment complete" });
+    else if (canceled) setBanner({ kind: "error", text: "Payment failed" });
+    else setBanner(null);
+
+    if (!success && !canceled) return;
+    const t = window.setTimeout(() => setBanner(null), 7000);
+    return () => window.clearTimeout(t);
+  }, [sp]);
+
+  const startUpgrade = async () => {
+    if (upgradeBusy) return;
+    setUpgradeBusy(true);
+    try {
+      const { url } = await createPlusSubscriptionCheckout();
+      if (!url) throw new Error("missing_checkout_url");
+      window.location.href = url;
+    } catch (_) {
+      setBanner({ kind: "error", text: "Payment failed" });
+      window.setTimeout(() => setBanner(null), 7000);
+    } finally {
+      setUpgradeBusy(false);
+    }
+  };
 
   return (
     <div className="container py-14 md:py-16">
@@ -77,6 +111,20 @@ function SubscriptionInner() {
               ? "Your account is currently on a paid plan."
               : "You're currently on the free plan."}
           </div>
+
+          {banner ? (
+            <div
+              className={
+                "mt-4 rounded-xl border p-3 text-sm font-medium " +
+                (banner.kind === "success"
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                  : "border-red-300 bg-red-50 text-red-900")
+              }
+              role="status"
+            >
+              {banner.text}
+            </div>
+          ) : null}
 
           <div className="mt-5 rounded-xl border bg-background/40 p-4 text-sm text-muted-foreground">
             Billing management is coming soon.
@@ -135,24 +183,16 @@ function SubscriptionInner() {
             <div className="mt-5">
               <button
                 type="button"
-                disabled={paidPlan || !STRIPE_SUBSCRIPTION_URL}
-                onClick={() => {
-                  if (!STRIPE_SUBSCRIPTION_URL) return;
-                  window.location.href = STRIPE_SUBSCRIPTION_URL;
-                }}
+                disabled={paidPlan || upgradeBusy}
+                onClick={() => void startUpgrade()}
                 className={
-                  paidPlan
+                  paidPlan || upgradeBusy
                     ? "inline-flex h-9 items-center justify-center rounded-md border bg-muted px-3 text-sm font-semibold text-muted-foreground cursor-not-allowed"
                     : "inline-flex h-9 items-center justify-center rounded-md border bg-background/70 px-3 text-sm font-semibold text-foreground/80 shadow-sm transition hover:bg-background/90 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 }
               >
-                {paidPlan ? "Current plan" : "Upgrade"}
+                {paidPlan ? "Current plan" : upgradeBusy ? "Loading…" : "Upgrade"}
               </button>
-              {!STRIPE_SUBSCRIPTION_URL ? (
-                <div className="mt-2 text-xs text-muted-foreground">
-                  Set NEXT_PUBLIC_STRIPE_SUBSCRIPTION_URL to enable upgrades.
-                </div>
-              ) : null}
             </div>
 
             <div className="mt-4 text-sm text-muted-foreground">

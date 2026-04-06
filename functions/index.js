@@ -219,6 +219,10 @@ const TOKEN_PACKS = {
   50: 19000,
 };
 
+// Plus subscription (weekly)
+const STRIPE_PLUS_WEEKLY_PRICE_ID = String(process.env.STRIPE_PLUS_WEEKLY_PRICE_ID || 'price_1TJHkDFRbBq3pZR1G7PWqAKM').trim();
+const PLUS_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
 function getStripeClient() {
   const key = String(process.env.STRIPE_SECRET_KEY || '').trim();
   if (!key) throw new HttpsError('failed-precondition', 'stripe_not_configured');
@@ -371,30 +375,56 @@ api.post(
 
       if (evt.type === 'checkout.session.completed') {
         const session = evt.data.object;
-        const uid = String(session?.metadata?.uid || '').trim();
-        const tokens = Number(session?.metadata?.tokens || 0);
-        const usd = Number(session?.metadata?.usd || 0);
+        const kind = String(session?.metadata?.kind || '').trim();
+        const uid = String(session?.metadata?.uid || session?.client_reference_id || '').trim();
 
-        if (uid && Number.isFinite(tokens) && tokens > 0) {
-          const walletRef = db.doc(`users/${uid}/wallet/extokens`);
-          await db.runTransaction(async (tx) => {
-            tx.set(
-              walletRef,
+        // Token pack top-ups
+        if (kind === 'tokens') {
+          const tokens = Number(session?.metadata?.tokens || 0);
+          const usd = Number(session?.metadata?.usd || 0);
+
+          if (uid && Number.isFinite(tokens) && tokens > 0) {
+            const walletRef = db.doc(`users/${uid}/wallet/extokens`);
+            await db.runTransaction(async (tx) => {
+              tx.set(
+                walletRef,
+                {
+                  tokens: admin.firestore.FieldValue.increment(tokens),
+                  updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                  lifetimePurchasedTokens: admin.firestore.FieldValue.increment(tokens),
+                  lifetimePurchasedUsd: admin.firestore.FieldValue.increment(Number.isFinite(usd) ? usd : 0),
+                  lastTopUp: {
+                    tokens,
+                    usd: Number.isFinite(usd) ? usd : null,
+                    sessionId: String(session?.id || ''),
+                    at: admin.firestore.FieldValue.serverTimestamp(),
+                  },
+                },
+                { merge: true },
+              );
+            });
+          }
+        }
+
+        // Plus subscription purchase
+        if (kind === 'plus_weekly') {
+          if (uid) {
+            const until = admin.firestore.Timestamp.fromMillis(Date.now() + PLUS_WEEK_MS);
+            await db.doc(`users/${uid}`).set(
               {
-                tokens: admin.firestore.FieldValue.increment(tokens),
+                paidPlan: true,
+                paidPlanUntil: until,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                lifetimePurchasedTokens: admin.firestore.FieldValue.increment(tokens),
-                lifetimePurchasedUsd: admin.firestore.FieldValue.increment(Number.isFinite(usd) ? usd : 0),
-                lastTopUp: {
-                  tokens,
-                  usd: Number.isFinite(usd) ? usd : null,
-                  sessionId: String(session?.id || ''),
-                  at: admin.firestore.FieldValue.serverTimestamp(),
+                billing: {
+                  stripeCustomerId: session?.customer || null,
+                  stripeSubscriptionId: session?.subscription || null,
+                  lastCheckoutSessionId: session?.id || null,
+                  lastPaidAt: admin.firestore.FieldValue.serverTimestamp(),
                 },
               },
               { merge: true },
             );
-          });
+          }
         }
       }
 
@@ -858,6 +888,7 @@ apiRouter.post('/tokens/checkout', async (req, res) => {
       cancel_url: `${origin}/tokens?canceled=1`,
       metadata: {
         uid,
+        kind: 'tokens',
         usd: String(usd),
         tokens: String(tokens),
       },
@@ -866,6 +897,38 @@ apiRouter.post('/tokens/checkout', async (req, res) => {
     res.json({ ok: true, url: session.url });
   } catch (e) {
     logger.error('tokens/checkout failed', e);
+    sendHttpError(res, e);
+  }
+});
+
+// Create a Stripe subscription checkout session for Plus (weekly).
+apiRouter.post('/subscription/checkout', async (req, res) => {
+  try {
+    const uid = await requireUidFromAuthHeader(req);
+
+    if (!STRIPE_PLUS_WEEKLY_PRICE_ID || !STRIPE_PLUS_WEEKLY_PRICE_ID.startsWith('price_')) {
+      res.status(500).json({ ok: false, error: 'missing_plus_price_id' });
+      return;
+    }
+
+    const stripe = getStripeClient();
+
+    const origin = String(req.get('origin') || 'https://exempliph.ai');
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: STRIPE_PLUS_WEEKLY_PRICE_ID, quantity: 1 }],
+      success_url: `${origin}/subscription?success=1&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/subscription?canceled=1`,
+      client_reference_id: uid,
+      metadata: {
+        uid,
+        kind: 'plus_weekly',
+      },
+    });
+
+    res.json({ ok: true, url: session.url });
+  } catch (e) {
+    logger.error('subscription/checkout failed', e);
     sendHttpError(res, e);
   }
 });
