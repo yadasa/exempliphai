@@ -160,6 +160,10 @@ function isRecApplied(rec: JobRec): boolean {
   });
 }
 
+function filterOutApplied(list: JobRec[]): JobRec[] {
+  return (Array.isArray(list) ? list : []).filter((r) => !isRecApplied(r));
+}
+
 async function markApplied(rec: JobRec) {
   const links = Array.isArray(rec?.links) ? rec.links : [];
   const first = links.find((l) => l && typeof (l as any)?.url === 'string' && isDirectApplicationUrl((l as any).url));
@@ -178,6 +182,11 @@ async function markApplied(rec: JobRec) {
   await storageSetLocal({ AppliedJobs: next });
 
   appliedKeys.value.add(canonUrlKey(item.url));
+
+  // Remove applied items from the visible recommendations list immediately,
+  // and keep them ineligible for future loads.
+  recs.value = filterOutApplied(recs.value);
+  schedulePersistState();
 }
 
 function openTailorApply(rec: JobRec) {
@@ -619,7 +628,7 @@ async function generateRecommendations() {
     }
 
     // Final list shown to the user
-    recs.value = toPlainRecs(enriched);
+    recs.value = filterOutApplied(toPlainRecs(enriched));
 
     await storageSetLocal({
       [JOB_SEARCH_LAST_KEY]: {
@@ -663,7 +672,7 @@ function applyJobSearchLast(last: any) {
   if (!desiredLocation.value && typeof prevLoc === 'string') desiredLocation.value = prevLoc;
   if (Number.isFinite(prevPage)) searchPage.value = Number(prevPage || 0);
   if (prevPosted && typeof prevPosted === 'string') postedWithin.value = prevPosted as any;
-  if (Array.isArray(prev) && prev.length) recs.value = toPlainRecs(prev);
+  if (Array.isArray(prev) && prev.length) recs.value = filterOutApplied(toPlainRecs(prev));
 }
 
 function onStorageChanged(changes: any, areaName: string) {
@@ -840,6 +849,7 @@ watch(
           </span>
 
           <button
+            v-if="!isRecApplied(rec)"
             class="action-btn"
             style="background: linear-gradient(135deg, #4f46e5, #7c3aed); color: white; flex:1; min-width: 140px; width:auto;"
             @click="openTailorApply(rec)"
