@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import PlusOnlyBadge from '@/components/PlusOnlyBadge.vue';
-import { filterDirectApplicationLinks, isDirectApplicationUrl } from '@/utils/jobLinks.js';
+import { filterDirectApplicationLinks, isDirectApplicationUrl, pickBestApplicationLinks, isAggregatorHost } from '@/utils/jobLinks.js';
 import { pullProfileFromCloudNow } from '@/sw/firebaseSync';
 
 type JobLink = { label?: string; url: string };
@@ -512,7 +512,8 @@ async function generateRecommendations() {
             .map((a: any) => ({ label: String(a?.title || '').trim() || 'Apply', url: String(a?.link || '').trim() }))
             .filter((l: any) => l.url);
 
-          const directLinks = filterDirectApplicationLinks(links).slice(0, 4);
+          // Pick best 1–2 direct application links (default-deny aggregators)
+          const directLinks = pickBestApplicationLinks(links, 2);
           return {
             title: String(r.title || '').trim(),
             company: String(r.company || '').trim(),
@@ -529,6 +530,43 @@ async function generateRecommendations() {
         .sort((a: any, b: any) => Number(b._preferScore || 0) - Number(a._preferScore || 0));
 
       discovered.push(...cleaned);
+
+      // Fallback: if SerpAPI Google Jobs only returns aggregator links (or no direct links),
+      // try a lightweight web search for the company careers / ATS posting.
+      // This is best-effort and capped to avoid burning tokens.
+      try {
+        const needsFallback = cleaned.filter((j: any) => !Array.isArray(j.links) || j.links.length === 0);
+        const fallbackTargets = needsFallback.slice(0, 6);
+        for (const j of fallbackTargets) {
+          const company = String((j as any)?.company || '').trim();
+          const title = String((j as any)?.title || '').trim();
+          if (!company || !title) continue;
+
+          const fq = `"${company}" (careers OR jobs) "${title}" (lever OR greenhouse OR ashby OR workday OR smartrecruiters OR workable OR icims)`;
+          const webResp = await new Promise<any>((resolve) => {
+            chrome.runtime.sendMessage(
+              { action: 'SEARCH_PROXY', searchAction: 'web', payload: { q: fq, location: String(desiredLocation.value || '').trim(), limit: 8 } },
+              (r) => {
+                const err = chrome.runtime.lastError;
+                if (err) return resolve({ ok: false, error: String(err.message || err) });
+                resolve(r);
+              },
+            );
+          });
+          if (!webResp || webResp.ok === false) continue;
+
+          const webResults = Array.isArray(webResp?.results) ? webResp.results : [];
+          const webLinks = webResults
+            .map((r: any) => ({ label: String(r?.source || r?.title || 'Apply'), url: String(r?.link || '').trim() }))
+            .filter((l: any) => l.url);
+
+          const picked = pickBestApplicationLinks(webLinks, 2);
+          if (picked.length) {
+            (j as any).links = picked;
+            (j as any)._preferScore = scorePreferredLinks(picked);
+          }
+        }
+      } catch (_) {}
 
       // Store this search snapshot (so it lands in Firestore via trackJobSearch).
       await storageSetLocal({
