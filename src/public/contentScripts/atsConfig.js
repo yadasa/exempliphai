@@ -1,24 +1,87 @@
-// ATS Config Loader - loads packaged simplify_ats.json for Exempliphai
+// ATS Config Loader - loads a tiny packaged bootstrap config + fetches full modules from server
 (function() {
   'use strict';
   window.__SmartApply = window.__SmartApply || {};
   const atsConfig = {};
 
   const OVERRIDE_KEY = 'EXEMPLIPHAI_ATS_CONFIG_OVERRIDE';
+  const CACHE_KEY = 'EXEMPLIPHAI_ATS_CONFIG_CACHE_V1';
 
-  // Load config from web-accessible resource (MV3), then apply optional local override.
+  async function _sendMessage(msg) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage(msg, (resp) => {
+          const err = chrome.runtime.lastError;
+          if (err) return resolve({ ok: false, error: String(err.message || err) });
+          resolve(resp);
+        });
+      } catch (e) {
+        resolve({ ok: false, error: String(e?.message || e) });
+      }
+    });
+  }
+
+  async function _loadBootstrap() {
+    try {
+      const resp = await fetch(chrome.runtime.getURL('config/ats_bootstrap.json'));
+      const json = await resp.json();
+      console.log('exempliphai: Loaded ATS bootstrap config with', Object.keys(json?.ATS || {}).length, 'ATS');
+      return json;
+    } catch (e) {
+      console.warn('exempliphai: ATS bootstrap load failed:', e);
+      return {};
+    }
+  }
+
+  async function _loadCachedModule() {
+    try {
+      const got = await chrome.storage.local.get([CACHE_KEY]);
+      const c = got?.[CACHE_KEY];
+      if (c && typeof c === 'object' && c.config && typeof c.config === 'object') {
+        return c;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async function _cacheModule({ config, etag, version, fetchedAtMs }) {
+    try {
+      await chrome.storage.local.set({
+        [CACHE_KEY]: {
+          config,
+          etag: etag || null,
+          version: version || null,
+          fetchedAtMs: Number.isFinite(fetchedAtMs) ? fetchedAtMs : Date.now(),
+        },
+      });
+    } catch (e) {
+      console.warn('exempliphai: ATS module cache write failed:', e);
+    }
+  }
+
+  async function _maybeRefreshFullModuleInBackground(cached) {
+    // Best-effort refresh. If user isn't authed yet, this will fail quietly.
+    try {
+      const resp = await _sendMessage({ action: 'ATS_MODULE', atsKey: 'FULL', variant: 'default', ifNoneMatch: cached?.etag || null });
+      if (!resp || resp.ok === false) return;
+      if (resp.status === 304) return;
+      if (resp.config && typeof resp.config === 'object') {
+        await _cacheModule({ config: resp.config, etag: resp.etag, version: resp.version, fetchedAtMs: Date.now() });
+        // If we've already loaded config into memory, swap it for future calls.
+        atsConfig.config = resp.config;
+        atsConfig.loaded = true;
+        console.log('exempliphai: Refreshed ATS module from server:', resp.version || '(no version)');
+      }
+    } catch (_) {}
+  }
+
+  // Load config in this precedence order:
+  // 1) local override (developer/debug)
+  // 2) cached full module (previous fetch)
+  // 3) packaged bootstrap
+  // Also: kick off a best-effort background refresh of the full module.
   async function loadConfig() {
     if (atsConfig.loaded) return atsConfig.config;
-
-    let packaged = null;
-    try {
-      const resp = await fetch(chrome.runtime.getURL('config/simplify_ats.json'));
-      packaged = await resp.json();
-      console.log('exempliphai: Loaded packaged ATS config with', Object.keys(packaged?.ATS || {}).length, 'ATS');
-    } catch (e) {
-      console.warn('exempliphai: ATS packaged config load failed:', e);
-      packaged = {};
-    }
 
     // Local override (full replace). Keeps everything local-only.
     try {
@@ -34,8 +97,23 @@
       console.warn('exempliphai: ATS override read failed:', e);
     }
 
-    atsConfig.config = packaged;
+    const cached = await _loadCachedModule();
+    if (cached?.config) {
+      atsConfig.config = cached.config;
+      atsConfig.loaded = true;
+      console.log('exempliphai: Loaded cached ATS module with', Object.keys(atsConfig.config?.ATS || {}).length, 'ATS');
+      // Refresh in the background (non-blocking)
+      void _maybeRefreshFullModuleInBackground(cached);
+      return atsConfig.config;
+    }
+
+    // Bootstrap fallback
+    atsConfig.config = await _loadBootstrap();
     atsConfig.loaded = true;
+
+    // Try to fetch full module in background after bootstrap (non-blocking)
+    void _maybeRefreshFullModuleInBackground(null);
+
     return atsConfig.config;
   }
 

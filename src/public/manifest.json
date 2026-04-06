@@ -91,7 +91,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["config/simplify_ats.json"],
+      "resources": ["config/ats_bootstrap.json"],
       "matches": ["<all_urls>"]
     },
     {

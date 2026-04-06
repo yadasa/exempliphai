@@ -1,0 +1,13 @@
+{
+  "ATS": {
+    "Greenhouse": { "urls": ["*://job-boards.greenhouse.io/*", "*://boards.greenhouse.io/*"] },
+    "Lever": { "urls": ["*://jobs.lever.co/*", "*://*.lever.co/*"] },
+    "Workday": { "urls": ["*://*.myworkdayjobs.com/*"] }
+  },
+  "Boards": {},
+  "fieldCategories": [],
+  "fieldDependencies": [],
+  "fieldNameAliases": {},
+  "fullAIAutofillEnabled": false,
+  "ignoreErrors": []
+}

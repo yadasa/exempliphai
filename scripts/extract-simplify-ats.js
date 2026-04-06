@@ -1,5 +1,5 @@
 // Extract a minimized ATS selector/ruleset from Simplify Copilot's remoteConfig.json
-// Usage: node scripts/extract-simplify-ats.js ../sC/2.3.5_0/remoteConfig.json src/public/config/simplify_ats.json
+// Usage: node scripts/extract-simplify-ats.js ../sC/2.3.5_0/remoteConfig.json src/private_config/config/simplify_ats.json
 
 const fs = require('fs');
 const path = require('path');

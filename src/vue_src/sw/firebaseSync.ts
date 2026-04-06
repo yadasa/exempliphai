@@ -2181,6 +2181,96 @@ export function initFirebaseExtensionSync() {
         }
       }
 
+      if (msg.action === 'ATS_INDEX') {
+        try {
+          if (!authState) authState = await getStoredAuth().catch(() => null);
+          if (!authState) await tryAuthFromAnyExempliphTab('ats_index').catch(() => false);
+
+          const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
+          const configuredBase = String((syncCfg as any)?.AI_PROXY_BASE || '').trim();
+          const defaultBase = 'https://us-central1-exempliphai.cloudfunctions.net/api';
+          const base = configuredBase || defaultBase;
+
+          const mkUrl = (b: string) => `${String(b || '').trim().replace(/\/$/, '')}/ats/index`;
+
+          const attempt = async (b: string) => {
+            const res = await authedFetch(mkUrl(b), { method: 'GET' });
+            const json = await res.json().catch(() => ({} as any));
+            return { res, json, baseUsed: b };
+          };
+
+          let { res, json, baseUsed } = await attempt(base);
+          if (res.status === 404 && configuredBase && configuredBase !== defaultBase) {
+            ({ res, json, baseUsed } = await attempt(defaultBase));
+          }
+
+          if (!res.ok || (json as any)?.ok === false) {
+            sendResponse({ ok: false, error: (json as any)?.error || `ats_index_http_${res.status}`, details: { ...json, baseUsed }, status: res.status });
+            return;
+          }
+
+          sendResponse({ ...(json as any), baseUsed });
+          return;
+        } catch (e: any) {
+          sendResponse({ ok: false, error: String(e?.message || e || 'ats_index_failed') });
+          return;
+        }
+      }
+
+      if (msg.action === 'ATS_MODULE') {
+        try {
+          if (!authState) authState = await getStoredAuth().catch(() => null);
+          if (!authState) await tryAuthFromAnyExempliphTab('ats_module').catch(() => false);
+
+          const atsKey = String((msg as any)?.atsKey || '').trim() || 'FULL';
+          const variant = String((msg as any)?.variant || 'default').trim();
+          const ifNoneMatch = String((msg as any)?.ifNoneMatch || '').trim();
+
+          const syncCfg = await chrome.storage.sync.get(['AI_PROXY_BASE']).catch(() => ({} as any));
+          const configuredBase = String((syncCfg as any)?.AI_PROXY_BASE || '').trim();
+          const defaultBase = 'https://us-central1-exempliphai.cloudfunctions.net/api';
+          const base = configuredBase || defaultBase;
+
+          const mkUrl = (b: string) => {
+            const root = String(b || '').trim().replace(/\/$/, '');
+            const qs = new URLSearchParams({ atsKey, variant });
+            return `${root}/ats/module?${qs.toString()}`;
+          };
+
+          const attempt = async (b: string) => {
+            const headers: any = {};
+            if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch;
+            const res = await authedFetch(mkUrl(b), { method: 'GET', headers });
+            if (res.status === 304) {
+              return { res, json: { ok: true, status: 304 }, baseUsed: b };
+            }
+            const json = await res.json().catch(() => ({} as any));
+            return { res, json, baseUsed: b };
+          };
+
+          let { res, json, baseUsed } = await attempt(base);
+          if (res.status === 404 && configuredBase && configuredBase !== defaultBase) {
+            ({ res, json, baseUsed } = await attempt(defaultBase));
+          }
+
+          if (res.status === 304) {
+            sendResponse({ ok: true, status: 304, etag: ifNoneMatch || null, baseUsed });
+            return;
+          }
+
+          if (!res.ok || (json as any)?.ok === false) {
+            sendResponse({ ok: false, error: (json as any)?.error || `ats_module_http_${res.status}`, details: { ...json, baseUsed }, status: res.status });
+            return;
+          }
+
+          sendResponse({ ...(json as any), status: res.status, baseUsed });
+          return;
+        } catch (e: any) {
+          sendResponse({ ok: false, error: String(e?.message || e || 'ats_module_failed') });
+          return;
+        }
+      }
+
       if (msg.action === 'AI_PROXY') {
         try {
           if (!authState) authState = await getStoredAuth().catch(() => null);

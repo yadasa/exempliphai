@@ -419,6 +419,104 @@ apiRouter.get('/__ping', (req, res) => res.json({ ok: true, service: 'api' }));
 // NOTE: /__rewrite_test__ is temporary; safe to remove once Hosting rewrites are stable.
 apiRouter.get('/__rewrite_test__', (req, res) => res.json({ ok: true, rewrite: true }));
 
+// --- ATS module distribution (protect extension core IP) ---
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+
+function sha256Hex(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+function getAtsModuleCatalog() {
+  // Packaged with the function deployment.
+  const dir = path.join(__dirname, 'ats_modules');
+  const items = [];
+  try {
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
+    for (const f of files) {
+      // Convention: <atsKey>__<variant>__v<version>.json OR arbitrary name.
+      const fullPath = path.join(dir, f);
+      const stat = fs.statSync(fullPath);
+      const raw = fs.readFileSync(fullPath);
+      const etag = sha256Hex(raw);
+      items.push({
+        file: f,
+        size: stat.size,
+        etag,
+        updatedAtMs: stat.mtimeMs,
+      });
+    }
+  } catch (e) {
+    logger.warn('ATS module catalog missing/unreadable', e);
+  }
+  return items;
+}
+
+function resolveAtsModuleFile({ atsKey, variant }) {
+  // MVP: serve a single "FULL" module from a known filename.
+  // Later: map atsKey+variant to specific files.
+  const key = String(atsKey || '').trim().toUpperCase();
+  if (key === 'FULL') {
+    return { file: 'full_simplify_ats.json', version: 'full_simplify_ats' };
+  }
+  return null;
+}
+
+apiRouter.get('/ats/index', async (req, res) => {
+  try {
+    await requireUidFromAuthHeader(req);
+    const modules = getAtsModuleCatalog().map((m) => ({
+      file: m.file,
+      etag: m.etag,
+      size: m.size,
+      updatedAtMs: m.updatedAtMs,
+    }));
+    res.json({ ok: true, modules });
+  } catch (e) {
+    logger.error('ats/index failed', e);
+    sendHttpError(res, e);
+  }
+});
+
+apiRouter.get('/ats/module', async (req, res) => {
+  try {
+    await requireUidFromAuthHeader(req);
+
+    const atsKey = String(req.query.atsKey || '').trim();
+    const variant = String(req.query.variant || 'default').trim();
+
+    const resolved = resolveAtsModuleFile({ atsKey, variant });
+    if (!resolved?.file) {
+      res.status(404).json({ ok: false, error: 'module_not_found' });
+      return;
+    }
+
+    const p = path.join(__dirname, 'ats_modules', resolved.file);
+    if (!fs.existsSync(p)) {
+      res.status(404).json({ ok: false, error: 'module_missing' });
+      return;
+    }
+
+    const raw = fs.readFileSync(p);
+    const etag = sha256Hex(raw);
+
+    const inm = String(req.get('if-none-match') || req.query.ifNoneMatch || '').trim();
+    if (inm && inm === etag) {
+      res.status(304).set('ETag', etag).send('');
+      return;
+    }
+
+    res.set('Content-Type', 'application/json; charset=utf-8');
+    res.set('Cache-Control', 'private, max-age=0, must-revalidate');
+    res.set('ETag', etag);
+    res.json({ ok: true, atsKey: atsKey || 'FULL', variant, version: resolved.version, etag, config: JSON.parse(raw.toString('utf8')) });
+  } catch (e) {
+    logger.error('ats/module failed', e);
+    sendHttpError(res, e);
+  }
+});
+
 api.use(apiRouter);
 api.use('/api', apiRouter);
 
