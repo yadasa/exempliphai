@@ -4975,6 +4975,12 @@ async function processFields(jobForm, fieldMap, form, res) {
             console.log("exempliphai: Job tracked in local history.");
           });
 
+          // Firebase tracking (MV3 SW)
+          try {
+            chrome.runtime?.sendMessage?.({ action: 'TRACK_APPLIED_JOB', job: jobEntry });
+          } catch (_) {}
+
+          // Legacy sync storage tracking (deprecated)
           if (syncEnabled) {
             let syncJobs = resSync.AppliedJobsSync || [];
             syncJobs.unshift(jobEntry);
