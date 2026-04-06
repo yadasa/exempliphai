@@ -9,12 +9,26 @@ function setStatus(msg, cls) {
 }
 
 async function loadDefault() {
-  const url = chrome.runtime.getURL('config/simplify_ats.json');
+  // The extension no longer ships the full simplify_ats.json.
+  // Prefer the cached full module if present; otherwise fall back to the tiny bootstrap config.
+  const CACHE_KEY = 'EXEMPLIPHAI_ATS_CONFIG_CACHE_V1';
+
+  try {
+    const got = await chrome.storage.local.get([CACHE_KEY]);
+    const cached = got?.[CACHE_KEY];
+    if (cached?.config && typeof cached.config === 'object') {
+      document.getElementById('json').value = JSON.stringify(cached.config, null, 2);
+      setStatus('Loaded cached server ATS module.', 'ok');
+      return;
+    }
+  } catch (_) {}
+
+  const url = chrome.runtime.getURL('config/ats_bootstrap.json');
   const res = await fetch(url);
-  if (!res.ok) throw new Error('Failed to load packaged config: ' + res.status);
+  if (!res.ok) throw new Error('Failed to load packaged bootstrap config: ' + res.status);
   const json = await res.json();
   document.getElementById('json').value = JSON.stringify(json, null, 2);
-  setStatus('Loaded packaged default.', 'ok');
+  setStatus('Loaded packaged bootstrap config.', 'ok');
 }
 
 async function loadOverride() {
