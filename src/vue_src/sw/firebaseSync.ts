@@ -49,7 +49,16 @@ function dbg(...args: any[]) {
 const FIREBASE = {
   apiKey: String(ENV.VITE_FIREBASE_API_KEY || ''),
   projectId: String(ENV.VITE_FIREBASE_PROJECT_ID || ''),
-  storageBucket: String(ENV.VITE_FIREBASE_STORAGE_BUCKET || ''),
+  // NOTE: Firebase Storage bucket *name* is typically "<projectId>.appspot.com".
+  // Some configs mistakenly use the "*.firebasestorage.app" host; that host is not the bucket name.
+  // Normalize so REST endpoints target the correct bucket.
+  storageBucket: (() => {
+    const raw = String(ENV.VITE_FIREBASE_STORAGE_BUCKET || '').trim();
+    const pid = String(ENV.VITE_FIREBASE_PROJECT_ID || '').trim();
+    if (!raw) return pid ? `${pid}.appspot.com` : '';
+    if (raw.endsWith('.firebasestorage.app')) return pid ? `${pid}.appspot.com` : raw;
+    return raw;
+  })(),
 };
 
 const FIRESTORE_BASE = () =>
@@ -212,6 +221,17 @@ async function deleteOp(id: number): Promise<void> {
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
     const req = store.delete(id);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve();
+  });
+}
+
+async function clearAllOps(): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    const req = store.clear();
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve();
   });
@@ -1343,13 +1363,35 @@ async function flushQueueOnce(limit = 25) {
     } catch (e: any) {
       op.tries = (Number(op.tries) || 0) + 1;
       op.lastError = String(e?.message || e);
-      await updateOp(op);
+
+      const msg = String(e?.message || e);
+
+      // Drop permanently-bad ops so a single poison pill can't stall the whole queue forever.
+      // - 400s are typically malformed request payloads (won't succeed on retry)
+      // - Storage "Permission denied" won't succeed without a rules/config change
+      // - Hard cap retries to avoid runaway tries counts
+      const shouldDrop =
+        msg.includes(' 400') ||
+        msg.includes('HTTP 400') ||
+        msg.includes('Invalid') ||
+        msg.includes('invalid') ||
+        msg.includes('Permission denied') ||
+        op.tries >= 25;
+
+      if (shouldDrop) {
+        try {
+          await deleteOp(op.id);
+        } catch (_) {
+          await updateOp(op);
+        }
+      } else {
+        await updateOp(op);
+      }
 
       // Back off a bit; otherwise we burn CPU in alarm loops.
       await sleep(250);
 
       // Stop early on auth errors
-      const msg = String(e?.message || e);
       if (msg.includes('no_auth') || msg.includes('401') || msg.includes('403')) return;
     }
   }
@@ -2014,12 +2056,22 @@ export function initFirebaseExtensionSync() {
         action === 'SYNC_NOW' ||
         action === 'GET_CLOUD_STATE' ||
         action === 'LIST_MODE_AUTOFILL_RESULT' ||
-        action === 'AI_PROXY' || action === 'BILLING_BALANCE' || action === 'SEARCH_PROXY' || action === 'JOBSEARCH_HISTORY_SAMPLE');
+        action === 'AI_PROXY' || action === 'BILLING_BALANCE' || action === 'SEARCH_PROXY' || action === 'JOBSEARCH_HISTORY_SAMPLE' || action === 'FIREBASE_QUEUE_CLEAR');
 
     // Let other listeners (e.g., legacyBackground list mode, job context helpers) handle everything else.
     if (!shouldHandle) return;
 
     (async () => {
+      if (msg.action === 'FIREBASE_QUEUE_CLEAR') {
+        try {
+          await clearAllOps();
+          sendResponse({ ok: true, cleared: true });
+        } catch (e: any) {
+          sendResponse({ ok: false, error: String(e?.message || e) });
+        }
+        return;
+      }
+
       if (msg.action === 'BILLING_BALANCE') {
         try {
           if (!authState) authState = await getStoredAuth().catch(() => null);
