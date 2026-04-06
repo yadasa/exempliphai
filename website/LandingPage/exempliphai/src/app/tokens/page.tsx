@@ -26,13 +26,18 @@ function TokensInner() {
   const [tokens, setTokens] = useState<number | null>(null);
   const [low, setLow] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [busyUsd, setBusyUsd] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const packs = useMemo(() => PACKS, []);
 
   const refresh = async () => {
-    setLoading(true);
+    // Avoid UI flicker: don't blank the number during background refreshes.
+    const firstLoad = tokens === null;
+    if (firstLoad) setLoading(true);
+    else setRefreshing(true);
+
     setError(null);
     try {
       const b = await getTokenBalance();
@@ -40,10 +45,14 @@ function TokensInner() {
       setLow(b.low);
     } catch (e: any) {
       setError(String(e?.message || e));
-      setTokens(null);
-      setLow(false);
+      // Keep the last known balance on refresh errors.
+      if (firstLoad) {
+        setTokens(null);
+        setLow(false);
+      }
     } finally {
-      setLoading(false);
+      if (firstLoad) setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -87,6 +96,7 @@ function TokensInner() {
           <div className="text-sm font-semibold">{uiText("Current balance")}</div>
           <div className="mt-2 text-3xl font-semibold tracking-tight">
             {loading ? "…" : tokens === null ? "—" : tokens.toLocaleString()}
+            {refreshing ? <span className="ml-2 text-xs font-normal text-muted-foreground">updating…</span> : null}
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
             {low ? uiText("Low balance") : uiText("Available")}
