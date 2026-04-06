@@ -40,6 +40,8 @@ function SubscriptionInner() {
   const { user } = useAuth();
   const sp = useSearchParams();
   const [paidPlan, setPaidPlan] = useState(false);
+  const [paidPlanUntilIso, setPaidPlanUntilIso] = useState<string | null>(null);
+  const [lastPaidIso, setLastPaidIso] = useState<string | null>(null);
   const [banner, setBanner] = useState<null | { kind: "success" | "error"; text: string }>(null);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
 
@@ -51,6 +53,13 @@ function SubscriptionInner() {
       const untilMs = data?.paidPlanUntil?.toMillis?.() ? Number(data.paidPlanUntil.toMillis()) : 0;
       const active = !!data?.paidPlan || (!!untilMs && Date.now() < untilMs);
       setPaidPlan(active);
+
+      setPaidPlanUntilIso(untilMs ? new Date(untilMs).toISOString() : null);
+
+      const lastPaidMs = data?.billing?.lastPaidAt?.toMillis?.()
+        ? Number(data.billing.lastPaidAt.toMillis())
+        : 0;
+      setLastPaidIso(lastPaidMs ? new Date(lastPaidMs).toISOString() : null);
     });
   }, [user?.uid]);
 
@@ -143,9 +152,17 @@ function SubscriptionInner() {
             </div>
           ) : null}
 
-          <div className="mt-5 rounded-xl border bg-background/40 p-4 text-sm text-muted-foreground">
-            Billing management is available via Stripe Checkout.
-          </div>
+          {paidPlan ? (
+            <div className="mt-5 rounded-xl border bg-background/40 p-4 text-sm text-muted-foreground">
+              <div className="text-sm font-semibold text-foreground">Plus plan active</div>
+              <div className="mt-2 text-sm text-muted-foreground">
+                Renews on: {paidPlanUntilIso ? new Date(paidPlanUntilIso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"}
+              </div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                Last payment: {lastPaidIso ? new Date(lastPaidIso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">
