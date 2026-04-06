@@ -152,6 +152,17 @@ function openUrl(url: string) {
   chrome.tabs.create({ url: u });
 }
 
+function recRenderKey(rec: JobRec, idx: number): string {
+  // Stable key so TransitionGroup can animate removals + reflow.
+  // Prefer a direct link URL if present; otherwise fall back to title+company.
+  const first = (Array.isArray((rec as any)?.links) ? (rec as any).links : []).find((l: any) => l?.url);
+  const url = String(first?.url || '').trim();
+  if (url) return `url:${canonUrlKey(url)}`;
+  const t = String((rec as any)?.title || '').trim();
+  const c = String((rec as any)?.company || '').trim();
+  return `tc:${t}|${c}|${idx}`;
+}
+
 function isRecApplied(rec: JobRec): boolean {
   const links = Array.isArray(rec?.links) ? rec.links : [];
   return links.some((l) => {
@@ -820,8 +831,8 @@ watch(
       No recommendations yet.
     </div>
 
-    <div v-if="hasRecs" class="data-actions">
-      <div v-for="(rec, idx) in recs" :key="idx" class="action-card" style="position: relative;">
+    <TransitionGroup v-if="hasRecs" name="jobcard" tag="div" class="data-actions" style="position: relative;">
+      <div v-for="(rec, idx) in recs" :key="recRenderKey(rec, idx)" class="action-card" style="position: relative;">
         <button
           class="action-btn"
           @click="removeRecAt(idx)"
@@ -876,6 +887,30 @@ watch(
           </div>
         </div>
       </div>
-    </div>
+    </TransitionGroup>
   </div>
 </template>
+
+<style>
+/* Job Search cards: fade out on removal, and animate the remaining cards shifting into place. */
+.jobcard-enter-active,
+.jobcard-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.jobcard-enter-from,
+.jobcard-leave-to {
+  opacity: 0;
+  transform: translateY(10px) scale(0.99);
+}
+
+.jobcard-move {
+  transition: transform 180ms ease;
+}
+
+/* Helps avoid sudden layout jumps during leave animations */
+.jobcard-leave-active {
+  position: absolute;
+  width: 100%;
+}
+</style>
