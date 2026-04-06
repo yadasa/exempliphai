@@ -16,7 +16,7 @@
 
 /**
  * @typedef {Object} MapFieldsArgs
- * @property {string} apiKey
+ * @property {string} [apiKey] // unused (proxy-only)
  * @property {string} domain
  * @property {string[]} allowedProfileKeys
  * @property {Array<Object>} unresolvedFields
@@ -30,7 +30,7 @@
 
 /**
  * @typedef {Object} NarrativeArgs
- * @property {string} apiKey
+ * @property {string} [apiKey] // unused (proxy-only)
  * @property {string} questionText
  * @property {number} [maxWords]
  * @property {string} [tone]
@@ -46,7 +46,6 @@
 export const AI_PROVIDER_INTERFACE_VERSION = '0.1';
 
 export const GEMINI_DEFAULT_MODEL = 'gemini-3-flash-preview';
-export const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -298,8 +297,7 @@ async function geminiGenerateContent({
           ...(responseMimeType ? { responseMimeType } : {}),
         },
       };
-
-  if (useProxy) {
+  {
     const resp = /** @type {any} */ (await proxyGenerateContent({ aiAction, model, input, timeoutMs }));
     const text = resp?.result?.text;
     if (!text) {
@@ -309,41 +307,6 @@ async function geminiGenerateContent({
       throw err;
     }
     return { raw: resp, text };
-  }
-
-  if (!apiKey) throw new Error('Gemini direct mode requires apiKey');
-
-  const url = `${GEMINI_API_BASE}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const { controller, cancel } = withTimeout(timeoutMs);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify(input),
-    });
-
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok || json?.error) {
-      const msg = json?.error?.message || `Gemini HTTP ${res.status}`;
-      const err = new Error(msg);
-      // @ts-ignore
-      err.status = res.status;
-      // @ts-ignore
-      err.details = json;
-      throw err;
-    }
-
-    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      const err = new Error('Gemini response missing candidate text');
-      // @ts-ignore
-      err.details = json;
-      throw err;
-    }
-    return { raw: json, text };
-  } finally {
-    cancel();
   }
 }
 
@@ -370,10 +333,11 @@ async function withRetry(fn, { maxRetries = 2 } = {}) {
  * @returns {AiProvider}
  */
 export function createGeminiProvider(cfg) {
-  const apiKey = cfg?.apiKey; // legacy direct-mode only
+  // apiKey is ignored in proxy-only mode
+  const apiKey = cfg?.apiKey
 
-  // By default we run through the server proxy (no client-side keys).
-  const useProxy = cfg?.useProxy !== false;
+  // Proxy-only: never call Gemini directly from the extension.
+  const useProxy = true;
 
   const model = cfg?.model || GEMINI_DEFAULT_MODEL;
   const timeoutMs = Number.isFinite(cfg?.timeoutMs) ? cfg.timeoutMs : 20000;
