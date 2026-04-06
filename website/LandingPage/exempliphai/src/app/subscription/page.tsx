@@ -156,25 +156,25 @@ function SubscriptionInner() {
               $0 <sub className="text-sm font-normal text-muted-foreground">/wk</sub>
             </div>
 
-            <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-              {FREE_PLAN_FEATURES.map((f) => (
-                <li key={f}>{f}</li>
-              ))}
-            </ul>
-
-            <div className="mt-5">
+            <div className="mt-4">
               <button
                 type="button"
                 disabled={!paidPlan}
                 className={
                   paidPlan
-                    ? "inline-flex h-9 items-center justify-center rounded-md border bg-background/70 px-3 text-sm font-semibold text-foreground/80 shadow-sm transition hover:bg-background/90 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    : "inline-flex h-9 items-center justify-center rounded-md border bg-muted px-3 text-sm font-semibold text-muted-foreground cursor-not-allowed"
+                    ? "w-full inline-flex h-11 items-center justify-center rounded-md border bg-background/70 px-4 text-sm font-semibold text-foreground/80 shadow-sm transition hover:bg-background/90 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    : "w-full inline-flex h-11 items-center justify-center rounded-md border bg-muted px-4 text-sm font-semibold text-muted-foreground cursor-not-allowed"
                 }
               >
                 {paidPlan ? "Downgrade" : "Current plan"}
               </button>
             </div>
+
+            <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {FREE_PLAN_FEATURES.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
           </div>
 
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
