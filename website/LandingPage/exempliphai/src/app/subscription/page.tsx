@@ -119,7 +119,7 @@ function SubscriptionInner() {
             </div>
 
             <div className="mt-3 text-4xl font-semibold tracking-tight">
-              $6.<sup className="text-2xl">76</sup>{" "}
+              $6<sup className="text-2xl">78</sup>{" "}
               <sub className="text-sm font-normal text-muted-foreground">/wk</sub>
             </div>
 
