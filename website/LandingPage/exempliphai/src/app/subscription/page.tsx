@@ -8,12 +8,19 @@ import { RequireAuth } from "@/lib/auth/require-auth";
 import { useAuth } from "@/lib/auth/auth-context";
 import { getFirebase } from "@/lib/firebase/client";
 
-const PLUS_ONLY_FEATURES = [
+const FREE_PLAN_FEATURES = [
+  "Autofill applications",
+  "Tailor resumes for each job",
+  "Track applied-to jobs",
+] as const;
+
+const PLUS_PLAN_FEATURES = [
   "Job Search recommendations (AI-curated matches)",
   "Resume tailoring (auto-tailor + tailored downloads)",
   "List mode batch apply (CSV queue)",
   "AI-assisted autofill (field mapping)",
   "Auto-submit after autofill",
+  "400 tokens per week",
 ] as const;
 
 export default function SubscriptionPage() {
@@ -73,22 +80,33 @@ function SubscriptionInner() {
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border bg-card p-6 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-sm font-semibold">Plus plan features</div>
-            <div className="text-xs text-muted-foreground">Coming soon</div>
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border bg-card p-6 shadow-sm">
+            <div className="text-sm font-semibold">Free Plan</div>
+            <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {FREE_PLAN_FEATURES.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
           </div>
 
-          <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            {PLUS_ONLY_FEATURES.map((f) => (
-              <li key={f}>{f}</li>
-            ))}
-          </ul>
+          <div className="rounded-2xl border bg-card p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold">Plus Plan</div>
+              <div className="text-xs text-muted-foreground">Coming soon</div>
+            </div>
 
-          <div className="mt-4 text-sm text-muted-foreground">
-            {paidPlan
-              ? "You have access to these Plus-only features."
-              : "These features are marked Plus-only in the extension."}
+            <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              {PLUS_PLAN_FEATURES.map((f) => (
+                <li key={f}>{f}</li>
+              ))}
+            </ul>
+
+            <div className="mt-4 text-sm text-muted-foreground">
+              {paidPlan
+                ? "You have access to these Plus-only features."
+                : "These features are marked Plus-only in the extension."}
+            </div>
           </div>
         </div>
       </div>
