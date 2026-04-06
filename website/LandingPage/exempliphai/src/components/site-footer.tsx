@@ -23,7 +23,7 @@ export default function SiteFooter() {
             </div>
 
             <p className="max-w-md text-base font-semibold text-foreground">
-              exempliphai helps land dream job faster
+              exempliphai helps you land your dream job faster
             </p>
 
             <ul className="flex flex-wrap gap-x-8 gap-y-3">
