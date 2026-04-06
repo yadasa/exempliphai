@@ -118,7 +118,7 @@ export function AccountNavCards({
         <div
           ref={scrollerRef}
           className={cn(
-            "flex gap-3 overflow-x-auto overflow-y-visible pb-1 scrollbar-none",
+            "flex gap-3 overflow-x-auto overflow-y-visible pt-2 pb-1 scrollbar-none",
             // don’t clip cards
             "[scrollbar-gutter:stable]",
           )}
