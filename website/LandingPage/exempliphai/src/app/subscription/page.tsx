@@ -85,6 +85,22 @@ function SubscriptionInner() {
 
   return (
     <div className="container py-14 md:py-16">
+      <style jsx>{`
+        .sub-upgrade-btn {
+          background-image: linear-gradient(90deg, #3b82f6, #8b5cf6);
+          box-shadow: 0 0 18px rgba(99, 102, 241, 0.35);
+          animation: subGlow 2.2s ease-in-out infinite, subHue 5.5s linear infinite;
+        }
+        @keyframes subGlow {
+          0%, 100% { box-shadow: 0 0 14px rgba(99, 102, 241, 0.28), 0 0 0 rgba(0,0,0,0); transform: translateY(0); }
+          50% { box-shadow: 0 0 26px rgba(139, 92, 246, 0.55), 0 0 42px rgba(59, 130, 246, 0.35); transform: translateY(-1px); }
+        }
+        @keyframes subHue {
+          0% { filter: hue-rotate(0deg) saturate(1.05); }
+          50% { filter: hue-rotate(18deg) saturate(1.15); }
+          100% { filter: hue-rotate(0deg) saturate(1.05); }
+        }
+      `}</style>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] opacity-70"
@@ -127,7 +143,7 @@ function SubscriptionInner() {
           ) : null}
 
           <div className="mt-5 rounded-xl border bg-background/40 p-4 text-sm text-muted-foreground">
-            Billing management is coming soon.
+            Billing management is available via Stripe Checkout.
           </div>
         </div>
 
@@ -163,12 +179,26 @@ function SubscriptionInner() {
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="text-sm font-semibold">Plus Plan</div>
-              <div className="text-xs text-muted-foreground">Coming soon</div>
             </div>
 
             <div className="mt-3 text-4xl font-semibold tracking-tight">
               $6<sup className="text-2xl">78</sup>{" "}
               <sub className="text-sm font-normal text-muted-foreground">/wk</sub>
+            </div>
+
+            <div className="mt-4">
+              <button
+                type="button"
+                disabled={paidPlan || upgradeBusy}
+                onClick={() => void startUpgrade()}
+                className={
+                  paidPlan || upgradeBusy
+                    ? "w-full inline-flex h-11 items-center justify-center rounded-md border bg-muted px-4 text-sm font-semibold text-muted-foreground cursor-not-allowed"
+                    : "w-full inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sub-upgrade-btn"
+                }
+              >
+                {paidPlan ? "Current plan" : upgradeBusy ? "Loading…" : "Upgrade"}
+              </button>
             </div>
 
             <div className="mt-4 text-sm text-muted-foreground">the price of a cup of coffee</div>
@@ -179,21 +209,6 @@ function SubscriptionInner() {
                 <li key={f}>{f}</li>
               ))}
             </ul>
-
-            <div className="mt-5">
-              <button
-                type="button"
-                disabled={paidPlan || upgradeBusy}
-                onClick={() => void startUpgrade()}
-                className={
-                  paidPlan || upgradeBusy
-                    ? "inline-flex h-9 items-center justify-center rounded-md border bg-muted px-3 text-sm font-semibold text-muted-foreground cursor-not-allowed"
-                    : "inline-flex h-9 items-center justify-center rounded-md border bg-background/70 px-3 text-sm font-semibold text-foreground/80 shadow-sm transition hover:bg-background/90 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                }
-              >
-                {paidPlan ? "Current plan" : upgradeBusy ? "Loading…" : "Upgrade"}
-              </button>
-            </div>
 
             <div className="mt-4 text-sm text-muted-foreground">
               {paidPlan
