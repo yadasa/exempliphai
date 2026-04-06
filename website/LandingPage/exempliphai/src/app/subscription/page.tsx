@@ -85,22 +85,6 @@ function SubscriptionInner() {
 
   return (
     <div className="container py-14 md:py-16">
-      <style jsx>{`
-        .sub-upgrade-btn {
-          background-image: linear-gradient(90deg, #3b82f6, #8b5cf6);
-          box-shadow: 0 0 18px rgba(99, 102, 241, 0.35);
-          animation: subGlow 2.2s ease-in-out infinite, subHue 5.5s linear infinite;
-        }
-        @keyframes subGlow {
-          0%, 100% { box-shadow: 0 0 14px rgba(99, 102, 241, 0.28), 0 0 0 rgba(0,0,0,0); transform: translateY(0); }
-          50% { box-shadow: 0 0 26px rgba(139, 92, 246, 0.55), 0 0 42px rgba(59, 130, 246, 0.35); transform: translateY(-1px); }
-        }
-        @keyframes subHue {
-          0% { filter: hue-rotate(0deg) saturate(1.05); }
-          50% { filter: hue-rotate(18deg) saturate(1.15); }
-          100% { filter: hue-rotate(0deg) saturate(1.05); }
-        }
-      `}</style>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[520px] opacity-70"
@@ -194,7 +178,7 @@ function SubscriptionInner() {
                 className={
                   paidPlan || upgradeBusy
                     ? "w-full inline-flex h-11 items-center justify-center rounded-md border bg-muted px-4 text-sm font-semibold text-muted-foreground cursor-not-allowed"
-                    : "w-full inline-flex h-11 items-center justify-center rounded-md px-4 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sub-upgrade-btn"
+                    : "w-full inline-flex h-11 items-center justify-center rounded-md border bg-background/70 px-4 text-sm font-semibold text-foreground/80 shadow-sm transition hover:bg-background/90 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 }
               >
                 {paidPlan ? "Current plan" : upgradeBusy ? "Loading…" : "Upgrade"}
