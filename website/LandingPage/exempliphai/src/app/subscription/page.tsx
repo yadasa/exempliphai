@@ -23,6 +23,9 @@ const PLUS_PLAN_FEATURES = [
   "400 tokens per week",
 ] as const;
 
+const STRIPE_SUBSCRIPTION_URL =
+  process.env.NEXT_PUBLIC_STRIPE_SUBSCRIPTION_URL || "";
+
 export default function SubscriptionPage() {
   return (
     <RequireAuth>
@@ -83,11 +86,30 @@ function SubscriptionInner() {
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
             <div className="text-sm font-semibold">Free Plan</div>
+
+            <div className="mt-3 text-4xl font-semibold tracking-tight">
+              $0 <sub className="text-sm font-normal text-muted-foreground">/wk</sub>
+            </div>
+
             <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               {FREE_PLAN_FEATURES.map((f) => (
                 <li key={f}>{f}</li>
               ))}
             </ul>
+
+            <div className="mt-5">
+              <button
+                type="button"
+                disabled={!paidPlan}
+                className={
+                  paidPlan
+                    ? "inline-flex h-9 items-center justify-center rounded-md border bg-background/70 px-3 text-sm font-semibold text-foreground/80 shadow-sm transition hover:bg-background/90 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    : "inline-flex h-9 items-center justify-center rounded-md border bg-muted px-3 text-sm font-semibold text-muted-foreground cursor-not-allowed"
+                }
+              >
+                {paidPlan ? "Downgrade" : "Current plan"}
+              </button>
+            </div>
           </div>
 
           <div className="rounded-2xl border bg-card p-6 shadow-sm">
@@ -96,11 +118,42 @@ function SubscriptionInner() {
               <div className="text-xs text-muted-foreground">Coming soon</div>
             </div>
 
+            <div className="mt-3 text-4xl font-semibold tracking-tight">
+              $6.<sup className="text-2xl">76</sup>{" "}
+              <sub className="text-sm font-normal text-muted-foreground">/wk</sub>
+            </div>
+
+            <div className="mt-4 text-sm text-muted-foreground">the price of a cup of coffee</div>
+            <div className="mt-1 text-sm text-muted-foreground">All the features in free plan, plus</div>
+
             <ul className="mt-4 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               {PLUS_PLAN_FEATURES.map((f) => (
                 <li key={f}>{f}</li>
               ))}
             </ul>
+
+            <div className="mt-5">
+              <button
+                type="button"
+                disabled={paidPlan || !STRIPE_SUBSCRIPTION_URL}
+                onClick={() => {
+                  if (!STRIPE_SUBSCRIPTION_URL) return;
+                  window.location.href = STRIPE_SUBSCRIPTION_URL;
+                }}
+                className={
+                  paidPlan
+                    ? "inline-flex h-9 items-center justify-center rounded-md border bg-muted px-3 text-sm font-semibold text-muted-foreground cursor-not-allowed"
+                    : "inline-flex h-9 items-center justify-center rounded-md border bg-background/70 px-3 text-sm font-semibold text-foreground/80 shadow-sm transition hover:bg-background/90 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                }
+              >
+                {paidPlan ? "Current plan" : "Upgrade"}
+              </button>
+              {!STRIPE_SUBSCRIPTION_URL ? (
+                <div className="mt-2 text-xs text-muted-foreground">
+                  Set NEXT_PUBLIC_STRIPE_SUBSCRIPTION_URL to enable upgrades.
+                </div>
+              ) : null}
+            </div>
 
             <div className="mt-4 text-sm text-muted-foreground">
               {paidPlan
