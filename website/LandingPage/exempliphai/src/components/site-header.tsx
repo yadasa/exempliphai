@@ -21,7 +21,8 @@ export default function SiteHeader() {
   const { user } = useAuth();
   const pathname = usePathname() || "";
 
-  const showAccountButton = !!user;
+  // Hide the Account button on /dashboard only (requested).
+  const showAccountButton = !!user && pathname !== "/dashboard";
 
   return (
     <header className="fixed inset-x-0 top-0 z-50 py-4">
