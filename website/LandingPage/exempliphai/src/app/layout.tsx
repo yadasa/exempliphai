@@ -73,6 +73,7 @@ export default function RootLayout({
 })();`,
           }}
         />
+        <Script src="/ascii-art.js" strategy="afterInteractive" />
         <CustomCursor />
         <AuthProvider>
           <div className="flex min-h-screen flex-col">
