@@ -128,6 +128,14 @@ export default function LoginPage() {
 
       setMsg("Signed in.");
       setCode("");
+
+      // On static-export deployments (trailingSlash), Next router transitions can occasionally hang.
+      // Use a hard navigation after successful auth.
+      if (typeof window !== "undefined") {
+        window.location.assign("/dashboard/");
+        return;
+      }
+
       router.replace("/dashboard" as any);
     } catch (e: any) {
       setErr(String(e?.message || e));
