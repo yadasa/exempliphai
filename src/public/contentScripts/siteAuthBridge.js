@@ -339,38 +339,20 @@
         return true;
       }
 
-      // Request: clear website Firebase session (so the extension can't instantly re-auth from the website tab)
+      // Request: sign out of the website Firebase session.
+      // IMPORTANT: Do NOT delete firebaseLocalStorageDb (IndexedDB) while the Firebase SDK is running.
+      // It can wedge the Auth state machine and break subsequent phone auth flows.
       if (msg?.action === 'EXEMPLIPHAI_SITE_SIGN_OUT') {
         (async () => {
           try {
-            // Remove shadow + custom token
+            // Ask the page (website JS context) to sign out cleanly.
+            try {
+              window.postMessage({ source: 'exempliphai-extension', action: 'EXEMPLIPHAI_SITE_SIGN_OUT' }, '*');
+            } catch (_) {}
+
+            // Also remove our helper keys (best-effort).
             try { localStorage.removeItem(SHADOW_AUTH_KEY); } catch (_) {}
             try { localStorage.removeItem(CUSTOM_TOKEN_KEY); } catch (_) {}
-
-            // Remove Firebase auth keys from localStorage/sessionStorage
-            const stores = [];
-            try { if (typeof localStorage !== 'undefined') stores.push(localStorage); } catch (_) {}
-            try { if (typeof sessionStorage !== 'undefined') stores.push(sessionStorage); } catch (_) {}
-
-            for (const st of stores) {
-              if (!st) continue;
-              const toDelete = [];
-              for (let i = 0; i < st.length; i++) {
-                const k = st.key(i);
-                if (k && String(k).startsWith(KEY_PREFIX)) toDelete.push(k);
-              }
-              for (const k of toDelete) {
-                try { st.removeItem(k); } catch (_) {}
-              }
-            }
-
-            // Clear IndexedDB Firebase persistence (best effort)
-            try {
-              if (typeof indexedDB !== 'undefined') {
-                // Most reliable: delete the whole db
-                indexedDB.deleteDatabase('firebaseLocalStorageDb');
-              }
-            } catch (_) {}
 
             // Nudge the bridge to re-evaluate and notify SW
             try { window.dispatchEvent(new Event('exempliphai-auth-changed')); } catch (_) {}

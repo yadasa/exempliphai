@@ -76,7 +76,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       })();
     });
-    return () => unsub();
+
+    // Allow the extension content script to request a clean Firebase sign-out
+    // without brute-force deleting IndexedDB (which can wedge the Auth SDK).
+    const onMessage = (evt: MessageEvent) => {
+      try {
+        const d: any = evt?.data;
+        if (!d || d.source !== "exempliphai-extension") return;
+        if (d.action !== "EXEMPLIPHAI_SITE_SIGN_OUT") return;
+        auth.signOut().catch(() => {});
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("message", onMessage);
+
+    return () => {
+      window.removeEventListener("message", onMessage);
+      unsub();
+    };
   }, []);
 
   const value = useMemo(() => ({ user, loading }), [user, loading]);
