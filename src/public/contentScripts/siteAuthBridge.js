@@ -339,6 +339,51 @@
         return true;
       }
 
+      // Request: clear website Firebase session (so the extension can't instantly re-auth from the website tab)
+      if (msg?.action === 'EXEMPLIPHAI_SITE_SIGN_OUT') {
+        (async () => {
+          try {
+            // Remove shadow + custom token
+            try { localStorage.removeItem(SHADOW_AUTH_KEY); } catch (_) {}
+            try { localStorage.removeItem(CUSTOM_TOKEN_KEY); } catch (_) {}
+
+            // Remove Firebase auth keys from localStorage/sessionStorage
+            const stores = [];
+            try { if (typeof localStorage !== 'undefined') stores.push(localStorage); } catch (_) {}
+            try { if (typeof sessionStorage !== 'undefined') stores.push(sessionStorage); } catch (_) {}
+
+            for (const st of stores) {
+              if (!st) continue;
+              const toDelete = [];
+              for (let i = 0; i < st.length; i++) {
+                const k = st.key(i);
+                if (k && String(k).startsWith(KEY_PREFIX)) toDelete.push(k);
+              }
+              for (const k of toDelete) {
+                try { st.removeItem(k); } catch (_) {}
+              }
+            }
+
+            // Clear IndexedDB Firebase persistence (best effort)
+            try {
+              if (typeof indexedDB !== 'undefined') {
+                // Most reliable: delete the whole db
+                indexedDB.deleteDatabase('firebaseLocalStorageDb');
+              }
+            } catch (_) {}
+
+            // Nudge the bridge to re-evaluate and notify SW
+            try { window.dispatchEvent(new Event('exempliphai-auth-changed')); } catch (_) {}
+
+            sendResponse({ ok: true });
+          } catch (e) {
+            sendResponse({ ok: false, error: String((e && e.message) || e) });
+          }
+        })();
+
+        return true;
+      }
+
       // Back-compat: site can optionally mint and store a Firebase custom token
       if (msg?.action === 'EXEMPLIPHAI_GET_CUSTOM_TOKEN') {
         const token = getCustomToken();

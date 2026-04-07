@@ -331,9 +331,34 @@ async function doSignOut() {
   busy.value = true;
   err.value = null;
   msg.value = null;
+
   try {
+    // 1) Sign out of the website session (best-effort) so siteAuthBridge can't immediately re-log us in.
+    try {
+      const tabs = await chrome.tabs.query({
+        url: [
+          '*://exempliph.ai/*',
+          '*://www.exempliph.ai/*',
+          '*://exempliphai.com/*',
+          '*://www.exempliphai.com/*',
+        ],
+      });
+      for (const t of tabs || []) {
+        if (!t?.id) continue;
+        await new Promise<void>((resolve) => {
+          try {
+            chrome.tabs.sendMessage(t.id!, { action: 'EXEMPLIPHAI_SITE_SIGN_OUT' }, () => resolve());
+          } catch (_) {
+            resolve();
+          }
+        });
+      }
+    } catch (_) {}
+
+    // 2) Clear extension auth state
     const resp = await sendBg({ action: 'FIREBASE_SIGN_OUT' });
     if (!resp?.ok) throw new Error(resp?.error || 'Sign-out failed');
+
     await whoami();
     setMessage('Signed out.');
   } catch (e) {

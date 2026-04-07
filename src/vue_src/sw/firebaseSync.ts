@@ -1169,7 +1169,13 @@ async function pullFromCloudAndPopulateLocalLite() {
       await chrome.storage.local.set(localPatch);
     }
 
-    // Stats → local cache for UI
+    // Paid plan + stats → local cache for UI
+    try {
+      const paidPlan = userData?.paidPlan === true;
+      const paidPlanUntil = (userData as any)?.paidPlanUntil ?? null;
+      await chrome.storage.local.set({ ui_paidPlan: paidPlan, ui_paidPlanUntil: paidPlanUntil });
+    } catch (_) {}
+
     if (userData?.stats && typeof userData.stats === 'object') {
       await chrome.storage.local.set({ cloudStats: userData.stats });
     }
@@ -1288,7 +1294,13 @@ async function pullFromCloudAndPopulateLocal() {
       await chrome.storage.local.set(localPatch);
     }
 
-    // Stats → local cache for UI
+    // Paid plan + stats → local cache for UI
+    try {
+      const paidPlan = userData?.paidPlan === true;
+      const paidPlanUntil = (userData as any)?.paidPlanUntil ?? null;
+      await chrome.storage.local.set({ ui_paidPlan: paidPlan, ui_paidPlanUntil: paidPlanUntil });
+    } catch (_) {}
+
     if (userData?.stats && typeof userData.stats === 'object') {
       await chrome.storage.local.set({ cloudStats: userData.stats });
     }

@@ -1,9 +1,42 @@
 <script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue';
+
 const props = defineProps<{ compact?: boolean }>();
+
+const isPaid = ref(false);
+
+function refreshPaid() {
+  try {
+    chrome.storage.local.get(['ui_paidPlan'], (res) => {
+      isPaid.value = (res as any)?.ui_paidPlan === true;
+    });
+  } catch (_) {}
+}
+
+function onStorageChanged(changes: any, areaName: string) {
+  if (areaName !== 'local') return;
+  if (changes?.ui_paidPlan) {
+    isPaid.value = changes.ui_paidPlan.newValue === true;
+  }
+}
+
+onMounted(() => {
+  refreshPaid();
+  try {
+    chrome.storage.onChanged.addListener(onStorageChanged);
+  } catch (_) {}
+});
+
+onBeforeUnmount(() => {
+  try {
+    chrome.storage.onChanged.removeListener(onStorageChanged);
+  } catch (_) {}
+});
 </script>
 
 <template>
   <span
+    v-if="!isPaid"
     class="plus-only-badge"
     :class="props.compact ? 'compact' : ''"
     role="note"
