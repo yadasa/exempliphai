@@ -2474,6 +2474,12 @@ export function initFirebaseExtensionSync() {
       }
 
       if (msg.action === 'FIREBASE_POPUP_OPENED') {
+        // Print console logo on popup open so SW DevTools can catch it.
+        try {
+          // Lazy import-safe: printAsciiArt is small and robust.
+          const { printAsciiArt } = await import('../utils/asciiArt');
+          printAsciiArt();
+        } catch (_) {}
         // Popup opened: (1) best-effort auth pull from an open Exempliph tab if we don't have auth yet
         // (2) always pull latest cloud profile → chrome.storage so website edits show up in the extension.
         const hadAuth = !!(authState?.uid && authState?.idToken);

@@ -7,8 +7,11 @@ import { initFirebaseExtensionSync } from './firebaseSync';
 import { printAsciiArt } from '../utils/asciiArt';
 
 // Console logo (service worker DevTools)
+// DevTools often attaches after startup; print a few times.
 try {
   printAsciiArt();
+  setTimeout(() => printAsciiArt(), 800);
+  setTimeout(() => printAsciiArt(), 2400);
 } catch (_) {}
 
 try {

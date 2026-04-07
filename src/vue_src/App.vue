@@ -48,8 +48,11 @@ onMounted(() => {
   loadTheme();
 
   // Console logo (popup DevTools)
+  // DevTools often opens AFTER the popup mounts, so print a couple times.
   try {
     printAsciiArt();
+    setTimeout(() => printAsciiArt(), 800);
+    setTimeout(() => printAsciiArt(), 2400);
   } catch (_) {}
 
 

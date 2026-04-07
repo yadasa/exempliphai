@@ -47,6 +47,16 @@ export default function SiteFooter() {
                   {uiText("Join waitlist")}
                 </a>
               </li>
+              <li>
+                <a className="hover:text-primary" href="/privacy">
+                  {uiText("Privacy")}
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-primary" href="/terms">
+                  {uiText("Terms")}
+                </a>
+              </li>
             </ul>
           </div>
         </div>
