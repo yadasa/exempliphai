@@ -1,5 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+
+type ProgressStep = { key: string; label: string; startPct: number; endPct: number; expectedMs: number };
+const PROGRESS_STEPS: ProgressStep[] = [
+  { key: 'prep', label: 'Preparing…', startPct: 0, endPct: 8, expectedMs: 1500 },
+  { key: 'resume', label: 'Reading your resume/profile', startPct: 8, endPct: 20, expectedMs: 3500 },
+  { key: 'roles', label: 'Inferring roles', startPct: 20, endPct: 38, expectedMs: 8000 },
+  { key: 'search', label: 'Searching jobs', startPct: 38, endPct: 70, expectedMs: 12000 },
+  { key: 'direct', label: 'Finding direct apply links', startPct: 70, endPct: 82, expectedMs: 3500 },
+  { key: 'why', label: 'Writing match blurbs', startPct: 82, endPct: 96, expectedMs: 4500 },
+  { key: 'final', label: 'Finalizing', startPct: 96, endPct: 100, expectedMs: 2000 },
+];
+
 import PlusOnlyBadge from '@/components/PlusOnlyBadge.vue';
 import SignInGate from '@/components/SignInGate.vue';
 import { useIsAuthed } from '@/composables/Auth';
@@ -46,6 +58,51 @@ const desiredLocation = ref('');
 const postedWithin = ref<'any' | '7d' | '3d' | '1d'>('any');
 const loading = ref(false);
 const errorMsg = ref('');
+
+const progressPct = ref(0);
+const progressStepKey = ref<ProgressStep['key']>('prep');
+let progressTimer: any = null;
+let progressStepStartedAt = 0;
+
+function setProgressStep(key: ProgressStep['key']) {
+  const step = PROGRESS_STEPS.find((s) => s.key === key) || PROGRESS_STEPS[0];
+  progressStepKey.value = step.key as any;
+  // Hard snap to the start of the step so we never "surpass" the step we're actually on.
+  progressPct.value = Math.max(progressPct.value, step.startPct);
+  progressStepStartedAt = Date.now();
+}
+
+function startProgress() {
+  progressPct.value = 0;
+  setProgressStep('prep');
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = setInterval(() => {
+    const step = PROGRESS_STEPS.find((s) => s.key === progressStepKey.value);
+    if (!step) return;
+    const elapsed = Date.now() - progressStepStartedAt;
+    const t = step.expectedMs ? Math.min(1, elapsed / step.expectedMs) : 0;
+    // Don't reach the end of the step unless we explicitly advance to the next step.
+    const cap = Math.max(step.startPct, step.endPct - 1);
+    const next = step.startPct + (cap - step.startPct) * t;
+    if (next > progressPct.value) progressPct.value = next;
+  }, 120);
+}
+
+function stopProgress(success: boolean) {
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = null;
+  if (success) {
+    progressPct.value = 100;
+    setTimeout(() => {
+      progressPct.value = 0;
+    }, 400);
+  } else {
+    // Leave it where it is; error message will display below.
+  }
+}
+
+const progressStepIndex = computed(() => PROGRESS_STEPS.findIndex((s) => s.key === progressStepKey.value));
+
 const recs = ref<JobRec[]>([]);
 
 const { isAuthed } = useIsAuthed();
@@ -458,8 +515,10 @@ async function getRandomHistoricalItems(count = 5) {
 async function generateRecommendations() {
   errorMsg.value = '';
   loading.value = true;
+  startProgress();
 
   try {
+    setProgressStep('resume');
     // SerpAPI (Google Jobs) proxy: no client-side API key.
 
     const resumeDetails = await new Promise<any>((resolve) => {
@@ -479,6 +538,7 @@ async function generateRecommendations() {
       throw new Error('Upload your resume first so we can tailor job search to your experience.');
     }
 
+    setProgressStep('roles');
     const roles = await inferRolesFromResume({
       resumeText,
       resumePdfB64: resumeMime === 'application/pdf' ? resumeB64 : '',
@@ -488,6 +548,7 @@ async function generateRecommendations() {
 
     const discovered: any[] = [];
 
+    setProgressStep('search');
     // Search each inferred role.
     for (const rh of roles) {
       const q = String(rh?.role || '').trim();
@@ -555,6 +616,7 @@ async function generateRecommendations() {
 
       discovered.push(...cleaned);
 
+      setProgressStep('direct');
       // Fallback: if SerpAPI Google Jobs only returns aggregator links (or no direct links),
       // try a lightweight web search for the company careers / ATS posting.
       // This is best-effort and capped to avoid burning tokens.
@@ -626,6 +688,7 @@ async function generateRecommendations() {
     // Merge and trim to 15
     const combined = mergeRecs(pickedNew as any, pickedHist as any).slice(0, 15);
 
+    setProgressStep('why');
     // Generate why_match for items that don't have one
     const enriched: any[] = [];
     for (const j of combined) {
@@ -661,9 +724,13 @@ async function generateRecommendations() {
       } as any,
     });
 
+    setProgressStep('final');
+    progressPct.value = 100;
+    stopProgress(true);
     schedulePersistState();
   } catch (e: any) {
     errorMsg.value = String(e?.message || e);
+    stopProgress(false);
   } finally {
     loading.value = false;
   }
@@ -825,6 +892,38 @@ watch(
         >
           {{ loading ? 'Generating…' : 'Generate' }}
         </button>
+      </div>
+
+      <div v-if="loading" style="margin-top: 0.75rem;">
+        <div style="display:flex; align-items:center; justify-content: space-between; gap: 0.75rem;">
+          <div style="font-size: 0.85rem; color: var(--text-secondary);">
+            {{ PROGRESS_STEPS[Math.max(0, progressStepIndex)]?.label || 'Working…' }}
+          </div>
+          <div style="font-size: 0.82rem; color: var(--text-secondary); opacity: 0.9;">
+            {{ Math.floor(progressPct) }}%
+          </div>
+        </div>
+        <div style="height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--border-color) 55%, transparent); overflow:hidden; margin-top: 0.4rem;">
+          <div
+            :style="{ width: `${Math.min(100, Math.max(0, progressPct))}%` }"
+            style="height: 100%; border-radius: 999px; background: linear-gradient(135deg, #4f46e5, #7c3aed); transition: width 140ms linear;"
+          />
+        </div>
+
+        <div style="margin-top: 0.5rem; display:flex; flex-wrap: wrap; gap: 0.4rem;">
+          <span
+            v-for="(s, i) in PROGRESS_STEPS"
+            :key="s.key"
+            style="font-size: 0.72rem; font-weight: 800; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--card-border);"
+            :style="{
+              opacity: i <= progressStepIndex ? 1 : 0.55,
+              background: i === progressStepIndex ? 'color-mix(in srgb, var(--accent-color) 14%, transparent)' : 'transparent',
+              color: 'var(--text-secondary)'
+            }"
+          >
+            {{ i < progressStepIndex ? '✓ ' : '' }}{{ s.key }}
+          </span>
+        </div>
       </div>
 
       <p v-if="errorMsg" style="margin: 0.6rem 0 0; color: #ef4444; font-size: 0.9rem;">

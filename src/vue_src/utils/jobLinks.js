@@ -155,19 +155,19 @@ export function scoreApplicationLink(url) {
   if (isAggregatorHost(host)) score -= 10;
   if (looksLikeTrackingOrRedirectUrl(u)) score -= 5;
 
-  // Strong ATS signals
-  if (host === 'jobs.lever.co') score += 5;
-  if (host.includes('greenhouse.io')) score += 5;
-  if (host.includes('ashbyhq.com')) score += 5;
+  // Strong ATS signals (heavily prefer Lever/Greenhouse)
+  if (host === 'jobs.lever.co') score += 20;
+  if (host.includes('greenhouse.io')) score += 20;
+  if (host.includes('ashbyhq.com')) score += 12;
 
   // Other ATS
-  if (host.includes('workdayjobs.com') || host.includes('myworkdayjobs.com')) score += 4;
-  if (host.includes('smartrecruiters.com')) score += 4;
-  if (host.includes('workable.com')) score += 4;
-  if (host.includes('icims.com')) score += 3;
-  if (host.includes('bamboohr.com')) score += 3;
-  if (host.includes('oraclecloud.com') || host.includes('taleo.net')) score += 3;
-  if (host.includes('successfactors')) score += 3;
+  if (host.includes('workdayjobs.com') || host.includes('myworkdayjobs.com')) score += 8;
+  if (host.includes('smartrecruiters.com')) score += 8;
+  if (host.includes('workable.com')) score += 8;
+  if (host.includes('icims.com')) score += 6;
+  if (host.includes('bamboohr.com')) score += 6;
+  if (host.includes('oraclecloud.com') || host.includes('taleo.net')) score += 6;
+  if (host.includes('successfactors')) score += 6;
 
   // Company site heuristic (not ATS/aggregator/search)
   if (score === 0 && !isSearchEngineUrl(u)) score += 2;
@@ -192,6 +192,30 @@ export function pickBestApplicationLinks(links, max = 2) {
   const scored = direct
     .map((l) => ({ ...l, _score: scoreApplicationLink(l.url) }))
     .sort((a, b) => Number(b._score || 0) - Number(a._score || 0));
+
+  // If we found Lever/Greenhouse links, return ONLY those (strong preference).
+  const topHosts = scored.map((l) => {
+    try {
+      return new URL(l.url).hostname.toLowerCase();
+    } catch {
+      return '';
+    }
+  });
+  const hasLever = topHosts.some((h) => h === 'jobs.lever.co');
+  const hasGreenhouse = topHosts.some((h) => h.includes('greenhouse.io'));
+  if (hasLever || hasGreenhouse) {
+    const preferred = scored.filter((l) => {
+      try {
+        const h = new URL(l.url).hostname.toLowerCase();
+        return h === 'jobs.lever.co' || h.includes('greenhouse.io');
+      } catch {
+        return false;
+      }
+    });
+    if (preferred.length) {
+      return preferred.slice(0, Math.max(1, Math.min(4, Number(max || 2)))).map(({ _score, ...rest }) => rest);
+    }
+  }
 
   return scored.slice(0, Math.max(1, Math.min(4, Number(max || 2)))).map(({ _score, ...rest }) => rest);
 }
