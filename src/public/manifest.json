@@ -95,6 +95,13 @@
       "matches": ["<all_urls>"]
     },
     {
+      "resources": [
+        "contentScripts/fillPlanValidator.js",
+        "contentScripts/providers/gemini.js"
+      ],
+      "matches": ["<all_urls>"]
+    },
+    {
       "resources": ["assets/pdf.worker-*.mjs", "assets/pdf.worker-*.js"],
       "matches": ["<all_urls>"]
     }
