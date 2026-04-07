@@ -1,265 +1,333 @@
 # exempliph.ai Login/Auth Hang in One Chrome Profile — Troubleshooting Record (2026-04-07)
 
-This document is intended to hand off to another AI / engineer. It captures:
+Audience: engineer / AI assistant taking over debugging.
 
-1) The **observed issues** (what fails, what works)
-2) The **relevant commits** (Apr 6 onward) and what they changed
-3) **Everything we tried** and what we learned from each step
+Goal: capture **what is broken**, **what is proven working**, **the exact evidence**, **the commits and code paths touched**, and **every remediation attempt** already tried.
 
----
-
-## 1) Observed issues (symptoms)
-
-### 1.1 Primary symptom
-In a specific ("broken") Chrome profile:
-
-- The website login flow (`/login/`) is unreliable/slow.
-- The UI often gets stuck on **"Verifying…"** (or hits our custom timeout message), and/or after refresh is stuck on **"Loading…"** (RequireAuth loading state).
-- Even after a successful phone verification, revisiting `/login/` **does not redirect** to `/dashboard/` (i.e., the site treats the user as signed out).
-
-In Incognito mode and/or a clean/new Chrome profile:
-
-- Phone login is **instant**.
-- After logging in, visiting `/login/` **immediately redirects** to `/dashboard/` (session rehydrates correctly).
-
-### 1.2 Network evidence: verify succeeds, app still behaves signed-out
-From the broken profile, the Verify request returns **200 OK** with an **`idToken`**:
-
-- Endpoint: `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber?...`
-- Response includes: `idToken`, `refreshToken`, `localId`, `expiresIn`, etc.
-
-This indicates:
-
-- Firebase Auth is accepting the code and issuing credentials.
-- The failure is **after** the credential is issued: either navigation/UI state gets stuck, and/or **auth persistence / session rehydration fails** in the broken profile.
-
-### 1.3 Additional symptom (important)
-Later in the session, in the broken profile:
-
-- Even the **“Send code”** step can take an unusually long time.
-- Incognito/clean profile sends quickly.
-
-That suggests the broken profile is experiencing a broader issue impacting the Firebase Auth flow (storage/persistence, network interception, corruption, etc.), not just client routing.
+This incident spans both the **website** (Next.js app at `website/LandingPage/exempliphai`) and the **Chrome extension** (MV3). The most plausible trigger was an extension “sign out” feature that manipulated Firebase Auth persistence.
 
 ---
 
-## 2) Related commits (Apr 6 → Apr 7) and what changed
+## 0) Executive summary (what we know for sure)
 
-This list focuses on commits that plausibly affect website auth, extension ↔ website auth bridge, and login UX.
+### 0.1 What works
+- In **Incognito** with the extension enabled: login + sign-in/out flows work reliably and quickly.
+- In a **fresh Chrome profile**: everything works reliably and quickly.
 
-### 2.1 Extension sign-out bridge (Apr 6)
+### 0.2 What fails
+- In one specific existing Chrome profile (“broken profile”):
+  - Website login frequently hangs ("Sending…" slow, "Verifying…" hangs or times out, later "Loading…" hangs after refresh).
+  - After verifying successfully, the site often still behaves as signed-out on reload (`/login` does not redirect to `/dashboard/`).
 
-#### `2f8c48f` — Extension: hide Plus-only pills for paid users; sign out website+extension
-Key change:
-- Added a website sign-out action handled by the extension content script:
+### 0.3 Key evidence
+- In the broken profile, the **Verify request returns 200 OK** and includes an **`idToken`** and `refreshToken`.
+  - Therefore **Firebase accepts the code and issues credentials**.
+  - The failure is **post-credential**: persistence/rehydration (Auth state), UI navigation, or browser storage behavior.
+
+### 0.4 Most likely root cause
+- The extension previously (Apr 6) implemented website sign-out by deleting Firebase Auth persistence storage, including:
+  - `indexedDB.deleteDatabase('firebaseLocalStorageDb')`
+- Deleting Firebase’s IndexedDB while the SDK is active is known to cause:
+  - wedged auth initialization
+  - extremely slow/hanging rehydration
+  - inconsistent signed-in state across reloads
+- Even after removing that behavior, the affected Chrome profile appears to remain in a degraded state.
+
+---
+
+## 1) Observed issues (symptoms) — detailed
+
+### 1.1 Website login UI hangs
+In the broken Chrome profile:
+- `/login/`:
+  - "Send code" can take an unusually long time.
+  - After entering SMS code and clicking **Verify**, it can remain stuck on **"Verifying…"** indefinitely (or until our 20s timeout message).
+- After attempting login and refreshing:
+  - Protected pages show a **"Loading…"** screen for a very long time.
+
+In Incognito/clean profile:
+- "Send code" and "Verify" are fast.
+- Post-login redirect is immediate.
+
+### 1.2 Website treats user as signed out after “successful” verify (broken profile)
+Important distinction reported by user:
+- Clean profile:
+  - after successful login, visiting `/login/` immediately redirects to `/dashboard/` (session rehydration OK).
+- Broken profile:
+  - visiting `/login/` does **not** redirect; it behaves as if signed out.
+
+### 1.3 Network proof: verify succeeds even when UI hangs
+Broken profile capture (user-provided):
+
+- Request: `POST https://identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber?key=...`
+- Status: `200 OK`
+- Response JSON includes `idToken`, `refreshToken`, `localId`, `expiresIn`, `phoneNumber`.
+
+Implication:
+- Credential issuance succeeded.
+- The failure is at least one of:
+  - Firebase persistence write not completing or not readable later
+  - Auth SDK rehydration path wedged/slow (on page load)
+  - navigation/React state blocked waiting on `onAuthStateChanged`
+
+### 1.4 Correlation with extension sign-out
+User reported:
+- The bug started immediately after clicking **Sign out** inside the extension.
+
+We later confirmed the extension sign-out was doing destructive deletion of Firebase IndexedDB in the website tab in an earlier commit.
+
+---
+
+## 2) Code-level architecture (relevant pieces)
+
+### 2.1 Website login implementation
+- `website/LandingPage/exempliphai/src/app/login/page.tsx`
+  - Uses Firebase web SDK phone auth:
+    - `RecaptchaVerifier`
+    - `signInWithPhoneNumber`
+    - `confirmation.confirm(code)`
+
+### 2.2 Website auth state
+- `website/LandingPage/exempliphai/src/lib/auth/auth-context.tsx`
+  - `onAuthStateChanged(auth, ...)` drives `{ user, loading }`.
+  - If `loading` stays true → app shows “Loading…”.
+
+- `website/LandingPage/exempliphai/src/lib/auth/require-auth.tsx`
+  - Redirects to `/login` only when `loading === false && user === null`.
+  - While `loading===true`, it shows the “Loading…” card.
+
+### 2.3 Extension ↔ website auth bridge
+- Extension content script:
   - `src/public/contentScripts/siteAuthBridge.js`
-  - New message action: `EXEMPLIPHAI_SITE_SIGN_OUT`
+  - Reads website Firebase auth state using:
+    - a “shadow” localStorage key written by the website (`EXEMPLIPHAI_FIREBASE_AUTH_SHADOW`)
+    - scanning localStorage/sessionStorage firebase keys (`firebase:authUser:...`)
+    - and reading IndexedDB `firebaseLocalStorageDb` (`firebaseLocalStorage` store)
 
-Original behavior (as implemented in this commit):
-- On `EXEMPLIPHAI_SITE_SIGN_OUT`, it attempted to sign the website out by *directly deleting site persistence*, including:
-  - Removing Firebase auth keys from localStorage/sessionStorage
-  - Deleting IndexedDB database: `firebaseLocalStorageDb`
+### 2.4 Extension sign-out button
+- `src/vue_src/components/AccountSyncCard.vue`
+  - Sign out action sends a message to website tabs:
+    - `chrome.tabs.sendMessage(tabId, { action: 'EXEMPLIPHAI_SITE_SIGN_OUT' })`
 
-Rationale at the time:
-- Prevent the extension from immediately re-authing by reading the website session.
+---
 
-Risk:
-- Deleting Firebase Auth’s IndexedDB persistence while the Firebase SDK is running can wedge Firebase Auth initialization/persistence in that profile.
+## 3) Relevant commits (Apr 6 → Apr 7) — with what changed
 
-#### `2630bc9` — Extension: require sign-in for feature tabs; clear storage when signed out
-Key change:
-- Added aggressive clearing of extension storage when signed out:
-  - `clearSignedOutStorage()` in `src/vue_src/sw/firebaseSync.ts`
+> Note: This section intentionally includes more detail than a normal changelog.
 
-This commit does not directly modify website Firebase persistence, but it increases "signed-out cleanup" behavior and changes auth gating.
+### 3.1 Apr 6 — extension introduces website sign-out by deleting storage
 
-### 2.2 Website UI fix (Apr 7)
+#### Commit: `2f8c48f` — “Extension: hide Plus-only pills for paid users; sign out website+extension”
+Files:
+- `src/public/contentScripts/siteAuthBridge.js`
+- other extension files (UI plan pill hiding)
 
-#### `c368065` — Fix hero headline clipping by increasing line-height
-Unrelated to auth.
+Key new behavior:
+- Adds support for `EXEMPLIPHAI_SITE_SIGN_OUT`.
+- **Original implementation** aggressively cleared website auth persistence:
+  - removed shadow key
+  - removed Firebase auth keys from localStorage/sessionStorage (`firebase:authUser:*`)
+  - **deleted IndexedDB**: `indexedDB.deleteDatabase('firebaseLocalStorageDb')`
 
-### 2.3 Website login UX hardening (Apr 7)
+Why this matters:
+- Firebase Auth persistence for web commonly uses IndexedDB.
+- Deleting its database while the SDK is running can wedge the state machine and cause future rehydration to hang.
 
-#### `14e7e30` — Prevent login verify from hanging forever (add timeout + validate code)
-File: `website/LandingPage/exempliphai/src/app/login/page.tsx`
+#### Commit: `2630bc9` — “Extension: require sign-in for feature tabs; clear storage when signed out”
+Files:
+- `src/vue_src/sw/firebaseSync.ts`
+
+Key behavior:
+- Adds `clearSignedOutStorage()` removing many chrome.storage keys when signed out.
+
+Not directly website persistence, but increased cleanup and sign-in gating.
+
+### 3.2 Apr 7 — website/extension attempted fixes & mitigations
+
+#### Commit: `14e7e30` — “Prevent login verify from hanging forever (add timeout + validate code)”
+File:
+- `website/LandingPage/exempliphai/src/app/login/page.tsx`
+
 Changes:
-- Validates code is 6 digits before confirm.
-- Wraps `confirmation.confirm(code)` in a 20s timeout to prevent infinite "Verifying…".
+- Enforce exactly 6 digits before confirm.
+- Wrap confirm in a 20s timeout using `Promise.race`.
 
-This is UX hardening only; does not address the underlying persistence issue.
+Purpose:
+- Prevent infinite UI hang on “Verifying…”.
 
-#### `499c7b3` — Login: hard-navigate to /dashboard/ after successful phone verify
-File: `website/LandingPage/exempliphai/src/app/login/page.tsx`
-Changes:
-- After successful verify, uses `window.location.assign("/dashboard/")` to bypass Next router transitions.
+#### Commit: `499c7b3` — “Login: hard-navigate to /dashboard/ after successful phone verify”
+File:
+- `website/LandingPage/exempliphai/src/app/login/page.tsx`
 
-Goal:
-- Avoid hangs caused by client-side navigation on static-export/trailingSlash deployments.
+Change:
+- After successful verify, do `window.location.assign('/dashboard/')`.
 
-### 2.4 Fix: stop deleting Firebase IndexedDB; sign out cleanly (Apr 7)
+Purpose:
+- Avoid Next.js client transition hang on static export + trailingSlash.
 
-#### `3ffa8b5` — Fix website login break after extension sign-out (clean signOut via postMessage, no IndexedDB delete)
+#### Commit: `3ffa8b5` — “Fix website login break after extension sign-out (clean signOut via postMessage, no IndexedDB delete)”
 Files:
 - `src/public/contentScripts/siteAuthBridge.js`
 - `website/LandingPage/exempliphai/src/lib/auth/auth-context.tsx`
 
 Changes:
-- **Removed** IndexedDB deletion (`indexedDB.deleteDatabase('firebaseLocalStorageDb')`) from the extension sign-out path.
-- Replaced with a clean sign-out request to the site via `window.postMessage(...)`.
-- Website `AuthProvider` listens for that postMessage and calls `auth.signOut()`.
+- Removed IndexedDB deletion from `EXEMPLIPHAI_SITE_SIGN_OUT`.
+- New flow:
+  - content script: `window.postMessage({ source: 'exempliphai-extension', action: 'EXEMPLIPHAI_SITE_SIGN_OUT' }, '*')`
+  - website: listens for that postMessage, calls `auth.signOut()`.
 
-Goal:
-- Prevent Firebase persistence corruption/wedging.
+Purpose:
+- Avoid wedging Firebase by deleting persistence under it.
 
-### 2.5 Extension: sign-out button should do nothing if already signed out (Apr 7)
+#### Commit: `5dc48c3` — “Extension: avoid running sign-out logic when already signed out”
+File:
+- `src/vue_src/components/AccountSyncCard.vue`
 
-#### `5dc48c3` — Extension: avoid running sign-out logic when already signed out
-File: `src/vue_src/components/AccountSyncCard.vue`
 Change:
-- If `isAuthed` is false, return early from sign-out.
+- Sign out button now returns early when `isAuthed` is false.
 
-Goal:
-- Avoid unnecessary/destructive sign-out logic when no extension auth is present.
+Purpose:
+- Avoid destructive sign-out logic when already signed out.
 
-### 2.6 Website: attempt to reduce slow loading by fast-pathing currentUser (Apr 7)
+#### Commit: `6fedafb` — “Auth: fast-path currentUser to avoid slow post-login loading”
+File:
+- `website/LandingPage/exempliphai/src/lib/auth/auth-context.tsx`
 
-#### `6fedafb` — Auth: fast-path currentUser to avoid slow post-login loading
-File: `website/LandingPage/exempliphai/src/lib/auth/auth-context.tsx`
 Change:
-- On mount, if `auth.currentUser` exists, immediately set `user` and set `loading=false`.
+- On mount, if `auth.currentUser` exists, set `{ user, loading:false }` immediately.
 
-Goal:
-- Avoid being blocked waiting for `onAuthStateChanged` in slow/buggy profiles.
+Purpose:
+- Reduce time waiting for `onAuthStateChanged` in slow profiles.
 
-### 2.7 Website login: attempt to force persistence + token write (Apr 7)
+#### Commit: `395d8c3` — “Login: await Firebase auth persistence + force token write after phone verify”
+File:
+- `website/LandingPage/exempliphai/src/app/login/page.tsx`
 
-#### `395d8c3` — Login: await Firebase auth persistence + force token write after phone verify
-File: `website/LandingPage/exempliphai/src/app/login/page.tsx`
 Changes:
-- Imports `setPersistence` + `browserLocalPersistence`.
-- On Send code: `await setPersistence(auth, browserLocalPersistence)` best-effort.
-- On Verify: best-effort setPersistence; after confirm, forces `auth.currentUser?.getIdToken(true)`.
+- `await setPersistence(auth, browserLocalPersistence)` best-effort before Send.
+- before Verify: best-effort setPersistence again.
+- after Verify: `auth.currentUser?.getIdToken(true)` to force token materialization + persistence.
 
-Goal:
-- Ensure persistence is initialized before auth flow and force persistence write after verify.
+Purpose:
+- Attempt to force persistence initialization and durable session creation.
 
-Outcome:
-- Did not fix the broken-profile behavior.
+#### Commit: `cc60e2f` — “Docs: login hang in broken Chrome profile troubleshooting record (2026-04-07)”
+File:
+- This document
 
 ---
 
-## 3) Everything tried so far (chronological)
+## 4) Detailed timeline (what happened & what was observed)
 
-### 3.1 Initial report
-- Website login: after entering 6-digit code and clicking Verify, UI stuck on "Verifying…" forever.
+> Times approximate; Telegram message IDs are included when available.
 
-### 3.2 First mitigation
-- Added timeout and stricter code validation (`14e7e30`).
+### 4.1 Initial report (website)
+- User: verify step stuck on “Verifying…” forever.
 
-### 3.3 Found critical clue: verify network request succeeds
-- The Verify request returns `idToken`/`refreshToken` (200 OK).
-- Therefore Firebase accepts the code and issues credentials.
-
-### 3.4 Hypothesis: stuck due to navigation (static export / trailing slash)
-- Added `window.location.assign("/dashboard/")` after verify (`499c7b3`).
-
-Result:
-- Did not fix in the failing scenario.
-
-### 3.5 Found strong correlation with extension sign-out button
-- User report: after clicking **Sign out** in the extension, the website login bug started immediately.
-
-### 3.6 Fix extension sign-out implementation
-- Identified that extension sign-out was deleting Firebase IndexedDB: `firebaseLocalStorageDb`.
-- Implemented clean sign-out via postMessage + `auth.signOut()` and removed IndexedDB deletion (`3ffa8b5`).
-
-### 3.7 New failure mode
-- After extension sign-in/out changes, user reported:
-  - Clicking Sign in in extension, completing site login → extension becomes signed in, but website still stuck.
-
-### 3.8 Incognito vs normal profile
-- Incognito mode (with extension enabled) works fine.
-
-This indicated the issue might be corrupted state in the normal profile.
-
-### 3.9 Attempted profile/site cleanup
-User attempted (normal profile):
-- Disabled extensions.
-- Verified 3rd-party cookies setting was off.
-- Cleared site data.
-
-Result:
-- Still broken.
-
-### 3.10 Clean Chrome profile test
-- Fresh Chrome profile works fine.
+### 4.2 Confirmed Verify request can succeed
+- User provided request payload and response for Verify (working code):
+  - Payload had `sessionInfo` + `code`.
+  - Response returned `idToken`.
 
 Conclusion:
-- The issue is profile-specific.
+- Backend accepts code; UI hang is not simply “wrong code”.
 
-### 3.11 Extension fix: do not run sign-out logic if not signed in
-- Implemented early return in extension sign-out (`5dc48c3`).
+### 4.3 User discovered extension sign-out correlation
+- User stated bug began immediately after clicking extension **Sign out**.
 
-### 3.12 Further evidence: verify returns idToken in broken profile, but UI stuck on Loading
-- In broken profile, Verify returns 200 OK with idToken.
-- After refresh or visiting `/login`, app often shows **"Loading…"** for a long time.
+### 4.4 Incognito vs broken profile
+- Incognito with extension enabled: works.
+- Broken profile: fails, even after removing extension later.
 
-Interpretation:
-- Auth persistence/rehydration is failing or extremely slow.
+### 4.5 Further evidence: broken profile treats user as signed out
+- Clean profile redirects from `/login` → `/dashboard` immediately.
+- Broken profile does not redirect.
 
-### 3.13 Website attempted mitigations
-- `6fedafb`: If `auth.currentUser` exists, set auth state immediately.
-- `395d8c3`: Await persistence set-up in login flow + force token write.
-
-Result:
-- Still "forever" loading in the broken profile.
-
-### 3.14 Latest status (as of 2026-04-07 09:50 EDT)
-- Broken profile:
-  - Sending code can be very slow.
-  - Verify returns 200 OK idToken, but UI remains stuck / slow.
-  - Visiting `/login` after login does not redirect (session not rehydrated).
-- Incognito and clean profile:
-  - Instant.
+Conclusion:
+- session rehydration is broken in that profile.
 
 ---
 
-## 4) High-confidence conclusions
+## 5) Remediations attempted (exhaustive list)
 
-1) Firebase verify is successful (idToken returned). The failure is **client-side persistence/rehydration/UI state**.
-2) The issue is **Chrome-profile-specific**.
-3) The extension sign-out implementation (Apr 6) likely triggered/created the bad state by deleting Firebase IndexedDB during runtime.
-4) Even after removing that behavior, the affected profile appears to remain in a degraded state.
+### 5.1 UX mitigations shipped
+- Add 6-digit validation + confirm timeout (`14e7e30`).
+- Hard navigation to `/dashboard/` (`499c7b3`).
 
----
+### 5.2 Extension sign-out safety changes shipped
+- Stop deleting `firebaseLocalStorageDb`, use clean signOut via postMessage (`3ffa8b5`).
+- Avoid sign-out logic when already signed out (`5dc48c3`).
 
-## 5) Open questions / next troubleshooting directions
+### 5.3 Website auth rehydration mitigations shipped
+- Fast-path `auth.currentUser` on mount (`6fedafb`).
+- Explicitly await persistence before send/verify + force token write (`395d8c3`).
 
-To diagnose at the browser level in the broken profile, gather:
+### 5.4 Browser/profile troubleshooting attempted
+User reported trying (broken profile):
+- Disable all extensions → still broken.
+- Confirm 3rd-party cookies setting off → still broken.
+- Clear site data (various) → still broken.
+- Remove extension entirely → still broken.
 
-- DevTools Console errors/warnings related to:
-  - IndexedDB (`firebaseLocalStorageDb`)
-  - Quota/IO errors
-  - Storage access
-  - `SecurityError`, `UnknownError`, `QuotaExceededError`, etc.
-
-- DevTools Application → IndexedDB:
-  - Does `firebaseLocalStorageDb` exist after login?
-  - Are entries written?
-
-- Compare in broken profile vs clean profile:
-  - `localStorage` keys beginning with `firebase:`
-  - Whether Firebase persistence is actually localStorage vs IndexedDB
-
-Potential remediations:
-- Add a user-visible "Auth is stuck" panel after N seconds with:
-  - a controlled `auth.signOut()` + reload
-  - a link to `chrome://settings/siteData?searchSubpage=exempliph.ai`
-  - guidance for clearing site storage
+User confirmed:
+- Fresh Chrome profile works.
 
 ---
 
-## 6) Appendix: commands used to audit commits
+## 6) Current state (as of end of day 2026-04-07)
+
+Broken profile:
+- Can receive 200 OK idToken on Verify.
+- Yet UI can remain “Loading…” for a long time.
+- Visiting `/login` does not redirect (signed out behavior).
+- “Send code” step can be very slow.
+
+Clean profile / Incognito:
+- Instant send/verify.
+- Session rehydrates properly.
+
+---
+
+## 7) Hypotheses to pursue next (for the next AI)
+
+### 7.1 Firebase Auth persistence layer is wedged in the broken profile
+Even with our code changes, the broken profile may have a damaged IndexedDB state where:
+- reads/writes hang
+- transactions retry
+- `onAuthStateChanged` callback is delayed
+
+Next evidence to gather:
+- DevTools Console logs in broken profile for IndexedDB/storage errors
+- Application tab:
+  - whether `firebaseLocalStorageDb` exists
+  - whether entries are created/updated
+- Timing logs inside site:
+  - time to `getFirebase()`
+  - time until `auth.currentUser` is non-null
+  - time until `onAuthStateChanged` fires
+
+### 7.2 Network is being degraded in that profile by non-extension factors
+Since disabling extensions didn’t help:
+- corporate proxy / AV / DNS / certificate interception at profile-level? (less likely)
+- Chrome profile corruption / disk IO issues
+
+Evidence:
+- Compare Network waterfall in broken vs clean profile
+- Look for long stalls before request is sent or during TLS handshake
+
+### 7.3 The extension sign-out may have left the profile in a permanently-bad storage state
+Even after stopping IndexedDB deletion, the original profile could have:
+- partially removed Firebase keys
+- corrupted IDB metadata
+
+Potential workaround:
+- create a “repair mode” page that:
+  - uses `indexedDB.databases()` (where available) to inspect
+  - offers targeted cleanup instructions
+
+---
+
+## 8) Appendix: audit commands used
 
 - Full list since Apr 6:
   - `git log --since="2026-04-06 00:00" --oneline`
@@ -269,4 +337,3 @@ Potential remediations:
 
 - Find the site sign-out bridge references:
   - `grep -RIn "EXEMPLIPHAI_SITE_SIGN_OUT" src | head`
-
