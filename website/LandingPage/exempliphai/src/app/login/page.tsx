@@ -6,12 +6,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RecaptchaVerifier,
-  browserLocalPersistence,
-  setPersistence,
   signInWithPhoneNumber,
   type ConfirmationResult,
 } from "firebase/auth";
 import { useAuth } from "@/lib/auth/auth-context";
+import { ensureAuthPersistence } from "@/lib/auth/persistence";
 import { getFirebase } from "@/lib/firebase/client";
 
 function normalizeUsPhoneToE164(input: string): string {
@@ -75,12 +74,7 @@ export default function LoginPage() {
       }
 
       // Ensure persistence is set before initiating phone auth.
-      // In some browser profiles, Firebase Auth can hang or fail to rehydrate if persistence isn't established.
-      try {
-        await setPersistence(auth, browserLocalPersistence);
-      } catch {
-        // best-effort
-      }
+      await ensureAuthPersistence();
 
       if (!recaptchaRef.current) {
         recaptchaRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
@@ -127,12 +121,7 @@ export default function LoginPage() {
       }
 
       // Ensure persistence is set before confirming.
-      try {
-        const fb = getFirebase();
-        if (fb?.auth) await setPersistence(fb.auth, browserLocalPersistence);
-      } catch {
-        // best-effort
-      }
+      await ensureAuthPersistence();
 
       // Firebase phone auth can occasionally hang (network / extensions / adblock / reCAPTCHA edge cases).
       // Add a timeout so the UI never gets stuck on "Verifying…" forever.

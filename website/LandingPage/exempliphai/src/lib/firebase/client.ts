@@ -2,8 +2,6 @@ import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
   connectAuthEmulator,
-  setPersistence,
-  browserLocalPersistence,
   type Auth,
 } from "firebase/auth";
 import {
@@ -116,16 +114,8 @@ export function getFirebase(): FirebaseClients {
   const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
   const auth = getAuth(app);
 
-  // IMPORTANT: force Firebase Auth to persist to localStorage.
-  // Our browser extension (contentScripts/siteAuthBridge.js) reads
-  // localStorage['firebase:authUser:*'] to reuse the website session.
-  // Firebase's default persistence is IndexedDB, which the extension may not
-  // reliably detect in all environments.
-  try {
-    setPersistence(auth, browserLocalPersistence).catch(() => {});
-  } catch {
-    // ignore
-  }
+  // NOTE: Auth persistence is configured explicitly by auth bootstrap/login flows
+  // via ensureAuthPersistence(). Keep Firebase initialization side-effect-free.
   const db = getFirestore(app);
   const functions = getFunctions(app);
   const storage = getStorage(app);
