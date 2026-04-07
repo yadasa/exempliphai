@@ -333,6 +333,12 @@ async function doSignOut() {
   msg.value = null;
 
   try {
+    // If we're not signed in, do nothing. (Avoid destructive website/session clearing.)
+    if (!isAuthed.value) {
+      setMessage('Already signed out.');
+      return;
+    }
+
     // 1) Sign out of the website session (best-effort) so siteAuthBridge can't immediately re-log us in.
     try {
       const tabs = await chrome.tabs.query({
