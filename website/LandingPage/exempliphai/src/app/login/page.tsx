@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RecaptchaVerifier,
+  browserLocalPersistence,
+  setPersistence,
   signInWithPhoneNumber,
   type ConfirmationResult,
 } from "firebase/auth";
@@ -72,6 +74,14 @@ export default function LoginPage() {
         );
       }
 
+      // Ensure persistence is set before initiating phone auth.
+      // In some browser profiles, Firebase Auth can hang or fail to rehydrate if persistence isn't established.
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+      } catch {
+        // best-effort
+      }
+
       if (!recaptchaRef.current) {
         recaptchaRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
           size: "invisible",
@@ -116,6 +126,14 @@ export default function LoginPage() {
         throw new Error("Enter the 6-digit code.");
       }
 
+      // Ensure persistence is set before confirming.
+      try {
+        const fb = getFirebase();
+        if (fb?.auth) await setPersistence(fb.auth, browserLocalPersistence);
+      } catch {
+        // best-effort
+      }
+
       // Firebase phone auth can occasionally hang (network / extensions / adblock / reCAPTCHA edge cases).
       // Add a timeout so the UI never gets stuck on "Verifying…" forever.
       const confirmPromise = confirmationRef.current.confirm(trimmed);
@@ -125,6 +143,14 @@ export default function LoginPage() {
           setTimeout(() => reject(new Error("Verification timed out. Please try again.")), 20000),
         ),
       ]);
+
+      // Force token materialization + local persistence write.
+      try {
+        const fb = getFirebase();
+        await fb?.auth?.currentUser?.getIdToken(true);
+      } catch {
+        // best-effort
+      }
 
       setMsg("Signed in.");
       setCode("");
