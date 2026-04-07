@@ -110,7 +110,22 @@ export default function LoginPage() {
 
     try {
       if (!confirmationRef.current) throw new Error("Send the SMS code first.");
-      await confirmationRef.current.confirm(code.trim());
+
+      const trimmed = code.trim();
+      if (!/^\d{6}$/.test(trimmed)) {
+        throw new Error("Enter the 6-digit code.");
+      }
+
+      // Firebase phone auth can occasionally hang (network / extensions / adblock / reCAPTCHA edge cases).
+      // Add a timeout so the UI never gets stuck on "Verifying…" forever.
+      const confirmPromise = confirmationRef.current.confirm(trimmed);
+      await Promise.race([
+        confirmPromise,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Verification timed out. Please try again.")), 20000),
+        ),
+      ]);
+
       setMsg("Signed in.");
       setCode("");
       router.replace("/dashboard" as any);
