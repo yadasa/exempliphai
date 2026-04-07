@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import PlusOnlyBadge from '@/components/PlusOnlyBadge.vue';
+import SignInGate from '@/components/SignInGate.vue';
+import { useIsAuthed } from '@/composables/Auth';
 import { filterDirectApplicationLinks, isDirectApplicationUrl, pickBestApplicationLinks, isAggregatorHost } from '@/utils/jobLinks.js';
 import { pullProfileFromCloudNow } from '@/sw/firebaseSync';
 
@@ -45,6 +47,8 @@ const postedWithin = ref<'any' | '7d' | '3d' | '1d'>('any');
 const loading = ref(false);
 const errorMsg = ref('');
 const recs = ref<JobRec[]>([]);
+
+const { isAuthed } = useIsAuthed();
 
 // Pagination for SerpAPI Google Jobs (start offset)
 const searchPage = ref(0);
@@ -771,7 +775,8 @@ watch(
 </script>
 
 <template>
-  <div>
+  <SignInGate v-if="!isAuthed" />
+  <div v-else>
     <div style="display:flex; align-items:center; justify-content:flex-start; gap:0.6rem;">
       <h2 class="subheading" style="margin: 0;">Job Search</h2>
       <PlusOnlyBadge />

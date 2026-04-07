@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import InputField from '@/components/InputField.vue';
 import GridDataField from '@/components/GridDataField.vue';
+import SignInGate from '@/components/SignInGate.vue';
+import { useIsAuthed } from '@/composables/Auth';
+
+const { isAuthed } = useIsAuthed();
 </script>
 
 <template>
-  <div>
+  <SignInGate v-if="!isAuthed" />
+  <div v-else>
     <InputField label="Resume" placeHolder="No file found" />
     <InputField label="Cover Letter" placeHolder="No file found" />
 

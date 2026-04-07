@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import InputField from '@/components/InputField.vue';
+import SignInGate from '@/components/SignInGate.vue';
+import { useIsAuthed } from '@/composables/Auth';
 import { onBeforeUnmount, onMounted, ref } from 'vue';
+
+const { isAuthed } = useIsAuthed();
 
 const syncStatus = ref<string>('');
 
@@ -41,7 +45,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div style="position: relative;">
+  <SignInGate v-if="!isAuthed" />
+  <div v-else style="position: relative;">
     <div v-if="prettyStatus(syncStatus)" class="syncStatusPill">
       {{ prettyStatus(syncStatus) }}
     </div>

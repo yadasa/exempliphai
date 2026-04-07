@@ -394,6 +394,57 @@ async function setStoredAuth(next: FirebaseAuthState | null) {
   await chrome.storage.local.set({ firebaseAuth: next });
 }
 
+async function clearSignedOutStorage() {
+  // User request: when not signed in, clear local fields so nothing persists between users.
+  // Best-effort (ignore errors).
+  try {
+    await chrome.storage.local.remove([
+      // Auth + UI
+      'firebaseAuth',
+      'ui_paidPlan',
+      'ui_paidPlanUntil',
+      'ui_tokensBalance',
+      'ui_tokensBalanceUpdatedAt',
+      'ui_tokensBalanceSource',
+      'ui_tokensBalanceCheckingAt',
+
+      // Cloud caches
+      'cloudStats',
+      'cloudAutofillsHistory',
+      'cloudCustomAnswersHistory',
+      'AppliedJobs',
+      'jobSearchLast',
+
+      // Resume/local profile/tailor artifacts
+      'Resume_details',
+      'Resume_extracted_text',
+      'LOCAL_PROFILE',
+      'EXEMPLIPHAI_LOCAL_PROFILE',
+      'Resume_tailored_text',
+      'Resume_tailored_meta',
+      'Resume_tailored_name',
+      'uploads_resume',
+      'uploads_coverLetter',
+      'uploads_tailored_resume',
+
+      // Sync status flags
+      'firebaseSync_status',
+      'firebaseSync_dirty',
+    ]);
+  } catch (_) {}
+
+  // Also clear sync storage user fields, but preserve basic UI prefs.
+  try {
+    const preserve = new Set(['ThemeSetting', 'PrivacyToggle']);
+    const all = await chrome.storage.sync.get(null).catch(() => ({} as any));
+    const toRemove: string[] = [];
+    for (const k of Object.keys(all || {})) {
+      if (!preserve.has(k)) toRemove.push(k);
+    }
+    if (toRemove.length) await chrome.storage.sync.remove(toRemove);
+  } catch (_) {}
+}
+
 async function ensureFreshIdToken(): Promise<FirebaseAuthState | null> {
   if (!authState) return null;
   if (!requireFirebaseConfig()) return null;
@@ -1942,6 +1993,9 @@ export function initFirebaseExtensionSync() {
         await pullProfileFromCloudNow('full').catch(() => {});
         // scheduleAutosave('jobFields'); // removed: jobFields now sync immediately on storage changes
         scheduleFlushSoon();
+      } else {
+        // Ensure signed-out users don't retain local data.
+        await clearSignedOutStorage().catch(() => {});
       }
     })
     .catch(() => {});
@@ -2134,6 +2188,10 @@ export function initFirebaseExtensionSync() {
         try {
           if (!authState) authState = await getStoredAuth().catch(() => null);
           if (!authState) await tryAuthFromAnyExempliphTab('search_proxy').catch(() => false);
+          if (!authState) {
+            sendResponse({ ok: false, error: 'no_auth' });
+            return;
+          }
 
           const searchAction = String(msg?.searchAction || '').trim();
           const payload = msg?.payload;
@@ -2339,6 +2397,10 @@ export function initFirebaseExtensionSync() {
         try {
           if (!authState) authState = await getStoredAuth().catch(() => null);
           if (!authState) await tryAuthFromAnyExempliphTab('ai_proxy').catch(() => false);
+          if (!authState) {
+            sendResponse({ ok: false, error: 'no_auth' });
+            return;
+          }
 
           const aiAction = String(msg?.aiAction || '').trim();
           const model = String(msg?.model || '').trim() || undefined;
@@ -2429,6 +2491,7 @@ export function initFirebaseExtensionSync() {
       if (msg.action === 'FIREBASE_SIGN_OUT' || msg.action === 'FIREBASE_AUTH_CLEAR') {
         authState = null;
         await setStoredAuth(null);
+        await clearSignedOutStorage();
         sendResponse({ ok: true });
         return;
       }
