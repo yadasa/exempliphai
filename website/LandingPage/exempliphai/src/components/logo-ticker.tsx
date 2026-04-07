@@ -33,14 +33,16 @@ export function LogoTicker() {
           </div>
           <div className="mask-[linear-gradient(to_right,transparent,white_20%,white_80%,transparent)] dark:mask-[linear-gradient(to_right,transparent,black_20%,black_80%,transparent)] flex-1 overflow-hidden">
             <motion.div
-              initial={{ x: 0 }}
-              animate={{ x: "-50%" }}
+              initial={{ x: "0%" }}
+              animate={{ x: ["0%", "-50%"] }}
               transition={{
                 repeat: Number.POSITIVE_INFINITY,
                 duration: 30,
                 ease: "linear",
               }}
-              className="flex flex-none gap-14 pr-14 will-change-transform"
+              // Seamless loop: we duplicate the list and move left by exactly half.
+              // Avoid extra end padding (it creates a visible "jump" at the wrap).
+              className="flex flex-none gap-14 will-change-transform"
             >
               {[...COMPANIES, ...COMPANIES].map((company, index) => (
                 <Image
