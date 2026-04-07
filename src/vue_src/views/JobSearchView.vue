@@ -895,10 +895,7 @@ watch(
       </div>
 
       <div v-if="loading" style="margin-top: 0.75rem;">
-        <div style="display:flex; align-items:center; justify-content: space-between; gap: 0.75rem;">
-          <div style="font-size: 0.85rem; color: var(--text-secondary);">
-            {{ PROGRESS_STEPS[Math.max(0, progressStepIndex)]?.label || 'Working…' }}
-          </div>
+        <div style="display:flex; align-items:center; justify-content: flex-end; gap: 0.75rem;">
           <div style="font-size: 0.82rem; color: var(--text-secondary); opacity: 0.9;">
             {{ Math.floor(progressPct) }}%
           </div>
@@ -921,7 +918,7 @@ watch(
               color: 'var(--text-secondary)'
             }"
           >
-            {{ i < progressStepIndex ? '✓ ' : '' }}{{ s.key }}
+            {{ i < progressStepIndex ? '✓ ' : '' }}Step {{ i + 1 }}
           </span>
         </div>
       </div>

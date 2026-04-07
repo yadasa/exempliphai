@@ -4,6 +4,12 @@
 
 import './legacyBackground.js';
 import { initFirebaseExtensionSync } from './firebaseSync';
+import { printAsciiArt } from '../utils/asciiArt';
+
+// Console logo (service worker DevTools)
+try {
+  printAsciiArt();
+} catch (_) {}
 
 try {
   initFirebaseExtensionSync();

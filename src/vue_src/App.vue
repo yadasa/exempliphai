@@ -11,6 +11,7 @@ import { useTheme } from '@/composables/Theme';
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import LogoMain from '@/assets/logo-main.png';
+import { printAsciiArt } from '@/utils/asciiArt';
 
 const { loadTheme } = useTheme();
 const route = useRoute();
@@ -45,6 +46,12 @@ const onStorageChanged = (changes: any, area: string) => {
 
 onMounted(() => {
   loadTheme();
+
+  // Console logo (popup DevTools)
+  try {
+    printAsciiArt();
+  } catch (_) {}
+
 
   try {
     chrome.storage?.onChanged?.addListener(onStorageChanged as any);
