@@ -31,7 +31,7 @@ export function LogoTicker() {
           <div className="flex-1 md:flex-none">
             <h2>Built for job seekers who apply first</h2>
           </div>
-          <div className="mask-[linear-gradient(to_right,transparent,black_20%,black_80%,transparent)] flex-1 overflow-hidden">
+          <div className="mask-[linear-gradient(to_right,transparent,white_20%,white_80%,transparent)] dark:mask-[linear-gradient(to_right,transparent,black_20%,black_80%,transparent)] flex-1 overflow-hidden">
             <motion.div
               initial={{ x: 0 }}
               animate={{ x: "-50%" }}
@@ -49,7 +49,7 @@ export function LogoTicker() {
                   key={index}
                   width={120}
                   height={32}
-                  className="h-8 w-auto"
+                  className="h-8 w-auto invert dark:invert-0"
                 />
               ))}
             </motion.div>
