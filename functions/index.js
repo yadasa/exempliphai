@@ -210,6 +210,9 @@ const Stripe = require('stripe');
 const TOKENS_PER_USD = 333;
 const MARKUP = 3.33;
 const LOW_BALANCE_THRESHOLD = 30;
+// Some AI actions (custom question answering) are intentionally allowed at a lower balance,
+// because they are typically small/cheap and unblock applications.
+const LOW_BALANCE_THRESHOLD_CUSTOM_Q = 3;
 
 const TOKEN_PACKS = {
   1: 250,
@@ -1146,15 +1149,23 @@ apiRouter.post('/ai/:action', async (req, res) => {
     const uid = await requireUidFromAuthHeader(req);
     const action = String(req.params.action || '').trim();
 
+    const model = String(req.body?.model || 'gemini-3-pro-preview').trim();
+    let input = req.body?.input;
+
     // Enforce low-balance gate BEFORE paying Gemini.
+    // Most AI actions require the standard threshold, but custom-question answering should still work
+    // when the user is nearly out of tokens.
+    const lowBalanceThreshold =
+      action === 'generateNarrativeAnswer' || action === 'mapFieldsToFillPlan'
+        ? LOW_BALANCE_THRESHOLD_CUSTOM_Q
+        : LOW_BALANCE_THRESHOLD;
+
     const bal = await getBalanceTokens(uid);
-    if (bal < LOW_BALANCE_THRESHOLD) {
-      res.status(402).json({ ok: false, error: 'low_balance', tokens: bal, threshold: LOW_BALANCE_THRESHOLD });
+    if (bal < lowBalanceThreshold) {
+      res.status(402).json({ ok: false, error: 'low_balance', tokens: bal, threshold: lowBalanceThreshold });
       return;
     }
 
-    const model = String(req.body?.model || 'gemini-3-pro-preview').trim();
-    let input = req.body?.input;
 
     if (!input || typeof input !== 'object') {
       res.status(400).json({ ok: false, error: 'missing_input' });
