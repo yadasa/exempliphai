@@ -32,6 +32,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Fast-path: if Firebase already has a currentUser (e.g. immediately after phone verify),
+    // don't wait on the async persistence/rehydration path to render authenticated pages.
+    try {
+      const cu = auth.currentUser;
+      if (cu) {
+        setUser(cu);
+        setLoading(false);
+      }
+    } catch {
+      // ignore
+    }
+
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
