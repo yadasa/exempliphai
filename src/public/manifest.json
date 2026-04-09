@@ -16,7 +16,8 @@
     "contextMenus",
     "tabs",
     "alarms",
-    "identity"
+    "identity",
+    "management"
   ],
   "host_permissions": [
     "https://exempliph.ai/*",

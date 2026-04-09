@@ -233,6 +233,16 @@
 
   async function notifyBackgroundIfChanged() {
     try {
+      // KillSwitch: if locked, don't bridge auth into the extension.
+      try {
+        const locked = await new Promise((resolve) => {
+          chrome.storage.local.get(['REMOTE_KILL_SWITCH'], (res) => {
+            resolve(res?.REMOTE_KILL_SWITCH?.locked === true);
+          });
+        });
+        if (locked) return;
+      } catch (_) {}
+
       const rec = await findFirebaseAuthRecord();
       if (!rec || !rec.uid || !rec.idToken) {
         debug('no auth found');

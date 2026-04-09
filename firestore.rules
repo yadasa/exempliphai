@@ -153,6 +153,15 @@ service cloud.firestore {
       allow create, update, delete: if isOrgOwner(orgId);
     }
 
+    // Global killswitch config (public read, admin write only)
+    // Doc: /global/config
+    match /global/{docId} {
+      allow read: if true;
+      // Writes should be performed only by backend/admin tooling.
+      // If you want to allow writes from a specific admin UID, add a condition here.
+      allow write: if false;
+    }
+
     // Public aggregate stats used on the marketing site.
     match /publicStats/{docId} {
       allow read: if true;

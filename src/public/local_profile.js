@@ -11,6 +11,91 @@ const state = {
   profile: {},
 };
 
+// KillSwitch overlay (non-store installs when global.testallowed=false)
+function applyKillSwitchOverlay(st) {
+  try {
+    const locked = st && st.locked === true;
+    let overlay = document.getElementById('__kill_switch_overlay');
+
+    if (!locked) {
+      if (overlay) overlay.remove();
+      return;
+    }
+
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = '__kill_switch_overlay';
+      overlay.style.position = 'fixed';
+      overlay.style.inset = '0';
+      overlay.style.zIndex = '999999';
+      overlay.style.background = 'rgba(2,6,23,0.85)';
+      overlay.style.display = 'flex';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+      overlay.style.padding = '16px';
+
+      const card = document.createElement('div');
+      card.style.maxWidth = '420px';
+      card.style.width = '100%';
+      card.style.borderRadius = '16px';
+      card.style.padding = '18px';
+      card.style.color = 'white';
+      card.style.border = '1px solid rgba(255,255,255,0.12)';
+      card.style.background = 'rgba(255,255,255,0.06)';
+      card.style.backdropFilter = 'blur(10px)';
+
+      const h = document.createElement('div');
+      h.textContent = 'Extension disabled';
+      h.style.fontWeight = '800';
+      h.style.marginBottom = '8px';
+
+      const p = document.createElement('div');
+      p.textContent = String(st?.message || 'Download the official version on Chrome Web Store');
+      p.style.fontSize = '13px';
+      p.style.lineHeight = '1.35';
+      p.style.marginBottom = '14px';
+
+      const a = document.createElement('a');
+      const url = String(st?.ctaUrl || '').trim();
+      if (url) {
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noreferrer';
+        a.textContent = 'Open Chrome Web Store';
+        a.style.display = 'inline-flex';
+        a.style.width = '100%';
+        a.style.justifyContent = 'center';
+        a.style.padding = '10px 12px';
+        a.style.borderRadius = '12px';
+        a.style.background = '#3b82f6';
+        a.style.color = 'white';
+        a.style.textDecoration = 'none';
+        a.style.fontWeight = '800';
+        a.style.fontSize = '13px';
+      } else {
+        a.style.display = 'none';
+      }
+
+      card.appendChild(h);
+      card.appendChild(p);
+      card.appendChild(a);
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+    }
+  } catch (_) {}
+}
+
+try {
+  chrome.storage.local.get(['REMOTE_KILL_SWITCH'], (res) => {
+    applyKillSwitchOverlay(res?.REMOTE_KILL_SWITCH);
+  });
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (!changes?.REMOTE_KILL_SWITCH) return;
+    applyKillSwitchOverlay(changes.REMOTE_KILL_SWITCH.newValue);
+  });
+} catch (_) {}
+
 function $(id) { return document.getElementById(id); }
 
 function setStatus(msg, cls) {

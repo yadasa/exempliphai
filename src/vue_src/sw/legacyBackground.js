@@ -431,14 +431,42 @@ chrome.commands.onCommand.addListener((cmd) => {
   }
 });
 
+async function _saKillSwitchState() {
+  try {
+    const got = await storageLocalGet(['REMOTE_KILL_SWITCH']);
+    return got?.REMOTE_KILL_SWITCH || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function _saIsLocked() {
+  const st = await _saKillSwitchState();
+  return st?.locked === true;
+}
+
 chrome.action.onClicked.addListener((tab) => {
   if (!tab?.id) return;
-  chrome.tabs.sendMessage(tab.id, { action: 'TRIGGER_AI_REPLY' });
+  _saIsLocked()
+    .then((locked) => {
+      if (locked) return;
+      chrome.tabs.sendMessage(tab.id, { action: 'TRIGGER_AI_REPLY' });
+    })
+    .catch(() => {
+      chrome.tabs.sendMessage(tab.id, { action: 'TRIGGER_AI_REPLY' });
+    });
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm?.name !== LIST_MODE_ALARM_NAME) return;
-  listModeMaybeOpenNext({ reason: 'alarm' }).catch(() => {});
+  _saIsLocked()
+    .then((locked) => {
+      if (locked) return;
+      listModeMaybeOpenNext({ reason: 'alarm' }).catch(() => {});
+    })
+    .catch(() => {
+      listModeMaybeOpenNext({ reason: 'alarm' }).catch(() => {});
+    });
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -499,6 +527,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   (async () => {
+    // KillSwitch: lock non-store installs when global.testallowed=false
+    const ks = await _saKillSwitchState();
+    if (ks?.locked === true) {
+      sendResponse({ ok: false, locked: true, message: ks?.message, ctaUrl: ks?.ctaUrl, reason: ks?.reason });
+      return;
+    }
+
     // Existing: store last question for AI.
     if (request?.action === 'STORE_LAST_QUESTION') {
       const tabId = sender?.tab?.id;

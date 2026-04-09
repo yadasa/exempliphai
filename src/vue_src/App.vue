@@ -6,6 +6,7 @@ import EnterSkill from '@/components/EnterSkill.vue';
 import EnterWorkExperience from '@/components/EnterWorkExperience.vue';
 import EnterCertification from '@/components/EnterCertification.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
+import KillSwitchOverlay from '@/components/KillSwitchOverlay.vue';
 import { useTheme } from '@/composables/Theme';
 
 import { nextTick, onMounted, onUnmounted, ref } from 'vue';
@@ -99,6 +100,8 @@ const isActive = (name: string) => route.name === name;
 </script>
 
 <template>
+  <KillSwitchOverlay />
+
   <EnterWorkExperience />
   <EnterSkill />
   <EnterCertification />
