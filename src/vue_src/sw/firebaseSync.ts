@@ -548,6 +548,15 @@ function docFields(data: Record<string, any>): any {
 }
 
 async function authedFetch(url: string, init: RequestInit = {}) {
+  // KillSwitch: block all authenticated outbound requests (Firestore + Cloud Functions)
+  // when the extension is remotely locked.
+  try {
+    const locked = await isLocked();
+    if (locked) throw new Error('kill_switch_locked');
+  } catch (_) {
+    // If we can't determine lock state, fail open.
+  }
+
   const st = await ensureFreshIdToken();
   if (!st?.idToken) throw new Error('no_auth');
 
