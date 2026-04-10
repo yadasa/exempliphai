@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "LOCAL_PROFILE",
-  "description": "Local-only profile for ATS autofill. Keys are Simplify-compatible. Stored in chrome.storage.local.",
+  "description": "Local-only profile for ATS autofill. Keys are ATS-compatible. Stored in chrome.storage.local.",
   "categories": [
     {
       "id": "personal",

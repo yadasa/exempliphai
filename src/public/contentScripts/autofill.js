@@ -1145,7 +1145,7 @@ try {
 window.addEventListener("load", async (_) => {
   console.log("exempliphai: found job page.");
 
-  // Detect ATS using Simplify-derived URL patterns (best-effort)
+  // Detect ATS using packaged URL patterns (best-effort)
   // Robustness: prefer a detailed detector w/ confidence when available.
   try {
     const det2 = globalThis.__SmartApply?.atsConfig?.detectATSForUrlDetailed;
@@ -1398,7 +1398,7 @@ function findBestForm() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ATS selector-driven autofill (Simplify-style config)
+// ATS selector-driven autofill (selector config)
 //
 // Uses config/simplify_ats.json loaded by contentScripts/atsConfig.js.
 // Executes sequential actions using containerPath + inputSelectors.
@@ -2361,7 +2361,7 @@ function _saPickCanonicalKeyFromValuesMap(valuesMap, fillValue) {
 function _saSubstitutePlaceholders(str, { value } = {}) {
   const s = String(str || '');
   const v = _saNormalize(value);
-  // NOTE: Simplify-style XPaths often use translate(., "%UPPERVALUE%", "%LOWERVALUE%")
+  // NOTE: Some XPaths use translate(., "%UPPERVALUE%", "%LOWERVALUE%")
   // where %UPPERVALUE%/%LOWERVALUE% are alphabet maps, not the user's value.
   return s
     .replaceAll('%VALUE%', v)
@@ -3049,7 +3049,7 @@ async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
     await _saMaybeAutoTailorBeforeAutofill({ source: reason || 'autofill' });
   } catch (_) {}
 
-  // Prefer Simplify-style ATS selector config when available.
+  // Prefer selector config when available.
   // This supports many ATS domains beyond our legacy hostname heuristics.
   try {
     const atsAttempt = await tryAutofillUsingAtsConfig({ url: window.location.href, force });

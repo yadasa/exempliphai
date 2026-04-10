@@ -121,7 +121,7 @@
     const p0 = String(pattern || '').trim();
     if (!p0) return null;
 
-    // The Simplify-derived config uses Chrome match-pattern-like strings, e.g.
+    // The selector config uses Chrome match-pattern-like strings, e.g.
     //   *://*.amazon.jobs/*
     //   *://*.indeed.com/jobs?*
     // Convert them to a safe RegExp.
