@@ -64,27 +64,60 @@ const progressStepKey = ref<ProgressStep['key']>('prep');
 let progressTimer: any = null;
 let progressStepStartedAt = 0;
 
+// UX: let the bar crawl smoothly even if later steps complete quickly.
+// We track a "target" step (real progress) and a separate "display" step
+// that eases toward the target over time.
+const targetProgressStepKey = ref<ProgressStep['key']>('prep');
+let targetProgressStartedAt = 0;
+
 function setProgressStep(key: ProgressStep['key']) {
   const step = PROGRESS_STEPS.find((s) => s.key === key) || PROGRESS_STEPS[0];
-  progressStepKey.value = step.key as any;
-  // Hard snap to the start of the step so we never "surpass" the step we're actually on.
-  progressPct.value = Math.max(progressPct.value, step.startPct);
-  progressStepStartedAt = Date.now();
+  // Update the real/target step immediately.
+  targetProgressStepKey.value = step.key as any;
+  targetProgressStartedAt = Date.now();
+
+  // Display step should never jump backwards.
+  const curIdx = PROGRESS_STEPS.findIndex((s) => s.key === progressStepKey.value);
+  const nextIdx = PROGRESS_STEPS.findIndex((s) => s.key === step.key);
+  if (nextIdx > curIdx) {
+    // keep display step; the timer will ease the bar forward
+  }
 }
 
 function startProgress() {
   progressPct.value = 0;
-  setProgressStep('prep');
+  progressStepKey.value = 'prep';
+  targetProgressStepKey.value = 'prep';
+  progressStepStartedAt = Date.now();
+  targetProgressStartedAt = Date.now();
   if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(() => {
-    const step = PROGRESS_STEPS.find((s) => s.key === progressStepKey.value);
-    if (!step) return;
+    const displayIdx = PROGRESS_STEPS.findIndex((s) => s.key === progressStepKey.value);
+    const targetIdx = PROGRESS_STEPS.findIndex((s) => s.key === targetProgressStepKey.value);
+    const dStep = PROGRESS_STEPS[Math.max(0, displayIdx)] || PROGRESS_STEPS[0];
+    const tStep = PROGRESS_STEPS[Math.max(0, targetIdx)] || PROGRESS_STEPS[0];
+
+    // If the target is ahead, allow the display step to advance once we've crawled
+    // to the end of the current display step (minus 1% so it never looks "done").
     const elapsed = Date.now() - progressStepStartedAt;
-    const t = step.expectedMs ? Math.min(1, elapsed / step.expectedMs) : 0;
-    // Don't reach the end of the step unless we explicitly advance to the next step.
-    const cap = Math.max(step.startPct, step.endPct - 1);
-    const next = step.startPct + (cap - step.startPct) * t;
-    if (next > progressPct.value) progressPct.value = next;
+    const t = dStep.expectedMs ? Math.min(1, elapsed / dStep.expectedMs) : 0;
+    const cap = Math.max(dStep.startPct, dStep.endPct - 1);
+    const nextPct = dStep.startPct + (cap - dStep.startPct) * t;
+    if (nextPct > progressPct.value) progressPct.value = nextPct;
+
+    if (targetIdx > displayIdx && progressPct.value >= cap - 0.25) {
+      // Move display step forward one notch and restart the crawl clock.
+      const nextDisplay = PROGRESS_STEPS[displayIdx + 1];
+      if (nextDisplay) {
+        progressStepKey.value = nextDisplay.key as any;
+        progressStepStartedAt = Date.now();
+        // Snap progressPct to the start of the next step (never backwards).
+        progressPct.value = Math.max(progressPct.value, nextDisplay.startPct);
+      }
+    }
+
+    // If target is behind (shouldn't happen), ignore; we never crawl backward.
+    void tStep;
   }, 120);
 }
 
@@ -900,31 +933,11 @@ watch(
       </div>
 
       <div v-if="loading" style="margin-top: 0.75rem;">
-        <div style="display:flex; align-items:center; justify-content: flex-end; gap: 0.75rem;">
-          <div style="font-size: 0.82rem; color: var(--text-secondary); opacity: 0.9;">
-            {{ Math.floor(progressPct) }}%
-          </div>
-        </div>
         <div style="height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--border-color) 55%, transparent); overflow:hidden; margin-top: 0.4rem;">
           <div
             :style="{ width: `${Math.min(100, Math.max(0, progressPct))}%` }"
             style="height: 100%; border-radius: 999px; background: linear-gradient(135deg, #4f46e5, #7c3aed); transition: width 140ms linear;"
           />
-        </div>
-
-        <div style="margin-top: 0.5rem; display:flex; flex-wrap: wrap; gap: 0.4rem;">
-          <span
-            v-for="(s, i) in PROGRESS_STEPS"
-            :key="s.key"
-            style="font-size: 0.72rem; font-weight: 800; padding: 4px 8px; border-radius: 999px; border: 1px solid var(--card-border);"
-            :style="{
-              opacity: i <= progressStepIndex ? 1 : 0.55,
-              background: i === progressStepIndex ? 'color-mix(in srgb, var(--accent-color) 14%, transparent)' : 'transparent',
-              color: 'var(--text-secondary)'
-            }"
-          >
-            {{ i < progressStepIndex ? '✓ ' : '' }}Step {{ i + 1 }}
-          </span>
         </div>
       </div>
 
