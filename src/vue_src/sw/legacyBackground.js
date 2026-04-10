@@ -575,6 +575,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // List mode (popup → background)
     if (request?.action === 'LIST_MODE_SET_ENABLED') {
+      try {
+        const paid = await _p((cb) => chrome.storage.local.get(['ui_paidPlan'], cb));
+        if (paid?.ui_paidPlan !== true) {
+          sendResponse({ ok: false, reason: 'plus_required' });
+          return;
+        }
+      } catch (_) {}
       const val = request?.value === true;
       await storageSyncSet({ listModeEnabled: val });
       sendResponse({ ok: true, value: val });

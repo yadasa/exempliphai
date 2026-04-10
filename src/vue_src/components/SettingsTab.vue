@@ -325,6 +325,20 @@ export default {
         const listModeEnabled = ref(false);
         const closePreviousTabs = ref(false);
 
+        const uiPaidPlan = ref<boolean>(false);
+        const loadPaidPlan = async () => {
+            if (!chrome?.storage?.local) return;
+            chrome.storage.local.get(['ui_paidPlan'], (res) => {
+                uiPaidPlan.value = (res as any)?.ui_paidPlan === true;
+            });
+        };
+
+        const showPlusToast = () => {
+            import('../utils/plusGate').then(({ showPlusGateToast }) => {
+                showPlusGateToast({ message: 'Upgrade to plus to access all features!' });
+            }).catch(() => {});
+        };
+
         // AI usage (local-only)
         const aiUsageLog = ref<AiUsageEntry[]>([]);
 
@@ -433,6 +447,14 @@ export default {
             );
         };
 
+        // Prime paid-plan cache for gating (best-effort).
+        loadPaidPlan().catch(() => {});
+        try {
+            chrome.storage?.local?.onChanged?.addListener((changes) => {
+                if (changes?.ui_paidPlan) uiPaidPlan.value = changes.ui_paidPlan.newValue === true;
+            });
+        } catch (_) {}
+
         const loadListModeState = async () => {
             if (!chrome?.storage) return;
             chrome.storage.local.get(['jobQueue', 'currentIndex', 'listModePaused', 'listModeActiveJob', 'listModeNextOpenAt'], (result) => {
@@ -462,6 +484,12 @@ export default {
         };
 
         const toggleAutoSubmit = () => {
+            if (!uiPaidPlan.value) {
+                const attempted = autoSubmitEnabled.value;
+                autoSubmitEnabled.value = !attempted;
+                showPlusToast();
+                return;
+            }
             chrome.storage.sync.set({ autoSubmitEnabled: autoSubmitEnabled.value }, () => {
                 console.log("Auto-submit toggled:", autoSubmitEnabled.value);
             });
@@ -481,6 +509,13 @@ export default {
 
         const toggleListMode = async () => {
             const nextVal = listModeEnabled.value;
+
+            if (!uiPaidPlan.value) {
+                listModeEnabled.value = !nextVal;
+                showPlusToast();
+                return;
+            }
+
             const resp: any = await sendMessage({ action: 'LIST_MODE_SET_ENABLED', value: nextVal });
 
             if (!resp?.ok) {
@@ -499,12 +534,20 @@ export default {
         };
 
         const triggerAI = () => {
+            if (!uiPaidPlan.value) {
+                showPlusToast();
+                return;
+            }
             chrome.tabs.query({ active: true, currentWindow: true }, (tabs) =>
                 chrome.tabs.sendMessage(tabs[0].id!, { action: 'TRIGGER_AI_REPLY' })
             );
         };
 
         const generateAllPending = () => {
+            if (!uiPaidPlan.value) {
+                showPlusToast();
+                return;
+            }
             chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                 const tabId = tabs?.[0]?.id;
                 if (!tabId) return;
