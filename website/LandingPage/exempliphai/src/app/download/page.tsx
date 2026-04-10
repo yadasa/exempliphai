@@ -22,7 +22,7 @@ export default function DownloadPage() {
 
           <a
             className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[#a78bfa] px-4 py-3 text-sm font-extrabold text-white shadow-[0_18px_35px_rgba(167,139,250,0.28)] transition hover:brightness-[1.02]"
-            href="https://firebasestorage.googleapis.com/v0/b/exempliphai.firebasestorage.app/o/dev%2Fexempliph.ai.zip?alt=media&token=1ea15050-f40b-47aa-a7e0-9cc4b7aa96b6"
+            href="https://exempliph.ai/downloads/exempliph.ai.zip"
             target="_blank"
             rel="noreferrer"
           >
