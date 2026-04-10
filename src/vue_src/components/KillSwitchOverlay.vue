@@ -54,7 +54,7 @@ onUnmounted(() => {
     <div class="ks-card">
       <h2 class="ks-title">Extension disabled</h2>
       <p class="ks-msg">{{ message }}</p>
-      <a v-if="ctaUrl" class="ks-btn" :href="ctaUrl" target="_blank" rel="noreferrer">Open Chrome Web Store</a>
+      <a v-if="ctaUrl" class="ks-btn" :href="ctaUrl" target="_blank" rel="noreferrer">Download Link</a>
     </div>
   </div>
 </template>
@@ -80,6 +80,7 @@ onUnmounted(() => {
   padding: 18px;
   color: white;
   backdrop-filter: blur(10px);
+  box-sizing: border-box;
 }
 
 .ks-title {
@@ -102,11 +103,15 @@ onUnmounted(() => {
   width: 100%;
   padding: 10px 12px;
   border-radius: 12px;
-  background: #3b82f6;
+  background: #a78bfa; /* lavender */
   color: white;
   text-decoration: none;
   font-weight: 800;
   font-size: 13px;
+  box-sizing: border-box;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .ks-btn:hover {

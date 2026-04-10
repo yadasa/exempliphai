@@ -61,17 +61,21 @@ function applyKillSwitchOverlay(st) {
         a.href = url;
         a.target = '_blank';
         a.rel = 'noreferrer';
-        a.textContent = 'Open Chrome Web Store';
+        a.textContent = 'Download Link';
         a.style.display = 'inline-flex';
         a.style.width = '100%';
         a.style.justifyContent = 'center';
         a.style.padding = '10px 12px';
         a.style.borderRadius = '12px';
-        a.style.background = '#3b82f6';
+        a.style.background = '#a78bfa';
         a.style.color = 'white';
         a.style.textDecoration = 'none';
         a.style.fontWeight = '800';
         a.style.fontSize = '13px';
+        a.style.boxSizing = 'border-box';
+        a.style.maxWidth = '100%';
+        a.style.whiteSpace = 'normal';
+        a.style.overflowWrap = 'anywhere';
       } else {
         a.style.display = 'none';
       }
