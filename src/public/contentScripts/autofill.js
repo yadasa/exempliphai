@@ -543,13 +543,6 @@ async function _saGenerateAiAnswer(element, opts = {}) {
 
     // 2) User Data
     const fullSync = await getStorageDataSync();
-    const apiKey = fullSync["API Key"];
-
-    if (!apiKey) {
-      if (!noAlert) alert('Please set your Gemini API Key in the Autofill Jobs extension settings.');
-      else if (!quiet) console.warn('exempliphai: Missing Gemini API key for AI answer');
-      return;
-    }
 
     const localData = await getStorageDataLocal(["Resume", "LinkedIn PDF", "Resume_details"]);
     const resumeDetails = localData.Resume_details || {};
@@ -4998,4 +4991,3 @@ async function processFields(jobForm, fieldMap, form, res) {
   }
 
 }
-

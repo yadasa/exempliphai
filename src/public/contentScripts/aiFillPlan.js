@@ -77,7 +77,7 @@
     let provider = args?.provider;
     if (!provider) {
       if (providerName === 'gemini') {
-        if (!args?.apiKey) throw new Error('AI mapping requires Gemini API Key');
+        // Proxy-only: client Gemini API keys are no longer required.
         // Support either a provider factory or a provider object in the global context.
         const gemini = global.__SmartApplyProviders?.gemini;
         if (typeof gemini === 'function') {
