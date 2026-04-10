@@ -558,7 +558,7 @@ function DashboardInner() {
     };
   }, [userDoc, user?.phoneNumber]);
 
-  const timeSavedHours = (autofillsTotal * 14) / 60;
+  const timeSavedHours = ((6.7 * autofillsTotal) + (2 * (customAnswersTotal || 0))) / 60;
 
   const appsSeries = useMemo(
     () => buildAppsSeries(autofillDates, appsRange),
