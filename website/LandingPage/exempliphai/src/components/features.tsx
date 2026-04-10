@@ -85,6 +85,7 @@ const FeatureTab = (props: FeatureTabProps) => {
 
 export function Features() {
   const [selectedTab, setSelectedTab] = useState(0);
+  const [demoReady, setDemoReady] = useState(false);
 
   const backgroundPositionX = useMotionValue<number>(tabs[0].backgroundPositionX);
   const backgroundPositionY = useMotionValue<number>(tabs[0].backgroundPositionY);
@@ -140,14 +141,40 @@ export function Features() {
         </div>
 
         <motion.div className="mt-3 rounded-xl border border-muted p-2.5">
-          <div
-            className="aspect-video rounded-lg border border-muted bg-cover"
-            style={{
-              backgroundPosition: backgroundPosition.get(),
-              backgroundSize: backgroundSize.get(),
-              backgroundImage: `url(${ProductImage})`,
-            }}
-          />
+          <div className="relative aspect-video overflow-hidden rounded-lg border border-muted bg-black">
+            {!demoReady ? (
+              <button
+                type="button"
+                onClick={() => setDemoReady(true)}
+                className="absolute inset-0 grid place-items-center bg-cover"
+                style={{
+                  backgroundPosition: backgroundPosition.get(),
+                  backgroundSize: backgroundSize.get(),
+                  backgroundImage: `url(${ProductImage})`,
+                }}
+                aria-label="Play demo video"
+              >
+                <span className="flex items-center gap-3 rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white backdrop-blur">
+                  <span className="grid h-9 w-9 place-items-center rounded-full bg-[#a78bfa] text-white">
+                    ▶
+                  </span>
+                  Play demo
+                </span>
+              </button>
+            ) : (
+              <video
+                className="h-full w-full"
+                controls
+                preload="metadata"
+                playsInline
+                poster={ProductImage}
+              >
+                <source src="/videos/demo.webm" type="video/webm" />
+                <source src="/videos/demo.mp4" type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+            )}
+          </div>
         </motion.div>
 
         <div className="mx-auto mt-5 max-w-3xl rounded-xl border border-muted bg-card p-4 text-sm text-muted-foreground">
