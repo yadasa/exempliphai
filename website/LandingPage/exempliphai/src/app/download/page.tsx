@@ -1,4 +1,10 @@
 import Link from "next/link";
+import Image from "next/image";
+
+import ins1 from "@/assets/ins-1.jpg";
+import ins2 from "@/assets/ins-2.jpg";
+import ins3 from "@/assets/ins-3.jpg";
+import ins4 from "@/assets/ins-4.jpg";
 
 export default function DownloadPage() {
   return (
@@ -29,12 +35,16 @@ export default function DownloadPage() {
           <ol className="mt-4 list-decimal space-y-2 pl-6">
             <li>
               Open Chrome and go to:{" "}
-              <a className="underline" href="chrome://extensions" rel="noreferrer">
+              <a className="underline" href="chrome://extensions" target="_self" rel="noreferrer">
                 chrome://extensions
               </a>
             </li>
             <li>Toggle <strong>Developer mode</strong> on (top right).</li>
           </ol>
+
+          <div className="mt-4 overflow-hidden rounded-xl border bg-muted">
+            <Image src={ins1} alt="Enable Developer mode in Chrome extensions" className="h-auto w-full" priority />
+          </div>
         </div>
 
         <div className="rounded-xl border bg-card p-6">
@@ -44,6 +54,15 @@ export default function DownloadPage() {
             <li>Select the <strong>exempliph.ai</strong> folder you just unzipped.</li>
             <li>The extension should appear in your extensions list immediately.</li>
           </ol>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="overflow-hidden rounded-xl border bg-muted">
+              <Image src={ins2} alt="Load unpacked button" className="h-auto w-full" />
+            </div>
+            <div className="overflow-hidden rounded-xl border bg-muted">
+              <Image src={ins3} alt="Select the exempliph.ai folder" className="h-auto w-full" />
+            </div>
+          </div>
         </div>
 
         <div className="rounded-xl border bg-card p-6">
@@ -52,6 +71,10 @@ export default function DownloadPage() {
             <li>Click the puzzle-piece icon (Extensions) in the top right of Chrome.</li>
             <li>Find <strong>ExempliPhai</strong> and click the pin icon.</li>
           </ol>
+
+          <div className="mt-4 overflow-hidden rounded-xl border bg-muted">
+            <Image src={ins4} alt="Pin the ExempliPhai extension" className="h-auto w-full" />
+          </div>
         </div>
 
         <div className="rounded-xl border bg-card p-6">
