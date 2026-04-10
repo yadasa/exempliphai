@@ -554,8 +554,13 @@ async function generateRecommendations() {
       const q = String(rh?.role || '').trim();
       if (!q) continue;
 
+      // Always bias toward the two most reliable ATS platforms.
+      // This improves direct-apply link quality and reduces aggregator-heavy result sets.
+      const atsBias = '(site:jobs.lever.co OR site:job-boards.greenhouse.io OR site:boards.greenhouse.io)';
+      const qBiased = `${atsBias} ${q}`.trim();
+
       const payload = {
-        q,
+        q: qBiased,
         location: String(desiredLocation.value || '').trim(),
         limit: 20,
         start: 0,
@@ -670,7 +675,7 @@ async function generateRecommendations() {
           rolesUsed: roles,
           serp: {
             provider: proxyResp?.provider || null,
-            query: proxyResp?.query || payload,
+            query: proxyResp?.query || { ...payload, q },
             results: results,
           },
         } as any,
