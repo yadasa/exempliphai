@@ -19,6 +19,16 @@ export default function DownloadPage() {
       <section className="space-y-8">
         <div className="rounded-xl border bg-card p-6">
           <h2 className="text-xl font-semibold">1) Download the build</h2>
+
+          <a
+            className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-[#a78bfa] px-4 py-3 text-sm font-extrabold text-white shadow-[0_18px_35px_rgba(167,139,250,0.28)] transition hover:brightness-[1.02]"
+            href="https://firebasestorage.googleapis.com/v0/b/exempliphai.firebasestorage.app/o/dev%2Fexempliph.ai.zip?alt=media&token=1ea15050-f40b-47aa-a7e0-9cc4b7aa96b6"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Download here
+          </a>
+
           <ol className="mt-4 list-decimal space-y-2 pl-6">
             <li>
               Download the extension build as a ZIP.
