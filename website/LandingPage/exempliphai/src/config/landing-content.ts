@@ -24,7 +24,7 @@ export const landingContent = {
     ],
     ctas: {
       primary: { label: "Install free and start applying", href: "/download" },
-      secondary: { label: "Watch the 60s demo", href: "#how-it-works" },
+      secondary: { label: "Watch the 60s demo", href: "#demo" },
     },
     privacyNote:
       "Private by default. We never sell your data. You choose what gets submitted.",

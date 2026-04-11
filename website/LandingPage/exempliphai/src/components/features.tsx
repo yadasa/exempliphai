@@ -140,7 +140,7 @@ export function Features() {
           ))}
         </div>
 
-        <motion.div className="mt-3 rounded-xl border border-muted p-2.5">
+        <motion.div id="demo" className="mt-3 rounded-xl border border-muted p-2.5 scroll-mt-28">
           <div className="relative aspect-video overflow-hidden rounded-lg border border-muted bg-black">
             {!demoReady ? (
               <button
