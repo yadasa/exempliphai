@@ -146,10 +146,11 @@ export function Features() {
               <button
                 type="button"
                 onClick={() => setDemoReady(true)}
-                className="absolute inset-0 grid place-items-center bg-cover"
+                className="absolute inset-0 grid place-items-center bg-center"
                 style={{
                   backgroundPosition: backgroundPosition.get(),
-                  backgroundSize: backgroundSize.get(),
+                  // Fit vertically; crop horizontally as needed.
+                  backgroundSize: 'auto 100%',
                   backgroundImage: `url(${ProductImage})`,
                 }}
                 aria-label="Play demo video"
