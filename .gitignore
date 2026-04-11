@@ -23,6 +23,8 @@ coverage
 /cypress/videos/
 /cypress/screenshots/
 /.firebase
+.firebase/
+.firebase
 
 # Editor directories and files
 .vscode
