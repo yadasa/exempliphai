@@ -16,7 +16,6 @@
     "contextMenus",
     "tabs",
     "alarms",
-    "identity",
     "management"
   ],
   "host_permissions": [
