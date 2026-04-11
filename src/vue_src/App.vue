@@ -133,7 +133,11 @@ const isActive = (name: string) => route.name === name;
     </div>
 
     <div class="content-area px-4">
-      <router-view />
+      <router-view v-slot="{ Component, route }">
+        <transition name="tabfade" mode="out-in">
+          <component :is="Component" :key="route.fullPath" />
+        </transition>
+      </router-view>
     </div>
 
     <!-- Tab Bar -->
@@ -224,6 +228,16 @@ const isActive = (name: string) => route.name === name;
   padding-top: 0.25rem;
   /* Fix cut-off (e.g., Disability Status) behind fixed tab bar */
   padding-bottom: calc(var(--tab-bar-height) + 72px);
+}
+
+/* Tab transitions (fade) */
+.tabfade-enter-active,
+.tabfade-leave-active {
+  transition: opacity 140ms ease;
+}
+.tabfade-enter-from,
+.tabfade-leave-to {
+  opacity: 0;
 }
 
 .tab-bar {
