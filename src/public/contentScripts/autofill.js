@@ -578,6 +578,52 @@ async function _saGenerateAiAnswer(element, opts = {}) {
       sponsorship: pick(fullSync, ['sponsorship', 'Sponsorship', 'requires_sponsorship']),
     };
 
+    // If the question looks like it needs specific user-provided numbers/details
+    // (salary range, dates, etc.), we still generate a best-effort answer but we
+    // mark it for on-screen review.
+    const _saInferNeedsUserInput = (q, profile) => {
+      try {
+        const t = normalizeText(q);
+        if (!t) return false;
+        const salaryHints = ['salary', 'compensation', 'expected salary', 'desired salary', 'salary expectations', 'base salary', 'total compensation', 'tc', 'ote', 'pay'];
+        const dateHints = ['start date', 'available', 'notice period', 'when can you start'];
+        const authHints = ['authorized', 'authorization', 'work authorization', 'sponsorship', 'visa'];
+
+        // Salary: if profile doesn't include a salary expectation key, flag review.
+        if (salaryHints.some((h) => t.includes(h))) {
+          const hasSalary = Object.keys(profile || {}).some((k) => normalizeText(k).includes('salary') || normalizeText(k).includes('comp'));
+          return !hasSalary;
+        }
+
+        // Start date / notice period: flag if profile is missing any relevant hints
+        if (dateHints.some((h) => t.includes(h))) {
+          const has = Object.keys(profile || {}).some((k) => {
+            const nk = normalizeText(k);
+            return nk.includes('notice') || nk.includes('start') || nk.includes('available');
+          });
+          return !has;
+        }
+
+        // Work auth questions are often sensitive, but when they're asked as text we answer.
+        if (authHints.some((h) => t.includes(h))) {
+          const has = Object.keys(profile || {}).some((k) => {
+            const nk = normalizeText(k);
+            return nk.includes('auth') || nk.includes('sponsor') || nk.includes('visa');
+          });
+          return !has;
+        }
+
+        // Generic: if resume details are empty and it's narrative, flag review.
+        if (_saLooksLikeNarrativeQuestionLabel(q)) {
+          return !(resumeDetailsMin && resumeDetailsMin !== '(none)');
+        }
+
+        return false;
+      } catch (_) {
+        return false;
+      }
+    };
+
     // Remove empty keys
     for (const k of Object.keys(profileSubset)) {
       if (profileSubset[k] == null || String(profileSubset[k]).trim() === '') delete profileSubset[k];
@@ -652,6 +698,7 @@ async function _saGenerateAiAnswer(element, opts = {}) {
       text: `You write concise, professional job-application answers in first person.
 Return ONLY the answer text.
 Do not include placeholders like [Company] or [Your Name].
+Do NOT include bracketed placeholders or TODOs (no [..], (..), <..> placeholders). If details are missing, write a truthful best-effort answer that is still usable and sounds professional.
 
 ${sitePrompt ? `Site guidance: ${sitePrompt}\n\n` : ''}${synonymHint ? `Synonym hint: ${synonymHint}\n\n` : ''}Job title:
 ${jobTitleForPrompt}
@@ -819,6 +866,8 @@ options:
       }
     }
 
+    const needsUserInput = _saInferNeedsUserInput(question, profileSubset);
+
     // Insert Answer + dispatch events (best-effort)
     if (answer) {
       try {
@@ -831,6 +880,18 @@ options:
       }
       try {
         if (typeof dispatchInputAndChange === 'function') dispatchInputAndChange(element);
+      } catch (_) {}
+
+      // Overlay is user-only, does not affect form content.
+      try {
+        if (needsUserInput) {
+          _saAttachOverlayBadge(element, {
+            text: 'Needs your input',
+            title: 'This answer was generated best-effort and may need your specifics (range, dates, details).',
+          });
+        } else {
+          _saRemoveOverlayBadge(element);
+        }
       } catch (_) {}
 
       // Metrics hook (Firebase): store the full answer
@@ -852,6 +913,14 @@ options:
   } catch (error) {
     console.error('AI Generation Error', error);
     if (!noAlert) alert(`Failed to generate answer: ${error.message}`);
+
+    // On failure, mark field with invisible fallback char + overlay (user-only)
+    try {
+      if (element && (typeof isEmptyForAi !== 'function' || isEmptyForAi(element))) {
+        const did = _saInsertInvisibleFallbackChar(element);
+        if (did) _saAttachOverlayBadge(element, { text: 'Needs your input', title: 'AI could not answer this field automatically.' });
+      }
+    } catch (_) {}
   } finally {
     try {
       if (element?.style) element.style.cursor = originalCursor;
@@ -914,6 +983,138 @@ function _saShowToast(message, { timeoutMs = 1800 } = {}) {
   } catch (_) {}
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Autofill UX helpers
+// - Overlay badges are visible only to the user (DOM only, not form content)
+// - Invisible fallback char marks "intentionally left for user" without adding
+//   visible text
+// ─────────────────────────────────────────────────────────────────────────────
+
+const _saOverlayClass = 'smartapply-ai-overlay-badge';
+const _saOverlayStyleId = 'smartapply-ai-overlay-style';
+
+function _saEnsureOverlayStyles() {
+  try {
+    const doc = document;
+    if (!doc?.getElementById || doc.getElementById(_saOverlayStyleId)) return;
+    const style = doc.createElement('style');
+    style.id = _saOverlayStyleId;
+    style.textContent = `
+.${_saOverlayClass} {
+  position: absolute;
+  z-index: 2147483647;
+  top: -8px;
+  right: 0;
+  transform: translateY(-100%);
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: rgba(245, 158, 11, 0.95);
+  color: #111827;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+  pointer-events: auto;
+}
+@media (prefers-color-scheme: dark) {
+  .${_saOverlayClass} { color: #111827; }
+}
+`;
+    doc.documentElement.appendChild(style);
+  } catch (_) {}
+}
+
+function _saAttachOverlayBadge(el, { text = 'Needs your input', title = '' } = {}) {
+  try {
+    if (!el || !el.ownerDocument) return;
+    _saEnsureOverlayStyles();
+
+    // Remove existing badge to keep idempotent.
+    try {
+      const prev = el.ownerDocument.querySelector(`.${_saOverlayClass}[data-for-id="${CSS.escape(el.id || '')}"]`);
+      if (prev) prev.remove();
+    } catch (_) {}
+
+    // Prefer anchoring inside a positioned wrapper. If not possible, fall back to a fixed badge.
+    const doc = el.ownerDocument;
+
+    const badge = doc.createElement('div');
+    badge.className = _saOverlayClass;
+    badge.textContent = String(text || 'Needs your input').slice(0, 60);
+    if (title) badge.title = String(title).slice(0, 240);
+
+    // Try to anchor to closest reasonably-contained block.
+    let anchor = null;
+    try {
+      anchor = el.closest('label, .field, .form-field, .form-group, [role="group"], [data-test], [data-testid]') || el.parentElement;
+    } catch (_) {
+      anchor = el.parentElement;
+    }
+
+    if (anchor && anchor.appendChild) {
+      const cs = doc.defaultView?.getComputedStyle(anchor);
+      if (cs && cs.position === 'static') anchor.style.position = 'relative';
+      badge.style.pointerEvents = 'none';
+      anchor.appendChild(badge);
+      return;
+    }
+
+    // Fallback: fixed badge near element
+    const r = el.getBoundingClientRect?.();
+    if (r) {
+      badge.style.position = 'fixed';
+      badge.style.top = Math.max(6, r.top - 10) + 'px';
+      badge.style.left = Math.min(window.innerWidth - 160, Math.max(6, r.right - 140)) + 'px';
+      badge.style.transform = 'translateY(-100%)';
+      badge.style.pointerEvents = 'none';
+      doc.documentElement.appendChild(badge);
+    }
+  } catch (_) {}
+}
+
+function _saRemoveOverlayBadge(el) {
+  try {
+    if (!el?.ownerDocument) return;
+    const doc = el.ownerDocument;
+    const nodes = Array.from(doc.querySelectorAll(`.${_saOverlayClass}`));
+    for (const n of nodes) {
+      // Best-effort: remove badges that are near this element by DOM containment.
+      if (n && (el.contains?.(n) || n.parentElement?.contains?.(el))) {
+        try { n.remove(); } catch (_) {}
+      }
+    }
+  } catch (_) {}
+}
+
+function _saInsertInvisibleFallbackChar(el, { force = false } = {}) {
+  try {
+    if (!el) return false;
+    const tag = String(el.tagName || '').toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea') return false;
+
+    const type = String(el.getAttribute?.('type') || 'text').toLowerCase();
+    if (tag === 'input' && ['hidden', 'file', 'checkbox', 'radio', 'submit', 'button', 'date', 'time', 'datetime-local', 'number', 'email', 'tel', 'url', 'password'].includes(type)) {
+      return false;
+    }
+
+    const v = String(el.value || '');
+    if (!force && v.trim().length > 0) return false;
+
+    const invisible = '‎ ';
+    try {
+      setNativeValue(el, invisible);
+    } catch (_) {
+      el.value = invisible;
+    }
+    try {
+      if (typeof dispatchInputAndChange === 'function') dispatchInputAndChange(el);
+    } catch (_) {}
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function _saLooksLikeBasicProfileFieldLabel(label) {
   const t = normalizeText(label);
   if (!t) return false;
@@ -957,6 +1158,22 @@ function _saLooksLikeNarrativeQuestionLabel(label) {
     'eeo',
   ];
   if (sensitive.some((s) => t.includes(s))) return false;
+
+  // Salary/compensation questions are explicitly allowed even when not phrased
+  // as a narrative question.
+  const salaryHints = [
+    'salary',
+    'compensation',
+    'pay',
+    'expected salary',
+    'desired salary',
+    'salary expectations',
+    'base salary',
+    'total compensation',
+    'tc',
+    'ote',
+  ];
+  if (salaryHints.some((s) => t.includes(s))) return true;
 
   if (_saLooksLikeBasicProfileFieldLabel(t)) return false;
 
@@ -1010,6 +1227,7 @@ function _saFindPendingAiAnswerElements({ limit = 8 } = {}) {
         const label = _saGetQuestionFromElement(el);
         if (!_saLooksLikeNarrativeQuestionLabel(label)) {
           // Avoid filling basic single-line inputs unless the label looks like a question.
+          // Exception: salary/comp fields are allowed (handled in _saLooksLikeNarrativeQuestionLabel).
           if (tag !== 'textarea') continue;
         }
 
@@ -1044,6 +1262,18 @@ async function _saGenerateAllPendingAiAnswers({ limit = 8, source = 'manual' } =
 
       try {
         await _saGenerateAiAnswer(el, { noAlert: true, quiet: true });
+      } catch (_) {}
+
+      // If still empty after attempting AI, mark field with an invisible character
+      // so the user can spot unfilled fields via overlays and the extension can
+      // avoid reprocessing loops.
+      try {
+        if (typeof isEmptyForAi === 'function' && isEmptyForAi(el)) {
+          const did = _saInsertInvisibleFallbackChar(el);
+          if (did) _saAttachOverlayBadge(el, { text: 'Needs your input', title: 'Exempliphai could not confidently answer this field.' });
+        } else {
+          _saRemoveOverlayBadge(el);
+        }
       } catch (_) {}
 
       // Best-effort success detection
