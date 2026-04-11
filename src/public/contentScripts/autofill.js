@@ -3929,6 +3929,26 @@ function clickBestRadioInGroup(radioEl, fillValue, root) {
   const name = radioEl.name;
   if (!name) return false;
 
+  // Lever: Some custom questions surface via a hidden/base template control, and the
+  // deterministic mapping can end up targeting the wrong element. If the question text
+  // indicates visa sponsorship, force-click the "No" option inside the same question.
+  // This avoids false "already has No" states on template controls.
+  try {
+    const qc = radioEl.closest?.('.application-question, .custom-question, li');
+    const qText = normalizeText(qc?.textContent || '');
+    if (qText && qText.includes('visa sponsorship') && qText.includes('united states')) {
+      const scope = qc || root || radioEl.form || document;
+      const escName = CSS?.escape ? CSS.escape(name) : name.replace(/[^a-zA-Z0-9_\-\[\]]/g, "\\$&");
+      const noRadio = scope.querySelector?.(`input[type="radio"][name="${escName}"][value="No"]`);
+      if (noRadio && !noRadio.checked) {
+        noRadio.click();
+        dispatchInputAndChange(noRadio);
+        console.log('exempliphai: Lever visa sponsorship forced → clicked "No"');
+        return true;
+      }
+    }
+  } catch (_) {}
+
   const esc = (val) =>
     CSS?.escape ? CSS.escape(val) : val.replace(/[^a-zA-Z0-9_\-]/g, "\\$&");
   const scope = root || radioEl.form || document;
