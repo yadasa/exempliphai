@@ -880,7 +880,10 @@ watch(
 </script>
 
 <template>
-  <SignInGate v-if="!isAuthed" />
+  <SignInGate v-if="isAuthed === false" />
+  <div v-else-if="isAuthed === null" class="action-card" style="padding: 14px; opacity: 0.85;">
+    Loading…
+  </div>
   <div v-else>
     <div style="display:flex; align-items:center; justify-content:flex-start; gap:0.6rem;">
       <h2 class="subheading" style="margin: 0;">Job Search</h2>

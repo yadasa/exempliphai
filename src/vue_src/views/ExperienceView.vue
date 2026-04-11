@@ -8,7 +8,10 @@ const { isAuthed } = useIsAuthed();
 </script>
 
 <template>
-  <SignInGate v-if="!isAuthed" />
+  <SignInGate v-if="isAuthed === false" />
+  <div v-else-if="isAuthed === null" class="action-card" style="padding: 14px; opacity: 0.85;">
+    Loading…
+  </div>
   <div v-else>
     <InputField label="Resume" placeHolder="No file found" />
     <InputField label="Cover Letter" placeHolder="No file found" />

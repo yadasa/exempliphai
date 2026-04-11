@@ -45,7 +45,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <SignInGate v-if="!isAuthed" />
+  <SignInGate v-if="isAuthed === false" />
+  <div v-else-if="isAuthed === null" class="action-card" style="padding: 14px; opacity: 0.85;">
+    Loading…
+  </div>
   <div v-else style="position: relative;">
     <div v-if="prettyStatus(syncStatus)" class="syncStatusPill">
       {{ prettyStatus(syncStatus) }}

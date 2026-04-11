@@ -1,7 +1,8 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 
 export function useIsAuthed() {
-  const isAuthed = ref(false);
+  // null = unknown/loading, false = not authed, true = authed
+  const isAuthed = ref<boolean | null>(null);
 
   const refresh = () => {
     try {
