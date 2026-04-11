@@ -40,6 +40,7 @@ export function LogoTicker() {
                 duration: 30,
                 ease: "linear",
               }}
+              style={{ translateZ: 0 }}
               // Seamless loop: we duplicate the list and move left by exactly half.
               // Avoid extra end padding (it creates a visible "jump" at the wrap).
               className="flex flex-none gap-14 will-change-transform"
