@@ -167,7 +167,7 @@ export function Features() {
                 controls
                 preload="metadata"
                 playsInline
-                poster={ProductImage}
+                poster={typeof ProductImage === 'string' ? ProductImage : (ProductImage as any)?.src}
               >
                 <source src="/videos/demo.webm" type="video/webm" />
                 <source src="/videos/demo.mp4" type="video/mp4" />
