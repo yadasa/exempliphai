@@ -10,7 +10,7 @@ export const siteConfig = {
     // Set NEXT_PUBLIC_SITE_URL in production to avoid Next.js metadataBase warnings.
     deploymentUrl: process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
     loginUrl: "/login",
-    waitlistUrl: "https://exempliph.ai/#waitlist",
+    waitlistUrl: "/download",
   },
   openGraph: {
     imageUrl: "/opengraph-image.png",

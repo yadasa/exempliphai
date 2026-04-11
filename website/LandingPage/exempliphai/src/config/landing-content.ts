@@ -23,7 +23,7 @@ export const landingContent = {
       { label: "Privacy-first", value: "Never sold" },
     ],
     ctas: {
-      primary: { label: "Install free and start applying", href: "/login" },
+      primary: { label: "Install free and start applying", href: "/download" },
       secondary: { label: "Watch the 60s demo", href: "#how-it-works" },
     },
     privacyNote:
