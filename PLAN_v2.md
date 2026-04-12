@@ -24,7 +24,7 @@ The report’s “inventory table” matches the current structure closely; belo
 | `src/public/contentScripts/utils.js` | ✅ | `src/public/contentScripts/utils.js` | Field maps (`fields`), storage helpers, `setNativeValue`. **Missing:** contenteditable/rich-editor set, date/time normalization, semantic label extraction utilities beyond current `getLabelText` (in `autofill.js`). |
 | `src/public/contentScripts/autofill.js` | ✅ | `src/public/contentScripts/autofill.js` | Current deterministic + heuristic autofill engine; includes AI answer generation (Gemini) for last right-clicked element (embedded under `param === "Resume"` path). **Missing:** a dedicated snapshot extractor + FillPlan orchestrator. |
 | `src/public/contentScripts/workday.js` | ✅ | `src/public/contentScripts/workday.js` | Workday-specific staged autofill. |
-| `src/index.html`, `src/vue_src/*` | ✅ | `src/index.html`, `src/vue_src/*` | Popup SPA: profile editor, resume upload → Gemini resume parsing, settings (API Key), job tracker, privacy toggle, etc. |
+| `src/index.html`, `src/vue_src/*` | ✅ | `src/index.html`, `src/vue_src/*` | Popup SPA: profile editor, resume upload → Gemini resume parsing, settings (proxy-only AI, no client API key), job tracker, privacy toggle, etc. |
 | Examples fixtures | ✅ | `examples/greenhouse/*`, `examples/lever/*` | Used for regression; should become Playwright fixtures for FillPlan tests.
 
 ### 1.2 “Missing handler” checklist (what’s not covered consistently today)

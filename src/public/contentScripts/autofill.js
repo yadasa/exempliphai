@@ -4695,7 +4695,6 @@ function _saAllowedProfileKeys(profile) {
 }
 
 async function _saAiPickBestDropdownOptionText({
-  apiKey,
   label,
   allowedProfileKeys,
   options,
@@ -4703,7 +4702,6 @@ async function _saAiPickBestDropdownOptionText({
   timeoutMs = 8000,
 } = {}) {
   try {
-    if (!apiKey) return null;
     if (!label) return null;
     if (!Array.isArray(options) || options.length === 0) return null;
 
@@ -4727,7 +4725,6 @@ async function _saAiPickBestDropdownOptionText({
 
     const text = await _saEnqueueAiDropdownTask(() =>
       provider.generateNarrativeAnswer({
-        apiKey,
         questionText: prompt,
         maxWords: 20,
         tone: 'direct',

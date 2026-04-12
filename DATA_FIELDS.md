@@ -262,7 +262,7 @@ All simple text/dropdown InputField values are stored here. The **key** is the `
 
 | UI Label | Storage Key | Type | Description |
 |----------|-------------|------|-------------|
-| API Key | `API Key` | string (sync) | Gemini API key for AI-powered answer generation |
+| API Key (deprecated) | `API Key` | string (sync) | Deprecated. AI features are proxy-only (AI_PROXY) and do not require a client API key. Kept only for backward compatibility with older installs. |
 | Cloud Sync toggle | `cloudSyncEnabled` | boolean (sync) | Enables syncing job history to Google account |
 | Theme | `ThemeSetting` | string (sync) | `"light"` or `"dark"` |
 

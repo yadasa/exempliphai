@@ -227,10 +227,9 @@
       return { ok: false, actions: [], plan: null, error: _err('ai_mapping_disabled', 'AI mapping disabled') };
     }
 
-    const apiKey = consents?.apiKey;
-    if (!apiKey) {
-      return { ok: false, actions: [], plan: null, error: _err('missing_api_key', 'Missing API key') };
-    }
+    // Proxy-only: AI calls go through the authenticated AI_PROXY service worker route.
+    // Client API keys are no longer required.
+    const apiKey = consents?.apiKey; // kept for backwards compatibility (ignored by proxy provider)
 
     const domain = snapshot?.domain || global.location?.hostname || '';
     const pageUrl = snapshot?.page_url || global.location?.href || '';
