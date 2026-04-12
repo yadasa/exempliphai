@@ -1,18 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth/auth-context";
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading, degraded, reason } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     if (!loading && !user && !degraded) {
-      router.replace("/login");
+      const next = `${pathname || "/"}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
+      router.replace(`/login?next=${encodeURIComponent(next)}`);
     }
-  }, [loading, user, degraded, router]);
+  }, [loading, user, degraded, router, pathname, searchParams]);
 
   if (loading) {
     return (

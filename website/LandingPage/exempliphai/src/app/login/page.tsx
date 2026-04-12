@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RecaptchaVerifier,
@@ -22,7 +23,17 @@ function normalizeUsPhoneToE164(input: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading } = useAuth();
+
+  const nextPath = useMemo(() => {
+    const raw = searchParams?.get("next") || "";
+    // Only allow same-origin relative paths.
+    if (!raw.startsWith("/")) return "/dashboard";
+    if (raw.startsWith("//")) return "/dashboard";
+    if (raw.toLowerCase().startsWith("/\\")) return "/dashboard";
+    return raw;
+  }, [searchParams]);
 
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
@@ -37,8 +48,8 @@ export default function LoginPage() {
   const sentDigitsRef = useRef<string>("");
 
   useEffect(() => {
-    if (!loading && user) router.replace("/dashboard" as any);
-  }, [loading, user, router]);
+    if (!loading && user) router.replace(nextPath as any);
+  }, [loading, user, router, nextPath]);
 
   const phoneDigits = useMemo(() => phone.replace(/\D/g, ""), [phone]);
   const canSend = phoneDigits.length === 10;
@@ -147,11 +158,13 @@ export default function LoginPage() {
       // On static-export deployments (trailingSlash), Next router transitions can occasionally hang.
       // Use a hard navigation after successful auth.
       if (typeof window !== "undefined") {
-        window.location.assign("/dashboard/");
+        // Preserve the intended post-login destination.
+        const dest = nextPath.endsWith("/") ? nextPath : `${nextPath}/`;
+        window.location.assign(dest);
         return;
       }
 
-      router.replace("/dashboard" as any);
+      router.replace(nextPath as any);
     } catch (e: any) {
       setErr(String(e?.message || e));
     } finally {
