@@ -1,21 +1,25 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/auth-context";
 
 export function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading, degraded, reason } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
 
   useEffect(() => {
     if (!loading && !user && !degraded) {
-      const next = `${pathname || "/"}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
+      // Avoid useSearchParams() here to keep static export/prerender happy.
+      // (useSearchParams requires a Suspense boundary in some Next versions.)
+      const next =
+        typeof window !== "undefined"
+          ? `${window.location.pathname}${window.location.search}`
+          : pathname || "/";
       router.replace(`/login?next=${encodeURIComponent(next)}`);
     }
-  }, [loading, user, degraded, router, pathname, searchParams]);
+  }, [loading, user, degraded, router, pathname]);
 
   if (loading) {
     return (
