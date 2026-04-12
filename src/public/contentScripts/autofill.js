@@ -3059,10 +3059,8 @@ async function _saAutofillTrackedInputs({ ats, root, profile, force = false } = 
             // AI fallback for tracked inputs (serialized queue): label + profile keys + options only.
             try {
               const aiEnabled = profile?.aiMappingEnabled === true;
-              const apiKey = profile?.['API Key'];
-              if (aiEnabled && apiKey) {
+              if (aiEnabled) {
                 const picked = await _saAiPickBestDropdownOptionText({
-                  apiKey,
                   label,
                   allowedProfileKeys: _saAllowedProfileKeys(profile),
                   options: opts.map((o) => (o.textContent || o.value || '').toString().trim()).filter(Boolean),
@@ -3906,11 +3904,10 @@ async function fillReactSelectKeyboard(inputElement, fillValue, jobParam, ctx = 
     // based on label + allowed profile KEYS + visible options (never values).
     try {
       const ai = ctx?.ai;
-      const canUseAi = !!(ai?.enabled && ai?.apiKey);
+      const canUseAi = !!ai?.enabled;
       if (canUseAi) {
         const optionTexts = options.map((o) => (o.textContent || '').trim()).filter(Boolean);
         const picked = await _saAiPickBestDropdownOptionText({
-          apiKey: ai.apiKey,
           label: jobParam,
           allowedProfileKeys: Array.isArray(ai.allowedProfileKeys) ? ai.allowedProfileKeys : [],
           options: optionTexts,
@@ -4118,11 +4115,10 @@ async function setBestSelectOption(selectEl, fillValue, ctx = {}) {
     try {
       const ai = ctx?.ai;
       const label = ctx?.label || ctx?.jobParam || '';
-      const canUseAi = !!(ai?.enabled && ai?.apiKey && label);
+      const canUseAi = !!(ai?.enabled && label);
       if (canUseAi) {
         const optionTexts = options.map((o) => (o.textContent || o.value || '').toString().trim()).filter(Boolean);
         const picked = await _saAiPickBestDropdownOptionText({
-          apiKey: ai.apiKey,
           label,
           allowedProfileKeys: Array.isArray(ai.allowedProfileKeys) ? ai.allowedProfileKeys : [],
           options: optionTexts,
@@ -4862,9 +4858,7 @@ async function tryHybridAiMapping(form, res) {
   if (now - _smartApplyHybridLastRunAt < 15000) return;
 
   if (!res?.aiMappingEnabled) return;
-
-  const apiKey = res?.['API Key'];
-  if (!apiKey) return;
+  // AI provider calls are routed through the extension's proxy (no user-provided API key needed).
 
   const fs = globalThis.__SmartApply?.formSnapshot;
   const policy = globalThis.__SmartApply?.policy;
@@ -4967,7 +4961,7 @@ async function tryHybridAiMapping(form, res) {
       unresolved_fields,
     },
     allowedProfileKeys,
-    { apiKey, allowAiMapping: true, timeoutMs: 20000, outerRetries: 1 }
+    { allowAiMapping: true, timeoutMs: 20000, outerRetries: 1 }
   );
 
   if (!tier1?.ok) {
@@ -4995,10 +4989,8 @@ async function tryPureAiMapping(form, res) {
   const now = Date.now();
   if (now - _smartApplyHybridLastRunAt < 15000) return;
 
-  // Pure AI mode requires AI mapping + API key.
+  // Pure AI mode requires AI mapping to be enabled.
   if (!res?.aiMappingEnabled) return;
-  const apiKey = res?.['API Key'];
-  if (!apiKey) return;
 
   const fs = globalThis.__SmartApply?.formSnapshot;
   const policy = globalThis.__SmartApply?.policy;
@@ -5111,7 +5103,7 @@ async function tryPureAiMapping(form, res) {
         unresolved_fields,
       },
       allowedProfileKeys,
-      { apiKey, allowAiMapping: true, timeoutMs: 25000, outerRetries: 1 }
+      { allowAiMapping: true, timeoutMs: 25000, outerRetries: 1 }
     );
 
     if (!tier1?.ok) {
@@ -5350,7 +5342,6 @@ async function processFields(jobForm, fieldMap, form, res) {
         label: jobParam,
         ai: {
           enabled: res?.aiMappingEnabled === true,
-          apiKey: res?.['API Key'],
           allowedProfileKeys: _saAllowedProfileKeys(res),
         },
       })) _filledElements.add(inputElement);
@@ -5391,7 +5382,6 @@ async function processFields(jobForm, fieldMap, form, res) {
           tag: `exempliphai: React-Select "${jobParam}"`,
           ai: {
             enabled: res?.aiMappingEnabled === true,
-            apiKey: res?.['API Key'],
             allowedProfileKeys: _saAllowedProfileKeys(res),
           },
         });
