@@ -4560,7 +4560,14 @@ async function _saPausePoint() {
 async function autofill(form) {
   console.log("exempliphai: Starting autofill.");
   _saUpdateAutofillButtonUI({ running: true });
-  let res = await getStorageDataSync();
+  // Profile fields live in sync storage, but some installs store secrets (like API Key)
+  // in local storage. Merge so AI features consistently see it.
+  const resSync = await getStorageDataSync();
+  let resLocal = {};
+  try {
+    resLocal = await getStorageDataLocal(['API Key']);
+  } catch (_) {}
+  let res = { ...(resSync || {}), ...(resLocal || {}) };
   res["Current Date"] = curDateStr();
   await sleep(delays.initial);
 
