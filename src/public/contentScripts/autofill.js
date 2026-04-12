@@ -3819,12 +3819,39 @@ async function fillReactSelectKeyboard(inputElement, fillValue, jobParam, ctx = 
 
   if (!menu) {
     console.log(`${TAG} — dropdown menu not found after ${timeoutMs}ms for "${fillValue}"`);
+
+    // Retry once with a more direct open sequence. Greenhouse can be finicky and
+    // sometimes ignores the first keyboard open attempt.
     try {
-      const ev = k.escapeDown();
-      if (ev) inputElement.dispatchEvent(ev);
+      const control = selectShell?.querySelector?.('.select__control, [class*="control"], [class*="Control"]');
+      if (control) {
+        try { control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); } catch (_) {}
+        try { control.click?.(); } catch (_) {}
+      }
     } catch (_) {}
-    await clearTypedText();
-    return false;
+
+    await sleep(220);
+
+    // Re-poll briefly
+    const retryStart = Date.now();
+    while (Date.now() - retryStart < Math.min(1200, timeoutMs)) {
+      menu = findMenu();
+      if (menu) {
+        options = Array.from(menu.querySelectorAll('[role="option"], .select__option, [class*="option"]'))
+          .filter(o => (o.textContent || '').trim().length > 0);
+        if (options.length) break;
+      }
+      await sleep(100);
+    }
+
+    if (!menu) {
+      try {
+        const ev = k.escapeDown();
+        if (ev) inputElement.dispatchEvent(ev);
+      } catch (_) {}
+      await clearTypedText();
+      return false;
+    }
   }
 
   if (!options.length) {
