@@ -95,7 +95,7 @@ export default function SiteHeader() {
 
             <ThemeToggle />
             <a href={siteConfig.links.waitlistUrl} className="max-md:hidden">
-              <ActionButton label={uiText("Add to Chrome")} />
+              <ActionButton label={uiText("Get Started")} />
             </a>
             <MobileNav
               open={isOpen}
@@ -208,7 +208,7 @@ function MobileNav({
                 href={siteConfig.links.waitlistUrl}
                 onOpenChange={setOpen}
               >
-                {uiText("Add to Chrome")}
+                {uiText("Get Started")}
               </MobileAnchor>
             </div>
           </div>

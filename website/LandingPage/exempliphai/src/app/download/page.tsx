@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import Image from "next/image";
+
+import { RequireAuth } from "@/lib/auth/require-auth";
 
 import ins1 from "@/assets/ins-1.jpg";
 import ins2 from "@/assets/ins-2.jpg";
@@ -8,7 +12,8 @@ import ins4 from "@/assets/ins-4.jpg";
 
 export default function DownloadPage() {
   return (
-    <main className="mx-auto w-full max-w-3xl px-6 py-14">
+    <RequireAuth>
+      <main className="mx-auto w-full max-w-3xl px-6 py-14">
       <header className="mb-10">
         <h1 className="text-3xl font-bold tracking-tight">Install the ExempliPhai Extension (Unpacked)</h1>
         <p className="mt-3 text-muted-foreground">
@@ -116,6 +121,7 @@ export default function DownloadPage() {
           </Link>
         </div>
       </section>
-    </main>
+      </main>
+    </RequireAuth>
   );
 }
