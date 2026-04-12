@@ -439,6 +439,12 @@ export async function generateNarrativeAnswer(args) {
 
 // Optional: expose for classic-script usage if needed.
 try {
+  // Preferred global for the SmartApply AI orchestration.
+  globalThis.__SmartApplyProviders = globalThis.__SmartApplyProviders || {};
+  // Provider factory signature expected by aiFillPlan.js
+  globalThis.__SmartApplyProviders.gemini = (opts = {}) => createGeminiProvider(opts);
+
+  // Legacy/debug namespace (kept for backwards compatibility)
   globalThis.__exempliphaiProviders = globalThis.__exempliphaiProviders || {};
   globalThis.__exempliphaiProviders.gemini = {
     createGeminiProvider,

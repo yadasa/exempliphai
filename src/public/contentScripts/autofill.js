@@ -1356,14 +1356,26 @@ function _saInstallAiAnswerHandlers() {
           return false;
         }
 
-        if (request?.action === 'TRIGGER_AI_REPLY_ALL') {
-          _saGenerateAllPendingAiAnswers({ limit: 8, source: 'manual' });
-          return false;
-        }
-
+      if (request?.action === 'TRIGGER_AI_REPLY_ALL') {
+        _saGenerateAllPendingAiAnswers({ limit: 8, source: 'manual' });
         return false;
-      });
-    }
+      }
+
+      if (request?.action === 'FORCE_AUTOFILL_THIS_PAGE') {
+        try {
+          // Force run: attempt autofill even if ATS isn't detected.
+          // This also enables Phase-2 AI mapping.
+          tryAutofillNow({ force: true, reason: 'dashboard_button' });
+          sendResponse?.({ ok: true });
+        } catch (e) {
+          sendResponse?.({ ok: false, error: String(e?.message || e) });
+        }
+        return true;
+      }
+
+      return false;
+    });
+  }
   } catch (_) {
     // swallow
   }
@@ -1427,6 +1439,8 @@ let smartApplyAutofillLock = false;
 let smartApplyLastAutofillAt = 0;
 let smartApplyMutationDebounce = null;
 let smartApplyLastRunForced = false;
+let smartApplyLastRunReason = 'unknown';
+let _smartApplyAiAutoStartedUrl = '';
 
 // Page-scoped pause flag for this tab/page only.
 // Does not affect other tabs running in parallel.
@@ -3272,6 +3286,8 @@ function _saSendListModeAutofillResult(payload = {}) {
 async function tryAutofillNow({ force = false, reason = "auto" } = {}) {
   if (smartApplyAutofillLock) return false;
 
+  smartApplyLastRunReason = String(reason || 'auto');
+
   // Greenhouse pages are keyboard/focus sensitive and often require focus to be
   // inside the form. We allow auto-runs, but may send a few *optional* Tabs to
   // establish focus before filling.
@@ -4602,8 +4618,16 @@ async function autofill(form) {
   // Phase 2 (opt-in): AI mapping modes.
   // To avoid repeated network calls from MutationObserver re-runs, only run on
   // explicit user-triggered runs (the 🚀 button / force=true).
-  if (smartApplyLastRunForced) {
+  const pageUrlForAi = window.location.href || '';
+  const shouldAutoStartAi =
+    res?.pureAiModeEnabled === true &&
+    smartApplyLastRunReason === 'initial' &&
+    pageUrlForAi &&
+    _smartApplyAiAutoStartedUrl !== pageUrlForAi;
+
+  if (smartApplyLastRunForced || shouldAutoStartAi) {
     try {
+      if (shouldAutoStartAi) _smartApplyAiAutoStartedUrl = pageUrlForAi;
       if (res?.pureAiModeEnabled === true) {
         await tryPureAiMapping(form, res);
       } else {

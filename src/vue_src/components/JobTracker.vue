@@ -1,6 +1,11 @@
 <template>
     <div class="jobTracker">
         <h2 class="subheading">Tracking</h2>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin: 6px 0 10px 0;">
+            <button class="secondary-btn" @click="autofillThisPage" title="Force attempt autofill on the current tab (even if ATS isn't detected)">
+                Autofill this page
+            </button>
+        </div>
         <div class="stats-card">
             <div class="stat-row"><b>Autofills:</b> {{ statsAutofills.toLocaleString() }}</div>
             <div class="stat-row"><b>Custom answers generated:</b> {{ statsCustomAnswers.toLocaleString() }}</div>
@@ -97,6 +102,24 @@ export default {
 
         const chartLinePath = ref<string>('');
         const chartAreaPath = ref<string>('');
+
+        const autofillThisPage = async () => {
+            try {
+                const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+                const tab = tabs?.[0];
+                if (!tab?.id) return;
+                chrome.tabs.sendMessage(tab.id, { action: 'FORCE_AUTOFILL_THIS_PAGE' }, (resp) => {
+                    const err = chrome.runtime?.lastError;
+                    if (err) {
+                        console.warn('JobTracker: FORCE_AUTOFILL_THIS_PAGE failed', err);
+                        return;
+                    }
+                    if (!resp?.ok) console.warn('JobTracker: FORCE_AUTOFILL_THIS_PAGE not ok', resp);
+                });
+            } catch (e) {
+                console.warn('JobTracker: autofillThisPage error', e);
+            }
+        };
 
         const rebuildGraph = () => {
             // Build counts for last 14 days from appliedJobs list.
@@ -313,6 +336,7 @@ export default {
 
         return {
             appliedJobs,
+            autofillThisPage,
             clearHistory,
             formatDate,
             editingIndex,
