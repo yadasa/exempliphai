@@ -3,7 +3,6 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RecaptchaVerifier,
@@ -23,17 +22,25 @@ function normalizeUsPhoneToE164(input: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, loading } = useAuth();
 
-  const nextPath = useMemo(() => {
-    const raw = searchParams?.get("next") || "";
-    // Only allow same-origin relative paths.
-    if (!raw.startsWith("/")) return "/dashboard";
-    if (raw.startsWith("//")) return "/dashboard";
-    if (raw.toLowerCase().startsWith("/\\")) return "/dashboard";
-    return raw;
-  }, [searchParams]);
+  const [nextPath, setNextPath] = useState<string>("/dashboard");
+
+  // Avoid useSearchParams() to keep static export/prerender happy.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const sp = new URLSearchParams(window.location.search || "");
+      const raw = sp.get("next") || "";
+      // Only allow same-origin relative paths.
+      if (!raw.startsWith("/")) return;
+      if (raw.startsWith("//")) return;
+      if (raw.toLowerCase().startsWith("/\\")) return;
+      setNextPath(raw);
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");

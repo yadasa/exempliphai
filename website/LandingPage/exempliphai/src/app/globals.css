@@ -122,6 +122,71 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Hero blob animation
+   (subtle float, respects reduced-motion)
+   ───────────────────────────────────────────────────────────── */
+
+@keyframes heroBlobFloat1 {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(28px, 18px, 0) scale(1.04);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes heroBlobFloat2 {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-24px, 22px, 0) scale(0.98);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes heroBlobFloat3 {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(18px, -26px, 0) scale(1.03);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.hero-blob {
+  will-change: transform;
+}
+
+.hero-blob-1 {
+  animation: heroBlobFloat1 16s ease-in-out infinite;
+}
+
+.hero-blob-2 {
+  animation: heroBlobFloat2 20s ease-in-out infinite;
+}
+
+.hero-blob-3 {
+  animation: heroBlobFloat3 18s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-blob-1,
+  .hero-blob-2,
+  .hero-blob-3 {
+    animation: none !important;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
