@@ -3975,12 +3975,32 @@ async function fillReactSelectKeyboard(inputElement, fillValue, jobParam, ctx = 
     return true;
   }
 
-  console.log(`${TAG} — post-fill verify failed, no visible selection`);
+  // React-Select verification can be flaky on Greenhouse due to async re-renders
+  // and portal-based menus. Crucially: do NOT clear the input on verify failure,
+  // because that can wipe a correct selection and cause later "flip" behavior.
+  //
+  // Secondary verify: check the surrounding shell text for the option we attempted.
+  try {
+    const shell = verifyShell();
+    const shellText = normalizeText(shell?.textContent || '');
+    const want = normalizeText(bestText || fillValue || '');
+    if (shellText && want && shellText.includes(want)) {
+      console.log(`${TAG} → Selected (secondary verify) "${bestText}" (score ${bestScore})`);
+      return true;
+    }
+  } catch (_) {}
+
+  console.log(`${TAG} — post-fill verify failed; leaving value as-is (no clear)`);
+
+  // Close menu best-effort, but do not clear typed text.
   try {
     const ev = k.escapeDown();
     if (ev) inputElement.dispatchEvent(ev);
   } catch (_) {}
-  await clearTypedText();
+
+  // Avoid thrashing this element in MutationObserver reruns.
+  try { markRecentlySkipped(inputElement); } catch (_) {}
+
   return false;
 }
 
@@ -5111,7 +5131,7 @@ async function processFields(jobForm, fieldMap, form, res) {
     // 2. Type into the input to trigger React-Select's internal filtering
     // 3. Wait for [role=listbox] to appear (up to 2s)
     // 4. Extract options → best match → click
-    // 5. On failure: clear, mark _recentlySkipped to prevent retry loops
+    // 5. On failure: do NOT clear (can wipe correct selections); mark _recentlySkipped to prevent retry loops
     const isReactSelectCombobox = inputElement.getAttribute?.("role") === "combobox" &&
       inputElement.closest?.(".select-shell, .select__container, [class*=\"select__\"]");
 
@@ -5135,9 +5155,10 @@ async function processFields(jobForm, fieldMap, form, res) {
         if (ok) {
           _filledElements.add(inputElement);
         } else {
-          // fillReactSelectKeyboard already cleared/escaped; we add the canonical
-          // skip log + recently-skipped marker to prevent retry loops.
-          console.log(`exempliphai: React-Select "${jobParam}" — no option match, skipped (cleared input)`);
+          // Do not clear on verify failure. fillReactSelectKeyboard now leaves the
+          // current value as-is when verification is flaky (common on Greenhouse).
+          // Mark as recently skipped to avoid thrashing this control on reruns.
+          console.log(`exempliphai: React-Select "${jobParam}" — verify/match failed, left as-is (no clear)`);
           markRecentlySkipped(inputElement);
         }
       } catch (e) {
