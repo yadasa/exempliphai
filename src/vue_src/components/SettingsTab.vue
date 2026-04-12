@@ -140,6 +140,21 @@
                         Enable AI-assisted autofill (field mapping)
                     </span>
                 </div>
+
+                <div class="toggle-container" style="margin: 0.25rem 0 0.5rem 0;">
+                    <label class="switch">
+                        <input type="checkbox" v-model="pureAiModeEnabled" @change="togglePureAiMode" :disabled="!aiMappingEnabled" />
+                        <span class="slider round"></span>
+                    </label>
+                    <span style="display:flex; align-items:center; gap:0.5rem;">
+                        Pure AI mode (⚠ higher token usage)
+                    </span>
+                </div>
+                <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+                    Pure AI mode attempts to map and fill <b>all</b> unresolved fields using the AI FillPlan pipeline.
+                    This consumes more tokens and is billed from your prepaid extokens wallet (server-side markup applies).
+                </p>
+
                 <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
                     Sends job-form field labels/options + a list of your saved profile key names to the Exempliphai AI proxy (not your profile values).
                 </p>
@@ -320,6 +335,7 @@ export default {
         const csvInput = ref<HTMLInputElement | null>(null);
 
         const aiMappingEnabled = ref(false);
+        const pureAiModeEnabled = ref(false);
         const autoSubmitEnabled = ref(false);
         const autoTailorEnabled = ref(false);
         const listModeEnabled = ref(false);
@@ -435,9 +451,10 @@ export default {
         const loadSettings = async () => {
             if (!chrome?.storage) return;
             chrome.storage.sync.get(
-                ['aiMappingEnabled', 'autoSubmitEnabled', 'autoTailorEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
+                ['aiMappingEnabled', 'pureAiModeEnabled', 'autoSubmitEnabled', 'autoTailorEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
                 (result) => {
                     aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
+                    pureAiModeEnabled.value = !!(result as any).pureAiModeEnabled;
                     autoSubmitEnabled.value = !!(result as any).autoSubmitEnabled;
                     autoTailorEnabled.value = !!(result as any).autoTailorEnabled;
                     listModeEnabled.value = !!(result as any).listModeEnabled;
@@ -478,8 +495,18 @@ export default {
         // Legacy cloud sync removed (Firebase sync is handled in AccountSyncCard).
 
         const toggleAiMapping = () => {
-            chrome.storage.sync.set({ aiMappingEnabled: aiMappingEnabled.value }, () => {
+            // If AI mapping is turned off, also turn off Pure AI mode.
+            if (!aiMappingEnabled.value) pureAiModeEnabled.value = false;
+            chrome.storage.sync.set({ aiMappingEnabled: aiMappingEnabled.value, pureAiModeEnabled: pureAiModeEnabled.value }, () => {
                 console.log("AI mapping toggled:", aiMappingEnabled.value);
+            });
+        };
+
+        const togglePureAiMode = () => {
+            // Pure AI mode implies AI mapping must be on.
+            if (pureAiModeEnabled.value) aiMappingEnabled.value = true;
+            chrome.storage.sync.set({ pureAiModeEnabled: pureAiModeEnabled.value, aiMappingEnabled: aiMappingEnabled.value }, () => {
+                console.log('Pure AI mode toggled:', pureAiModeEnabled.value);
             });
         };
 
@@ -620,6 +647,9 @@ export default {
                 if (changes?.aiMappingEnabled) {
                     aiMappingEnabled.value = !!changes.aiMappingEnabled.newValue;
                 }
+                if (changes?.pureAiModeEnabled) {
+                    pureAiModeEnabled.value = !!changes.pureAiModeEnabled.newValue;
+                }
                 if (changes?.autoSubmitEnabled) {
                     autoSubmitEnabled.value = !!changes.autoSubmitEnabled.newValue;
                 }
@@ -665,7 +695,9 @@ export default {
 
         return {
             aiMappingEnabled,
+            pureAiModeEnabled,
             toggleAiMapping,
+            togglePureAiMode,
             autoSubmitEnabled,
             toggleAutoSubmit,
             autoTailorEnabled,

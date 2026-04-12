@@ -4596,14 +4596,18 @@ async function autofill(form) {
     await processFields('generic', fields.generic, form, res);
   }
 
-  // Phase 2 (opt-in): run AI mapping for unresolved custom fields.
-  // To avoid repeated network calls from MutationObserver re-runs, only do this
-  // on explicit user-triggered runs (the 🚀 button / force=true).
+  // Phase 2 (opt-in): AI mapping modes.
+  // To avoid repeated network calls from MutationObserver re-runs, only run on
+  // explicit user-triggered runs (the 🚀 button / force=true).
   if (smartApplyLastRunForced) {
     try {
-      await tryHybridAiMapping(form, res);
+      if (res?.pureAiModeEnabled === true) {
+        await tryPureAiMapping(form, res);
+      } else {
+        await tryHybridAiMapping(form, res);
+      }
     } catch (e) {
-      console.warn('exempliphai: Hybrid AI mapping skipped/failed', e);
+      console.warn('exempliphai: AI mapping skipped/failed', e);
     }
   }
 }
@@ -4972,6 +4976,154 @@ async function tryHybridAiMapping(form, res) {
   });
 
   console.log('exempliphai: Hybrid AI mapping executor result', execRes);
+}
+
+// Phase 2b: Pure AI mapping (opt-in)
+// - Uses the same FillPlan generator/executor stack as hybrid mapping
+// - But considers ALL empty, non-sensitive controls (not just label-hinted ones)
+// - Runs in small batches to reduce prompt size and avoid provider timeouts
+async function tryPureAiMapping(form, res) {
+  if (!form) return;
+
+  const now = Date.now();
+  if (now - _smartApplyHybridLastRunAt < 15000) return;
+
+  // Pure AI mode requires AI mapping + API key.
+  if (!res?.aiMappingEnabled) return;
+  const apiKey = res?.['API Key'];
+  if (!apiKey) return;
+
+  const fs = globalThis.__SmartApply?.formSnapshot;
+  const policy = globalThis.__SmartApply?.policy;
+  const aiFillPlan = globalThis.__SmartApply?.aiFillPlan;
+  const fillExecutor = globalThis.__SmartApply?.fillExecutor;
+
+  if (!fs?.findControls || !fs?.stableFingerprint || !fs?.computeBestLabel) {
+    console.warn('exempliphai: formSnapshot not loaded; cannot run pure-ai mapping');
+    return;
+  }
+  if (!policy || !aiFillPlan || !fillExecutor) {
+    console.warn('exempliphai: Phase-2 modules missing (policy/aiFillPlan/fillExecutor)');
+    return;
+  }
+
+  const depsOk = await ensureAiDepsLoaded();
+  if (!depsOk) return;
+
+  const domain = window.location.hostname || '';
+  const pageUrl = window.location.href || '';
+
+  // Allowed profile KEYS only (never values)
+  const blockedKeys = new Set(['API Key', 'aiMappingEnabled', 'pureAiModeEnabled', 'cloudSyncEnabled']);
+  const allowedProfileKeys = Object.keys(res || {}).filter((k) => k && !blockedKeys.has(k));
+
+  // Run a few batches to keep payloads smaller.
+  // Each batch: snapshot unresolved fields → ask for FillPlan → execute → repeat.
+  const maxBatches = 4;
+  const batchSize = 14;
+
+  for (let batch = 0; batch < maxBatches; batch++) {
+    const unresolved_fields = [];
+    const controls = typeof fs.findControlElements === 'function'
+      ? fs.findControlElements(form)
+      : fs.findControls(form);
+
+    for (const el of controls) {
+      try {
+        const tag = (el.tagName || '').toLowerCase();
+        const type = (el.getAttribute?.('type') || '').toLowerCase();
+        if (tag === 'input' && ['hidden', 'file', 'checkbox', 'radio', 'submit', 'button'].includes(type)) {
+          // Note: checkbox/radio groups are handled via the snapshot layer elsewhere.
+          // For pure-ai mapping we keep input primitives minimal and safe.
+          continue;
+        }
+        if (type === 'file') continue;
+
+        if (_filledElements.has(el)) continue;
+        if (!isEmptyForAi(el)) continue;
+        if (typeof _saIsElementVisible === 'function' && !_saIsElementVisible(el)) continue;
+        if (typeof _saIsElementEnabled === 'function' && !_saIsElementEnabled(el)) continue;
+
+        const label = fs.computeBestLabel(el) || '';
+        const sectionCtx = fs.extractSectionContext ? fs.extractSectionContext(el) : null;
+        const section = inferSectionFromSnapshotCtx(sectionCtx);
+
+        // Policy gate BEFORE we send anything to AI.
+        if (policy.isConsentCheckbox?.({ label })) continue;
+        if (policy.isSensitiveField?.({ label, section })) continue;
+
+        const fp = fs.stableFingerprint(el, { root: form });
+        if (!fp) continue;
+
+        const options = fs.extractOptions ? fs.extractOptions(el) : [];
+        const optStrings = Array.isArray(options)
+          ? Array.from(
+              new Set(
+                options
+                  .map((o) => (o?.label || o?.value || '').toString().trim())
+                  .filter(Boolean)
+              )
+            ).slice(0, 50)
+          : [];
+
+        unresolved_fields.push({
+          field_fingerprint: fp,
+          control: {
+            kind: controlKindForElement(el),
+            tag: tag,
+            type: type,
+            role: (el.getAttribute?.('role') || '').toLowerCase(),
+            name: el.getAttribute?.('name') || '',
+            id: el.getAttribute?.('id') || '',
+            autocomplete: el.getAttribute?.('autocomplete') || '',
+          },
+          descriptor: {
+            label,
+            section,
+            required: el.required || el.getAttribute?.('aria-required') === 'true',
+            visible: true,
+            options: optStrings,
+          },
+        });
+
+        if (unresolved_fields.length >= batchSize) break;
+      } catch (_) {}
+    }
+
+    if (!unresolved_fields.length) break;
+
+    _smartApplyHybridLastRunAt = now;
+
+    console.log('exempliphai: Pure AI mapping batch', { batch: batch + 1, fields: unresolved_fields.length });
+
+    const tier1 = await aiFillPlan.generateTier1(
+      {
+        domain,
+        page_url: pageUrl,
+        snapshot_hash: `sha256:${Date.now().toString(36)}`,
+        unresolved_fields,
+      },
+      allowedProfileKeys,
+      { apiKey, allowAiMapping: true, timeoutMs: 25000, outerRetries: 1 }
+    );
+
+    if (!tier1?.ok) {
+      console.warn('exempliphai: Pure AI mapping failed', tier1?.error);
+      return;
+    }
+
+    const execRes = await fillExecutor.execute(tier1.plan, {
+      root: form,
+      profile: res,
+      force: false,
+      confidenceThreshold: 0.70,
+    });
+
+    console.log('exempliphai: Pure AI mapping executor result', execRes);
+
+    // Small delay to let UI frameworks settle before next batch.
+    await _saSleep(600);
+  }
 }
 
 async function processFields(jobForm, fieldMap, form, res) {
