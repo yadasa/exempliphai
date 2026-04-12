@@ -1427,6 +1427,12 @@ let smartApplyLastAutofillAt = 0;
 let smartApplyMutationDebounce = null;
 let smartApplyLastRunForced = false;
 
+// Page-scoped pause flag for this tab/page only.
+// Does not affect other tabs running in parallel.
+let _smartApplyPaused = false;
+let _smartApplyResumeRequested = false;
+let _smartApplyAutofillBtn = null;
+
 let _filledElements = new WeakSet();
 
 // Track elements that were recently attempted but had no matching option (e.g.,
@@ -3466,9 +3472,22 @@ function injectAutofillNowButton() {
     btn.style.boxShadow = '0 10px 25px rgba(0,0,0,0.18)';
     btn.style.cursor = 'pointer';
 
+    _smartApplyAutofillBtn = btn;
+
     btn.addEventListener('click', async () => {
+      // If we're actively autofilling, this button becomes a pause/resume toggle.
+      if (smartApplyAutofillLock) {
+        _smartApplyPaused = !_smartApplyPaused;
+        if (!_smartApplyPaused) _smartApplyResumeRequested = true;
+        _saUpdateAutofillButtonUI({ running: true });
+        return;
+      }
+
+      _smartApplyPaused = false;
+      _smartApplyResumeRequested = false;
+
       const prev = btn.textContent;
-      btn.textContent = 'FILLING...';
+      btn.textContent = 'FILLING…';
       btn.disabled = true;
       btn.style.opacity = '0.85';
       try {
@@ -3478,9 +3497,11 @@ function injectAutofillNowButton() {
 
         await tryAutofillNow({ force: true, reason: 'button' });
       } finally {
+        // If autofill finished normally, restore default UI.
         btn.textContent = prev;
         btn.disabled = false;
         btn.style.opacity = '1';
+        _saUpdateAutofillButtonUI({ running: false });
       }
     });
 
@@ -4501,8 +4522,43 @@ async function awaitForm() {
   });
 }
 
+function _saUpdateAutofillButtonUI(state = {}) {
+  try {
+    const btn = _smartApplyAutofillBtn || document.getElementById(AUTOFILL_NOW_BUTTON_ID);
+    if (!btn) return;
+
+    const running = state.running === true;
+    const paused = _smartApplyPaused === true;
+
+    if (running) {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.background = paused ? '#f59e0b' : '#ef4444';
+      btn.textContent = paused ? '▶ RESUME AUTOFILL' : '⏸ PAUSE AUTOFILL';
+      return;
+    }
+
+    // Not running
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    btn.style.background = '#4f46e5';
+    btn.textContent = '🚀 AUTOFILL NOW';
+  } catch (_) {}
+}
+
+async function _saPausePoint() {
+  // Cooperative pause: wait here until resumed.
+  try {
+    while (_smartApplyPaused) {
+      _saUpdateAutofillButtonUI({ running: true });
+      await sleep(150);
+    }
+  } catch (_) {}
+}
+
 async function autofill(form) {
   console.log("exempliphai: Starting autofill.");
+  _saUpdateAutofillButtonUI({ running: true });
   let res = await getStorageDataSync();
   res["Current Date"] = curDateStr();
   await sleep(delays.initial);
@@ -4924,6 +4980,7 @@ async function processFields(jobForm, fieldMap, form, res) {
   const _attemptedThisPass = new WeakSet();
 
   for (let jobParam in fieldMap) {
+    await _saPausePoint();
     const param = fieldMap[jobParam];
     if (param === "Resume") {
       // AI right-click handlers are installed globally on page load.
@@ -5237,6 +5294,7 @@ async function processFields(jobForm, fieldMap, form, res) {
   }
   // Removed global scrollToTop(); per-field scrolling now handles it
   console.log(`exempliphai: Complete in ${getTimeElapsed(initTime)}s.`);
+  _saUpdateAutofillButtonUI({ running: false });
 
   // Track Applied Job
   try {
