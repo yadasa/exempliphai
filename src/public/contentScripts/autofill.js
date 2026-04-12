@@ -1154,6 +1154,7 @@ function _saLooksLikeNarrativeQuestionLabel(label) {
     'ethnicity',
     'disability',
     'veteran',
+    'sexual orientation',
     'equal employment',
     'eeo',
   ];

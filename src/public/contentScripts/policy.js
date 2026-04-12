@@ -53,6 +53,7 @@
     'pronoun',
     'veteran',
     'disability',
+    'sexual orientation',
     'self identify',
     'self-identify',
     'voluntary disclosures',
