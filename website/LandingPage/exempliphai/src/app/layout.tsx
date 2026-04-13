@@ -22,13 +22,13 @@ export const metadata: Metadata = {
     ],
     apple: "/icons/128.png",
   },
-  title: siteConfig.name,
+  title: "apply in under 30 sec",
   description: siteConfig.description,
   creator: siteConfig.creator,
   openGraph: {
     type: "website",
     url: siteConfig.links.deploymentUrl,
-    title: siteConfig.name,
+    title: "apply in under 30 sec",
     description: siteConfig.description,
     images: [
       {
@@ -41,7 +41,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: siteConfig.name,
+    title: "apply in under 30 sec",
     creator: siteConfig.twitter.creator,
     images: siteConfig.twitter.imageUrl,
   },
