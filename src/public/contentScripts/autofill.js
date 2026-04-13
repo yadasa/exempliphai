@@ -2462,25 +2462,8 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
     };
   }
 
-  // If Pure AI (or any AI mode) filled fields that require human review, do not auto-submit.
-  try {
-    const pending = globalThis.__SmartApplyReview?.pending;
-    const pendingCount = pending && typeof pending.size === 'number' ? pending.size : 0;
-    if (pendingCount > 0) {
-      console.log('exempliphai: Auto-submit disabled — review required', { pendingCount });
-      return {
-        enabled: true,
-        attempted: true,
-        clicked: false,
-        intent: 'none',
-        clickedText,
-        why: found.why,
-        score: found.score || 0,
-        source,
-        reason: 'review_required',
-      };
-    }
-  } catch (_) {}
+  // Note: fields may be marked for review (orange outline + banner), but we never block auto-submit.
+  // The human user always has free will to review or not. Visual warnings stay; submission proceeds.
 
   console.log('exempliphai: Auto-submit enabled — clicking', {
     source,
