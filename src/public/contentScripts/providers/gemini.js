@@ -395,7 +395,15 @@ export function createGeminiProvider(cfg) {
         lastText = text;
         const jsonText = extractFirstJsonValue(text) ?? extractFirstJsonObject(text) ?? text;
         try {
-          let parsed = JSON.parse(jsonText);
+          let parsed;
+          try {
+            parsed = JSON.parse(jsonText);
+          } catch (e0) {
+            // Heuristic recovery: some proxies occasionally return a truncated JSON array.
+            const salvaged = salvageTruncatedJsonArray(text);
+            if (!salvaged) throw e0;
+            parsed = JSON.parse(salvaged);
+          }
           // Some proxies/models return a JSON-encoded string containing JSON.
           if (typeof parsed === 'string') {
             const inner = parsed.trim();
@@ -475,6 +483,20 @@ function normalizeTier1Result(parsed) {
 
 function normalizeTier1Action(a) {
   const action = a && typeof a === 'object' ? { ...a } : {};
+  // Alternate shape: { field_fingerprint, source:'profile', profile_key:'...' }
+  if (!action.value && action.source) {
+    const v = {
+      source: String(action.source),
+      profile_key: action.profile_key,
+      source_key: action.source_key,
+      literal: action.literal,
+    };
+    action.value = v;
+    delete action.source;
+    delete action.profile_key;
+    delete action.source_key;
+    delete action.literal;
+  }
   if (action.value && typeof action.value === 'object') {
     const v = { ...action.value };
     // Older/alternate schema: { source:'profile', profile_key:'...' }
@@ -486,6 +508,17 @@ function normalizeTier1Action(a) {
     action.value = v;
   }
   return action;
+}
+
+function salvageTruncatedJsonArray(text) {
+  const s = String(text || '');
+  const first = s.indexOf('[');
+  const lastBrace = s.lastIndexOf('}');
+  if (first === -1 || lastBrace === -1 || lastBrace <= first) return null;
+  let body = s.slice(first, lastBrace + 1);
+  body = body.replace(/,\s*$/, '');
+  const candidate = `${body}]`;
+  return candidate;
 }
 
 /**
