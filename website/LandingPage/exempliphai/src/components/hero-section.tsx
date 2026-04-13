@@ -29,6 +29,7 @@ import BackgroundStars from "@/assets/stars.png";
 import Link from "next/link";
 import { doc, onSnapshot } from "firebase/firestore";
 import { ActionButton } from "@/components/action-button";
+import { RollingNumber } from "@/components/rolling-number";
 import { landingContent } from "@/config/landing-content";
 import { getFirebase } from "@/lib/firebase/client";
 import { uiText } from "@/lib/utils";
@@ -62,19 +63,24 @@ export function HeroSection() {
     });
   }, []);
 
-  const heroStatText = useMemo(() => {
+  const heroStatParts = useMemo(() => {
     const A = Number(aggregate?.autofillsTotal || 0);
     const C = Number(aggregate?.customAnswersTotal || 0);
     const hours = ((6.7 * A) + (2 * C)) / 60;
     const hoursText = Number.isFinite(hours) ? hours.toFixed(1) : "0.0";
-    return `${A.toLocaleString()} applications autofilled. ${hoursText} hours saved`;
+    return { A, hoursText };
   }, [aggregate]);
 
-  const heroPillText = useMemo(() => {
+  const heroPill = useMemo(() => {
     // Avoid showing 0/0 while the public aggregate doc hasn't been created/backfilled yet.
-    if (!aggregate) return uiText(landingContent.hero.eyebrow);
-    return heroStatText;
-  }, [aggregate, heroStatText]);
+    if (!aggregate) return <>{uiText(landingContent.hero.eyebrow)}</>;
+
+    return (
+      <>
+        <RollingNumber value={heroStatParts.A.toLocaleString()} className="font-semibold" /> applications autofilled. {heroStatParts.hoursText} hours saved
+      </>
+    );
+  }, [aggregate, heroStatParts.A, heroStatParts.hoursText]);
 
   return (
     <motion.section
@@ -126,7 +132,7 @@ export function HeroSection() {
         <div className="flex justify-center">
           <div className="inline-flex items-center gap-2 rounded-full border bg-background/60 px-4 py-2 text-xs text-foreground/80 backdrop-blur">
             <span className="inline-flex size-1.5 rounded-full bg-primary" />
-            {heroPillText}
+            {heroPill}
           </div>
         </div>
 
