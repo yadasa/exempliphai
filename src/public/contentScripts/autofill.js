@@ -4903,7 +4903,17 @@ async function tryHybridAiMapping(form, res) {
 
   // Allowed profile KEYS only (never values)
   const blockedKeys = new Set(['API Key', 'aiMappingEnabled', 'cloudSyncEnabled']);
-  const allowedProfileKeys = Object.keys(res || {}).filter((k) => k && !blockedKeys.has(k));
+  const allowedProfileKeys = Object.entries(res || {})
+    .filter(([k]) => k && !blockedKeys.has(k))
+    // Only advertise keys that have a usable value locally.
+    .filter(([, v]) => {
+      if (v == null) return false;
+      if (typeof v === 'string') return v.trim().length > 0;
+      if (typeof v === 'number') return Number.isFinite(v);
+      if (typeof v === 'boolean') return true;
+      return true;
+    })
+    .map(([k]) => k);
 
   // Collect unresolved candidates.
   const unresolved_fields = [];
@@ -5035,7 +5045,17 @@ async function tryPureAiMapping(form, res) {
 
   // Allowed profile KEYS only (never values)
   const blockedKeys = new Set(['API Key', 'aiMappingEnabled', 'pureAiModeEnabled', 'cloudSyncEnabled']);
-  const allowedProfileKeys = Object.keys(res || {}).filter((k) => k && !blockedKeys.has(k));
+  const allowedProfileKeys = Object.entries(res || {})
+    .filter(([k]) => k && !blockedKeys.has(k))
+    // Only advertise keys that have a usable value locally.
+    .filter(([, v]) => {
+      if (v == null) return false;
+      if (typeof v === 'string') return v.trim().length > 0;
+      if (typeof v === 'number') return Number.isFinite(v);
+      if (typeof v === 'boolean') return true;
+      return true;
+    })
+    .map(([k]) => k);
 
   // Run a few batches to keep payloads smaller.
   // Each batch: snapshot unresolved fields → ask for FillPlan → execute → repeat.
