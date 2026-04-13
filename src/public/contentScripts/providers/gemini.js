@@ -395,7 +395,15 @@ export function createGeminiProvider(cfg) {
         lastText = text;
         const jsonText = extractFirstJsonValue(text) ?? extractFirstJsonObject(text) ?? text;
         try {
-          return JSON.parse(jsonText);
+          let parsed = JSON.parse(jsonText);
+          // Some proxies/models return a JSON-encoded string containing JSON.
+          if (typeof parsed === 'string') {
+            const inner = parsed.trim();
+            if ((inner.startsWith('{') && inner.endsWith('}')) || (inner.startsWith('[') && inner.endsWith(']'))) {
+              parsed = JSON.parse(inner);
+            }
+          }
+          return parsed;
         } catch (e) {
           if (attempt === 0) {
             await sleep(120);
@@ -406,6 +414,9 @@ export function createGeminiProvider(cfg) {
           err.cause = e;
           // @ts-ignore
           err.rawText = lastText;
+          try {
+            console.warn('exempliphai: FillPlan parse failed (rawText head):', String(lastText || '').slice(0, 600));
+          } catch (_) {}
           throw err;
         }
       }

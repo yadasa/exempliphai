@@ -314,11 +314,13 @@
       const actions = (plan.actions || []).filter((a) => a?.value?.source && a.value.source !== 'skip');
       return { ok: true, actions, plan, error: null };
     } catch (e) {
+      const raw = e && (e.rawText || e.raw_text || e.text);
+      const rawHead = raw ? String(raw).slice(0, 600) : '';
       return {
         ok: false,
         actions: [],
         plan: null,
-        error: _err('ai_mapping_failed', String(e && e.message ? e.message : e || 'AI mapping failed')),
+        error: _err('ai_mapping_failed', String(e && e.message ? e.message : e || 'AI mapping failed'), rawHead ? { rawHead } : {}),
       };
     }
   };
