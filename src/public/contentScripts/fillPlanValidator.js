@@ -602,6 +602,19 @@ export function assertValidFillPlan(plan) {
 // Expose as a shared global for non-ESM callers.
 try {
   if (typeof window !== "undefined") {
+    // Preferred global namespace for the SmartApply AI pipeline.
+    // aiFillPlan.js expects __SmartApplyFillPlan.validate(plan) → {ok, errors}
+    // so we provide a compatible wrapper.
+    try {
+      window.__SmartApplyFillPlan = {
+        version: FILL_PLAN_VERSION,
+        validate: validateFillPlan,
+        validateFillPlan,
+        parseAndValidateFillPlanJSON,
+        assertValidFillPlan,
+      };
+    } catch (_) {}
+
     window.__exempliphaiFillPlan = {
       version: FILL_PLAN_VERSION,
       schema: fillPlanSchemaV0_1,
