@@ -2462,6 +2462,26 @@ async function _saMaybeAutoSubmitAfterAutofill({ submitButtonPaths = [], source 
     };
   }
 
+  // If Pure AI (or any AI mode) filled fields that require human review, do not auto-submit.
+  try {
+    const pending = globalThis.__SmartApplyReview?.pending;
+    const pendingCount = pending && typeof pending.size === 'number' ? pending.size : 0;
+    if (pendingCount > 0) {
+      console.log('exempliphai: Auto-submit disabled — review required', { pendingCount });
+      return {
+        enabled: true,
+        attempted: true,
+        clicked: false,
+        intent: 'none',
+        clickedText,
+        why: found.why,
+        score: found.score || 0,
+        source,
+        reason: 'review_required',
+      };
+    }
+  } catch (_) {}
+
   console.log('exempliphai: Auto-submit enabled — clicking', {
     source,
     why: found.why,

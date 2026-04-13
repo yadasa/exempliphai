@@ -18,6 +18,93 @@
 (function initFillExecutor(global) {
   'use strict';
 
+  function ensureReviewUi() {
+    global.__SmartApplyReview = global.__SmartApplyReview || { pending: new Map(), bannerEl: null };
+    const stKey = '__smartapply_review_styles';
+    if (!global.document || global.document.getElementById(stKey)) return;
+    const style = global.document.createElement('style');
+    style.id = stKey;
+    style.textContent = `
+      .sa-review-outline { outline: 3px solid rgba(245, 158, 11, 0.9) !important; outline-offset: 2px !important; }
+      .sa-review-banner {
+        position: fixed; z-index: 2147483647; left: 12px; right: 12px; top: 12px;
+        background: rgba(17, 24, 39, 0.96); color: white; border-radius: 14px;
+        padding: 10px 12px; display: flex; align-items: center; justify-content: space-between;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      }
+      .sa-review-banner button {
+        background: rgba(255,255,255,0.12); color: white; border: 1px solid rgba(255,255,255,0.18);
+        border-radius: 12px; padding: 8px 10px; font-weight: 700; cursor: pointer;
+      }
+      .sa-review-banner button:hover { background: rgba(255,255,255,0.18); }
+      .sa-review-banner .meta { font-size: 12px; opacity: 0.92; }
+    `;
+    global.document.head.appendChild(style);
+  }
+
+  function renderReviewBanner() {
+    if (!global.document) return;
+    ensureReviewUi();
+    const state = global.__SmartApplyReview;
+    const count = state?.pending?.size || 0;
+    if (count <= 0) {
+      if (state?.bannerEl) {
+        state.bannerEl.remove();
+        state.bannerEl = null;
+      }
+      return;
+    }
+
+    if (!state.bannerEl) {
+      const el = global.document.createElement('div');
+      el.className = 'sa-review-banner';
+      el.innerHTML = `
+        <div>
+          <div style="font-weight:800;">Review required</div>
+          <div class="meta" id="sa-review-meta"></div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button id="sa-review-clear">I reviewed these</button>
+        </div>
+      `;
+      el.querySelector('#sa-review-clear')?.addEventListener('click', () => {
+        try {
+          for (const [fp, node] of state.pending.entries()) {
+            try { node?.classList?.remove('sa-review-outline'); } catch (_) {}
+          }
+          state.pending.clear();
+          renderReviewBanner();
+        } catch (_) {}
+      });
+      global.document.body.appendChild(el);
+      state.bannerEl = el;
+    }
+
+    const meta = state.bannerEl.querySelector('#sa-review-meta');
+    if (meta) meta.textContent = `${count} field${count === 1 ? '' : 's'} were auto-filled and need your review before submitting.`;
+  }
+
+  function markNeedsReview(el, fp) {
+    if (!el || !global.document) return;
+    ensureReviewUi();
+    global.__SmartApplyReview.pending.set(fp || String(Math.random()), el);
+    try {
+      el.classList.add('sa-review-outline');
+      // Marking a field as reviewed: user focuses/clicks it.
+      const onFocus = () => {
+        try {
+          el.classList.remove('sa-review-outline');
+          global.__SmartApplyReview.pending.delete(fp);
+          renderReviewBanner();
+        } catch (_) {}
+      };
+      el.addEventListener('focus', onFocus, { once: true, capture: true });
+      el.addEventListener('click', onFocus, { once: true, capture: true });
+    } catch (_) {}
+    renderReviewBanner();
+  }
+
   // Simple 32-bit FNV-1a hash -> base36
   function hashStringFNV1a(str) {
     let h = 0x811c9dc5;
@@ -354,7 +441,9 @@
       if (ok) {
         applied++;
         pushUndo(el, cur);
-        results.push({ action_id, field_fingerprint: fp, status: 'applied', old_hash: oldHash, new_hash: newHash });
+        const needsReview = action?.requires_review === true || action?.policy?.requires_review === true;
+        if (needsReview) markNeedsReview(el, fp);
+        results.push({ action_id, field_fingerprint: fp, status: 'applied', old_hash: oldHash, new_hash: newHash, requires_review: !!needsReview });
       } else {
         results.push({ action_id, field_fingerprint: fp, status: 'failed_apply', old_hash: oldHash, new_hash: newHash });
       }
