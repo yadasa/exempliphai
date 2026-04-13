@@ -14,6 +14,9 @@ export default function DownloadPage() {
   return (
     <RequireAuth>
       <main className="mx-auto w-full max-w-3xl px-6 py-14">
+      <div className="mb-6 rounded-xl border border-amber-200/60 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-400/20 dark:bg-amber-400/10 dark:text-amber-100">
+        <strong>Note:</strong> The app is still pending Google Play Store approval, but the steps below let you get early access.
+      </div>
       <header className="mb-10">
         <h1 className="text-3xl font-bold tracking-tight">Install the ExempliPhai Extension (Unpacked)</h1>
         <p className="mt-3 text-muted-foreground">
