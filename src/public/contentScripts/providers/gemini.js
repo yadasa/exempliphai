@@ -65,6 +65,28 @@ function extractFirstJsonObject(text) {
   return s.slice(first, last + 1);
 }
 
+function extractFirstJsonValue(text) {
+  const s0 = (text ?? '').toString().trim();
+  if (!s0) return null;
+
+  // Strip common markdown code fences.
+  const s = s0
+    .replace(/^```(?:json)?/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+
+  // Prefer object, else array.
+  const o1 = s.indexOf('{');
+  const o2 = s.lastIndexOf('}');
+  if (o1 !== -1 && o2 !== -1 && o2 > o1) return s.slice(o1, o2 + 1);
+
+  const a1 = s.indexOf('[');
+  const a2 = s.lastIndexOf(']');
+  if (a1 !== -1 && a2 !== -1 && a2 > a1) return s.slice(a1, a2 + 1);
+
+  return null;
+}
+
 function asCleanText(x) {
   if (x == null) return '';
   return String(x);
@@ -349,34 +371,45 @@ export function createGeminiProvider(cfg) {
       // Send only the structured payload; the server constructs the full prompt.
       const payload = buildTier1MappingUserPayload(args);
 
-      const { text } = await withRetry(
-        () =>
-          geminiGenerateContent({
-            apiKey,
-            model: args?.model || model,
-            systemPrompt: '',
-            userPrompt: '',
-            timeoutMs: args?.timeoutMs ?? timeoutMs,
-            responseMimeType: 'application/json',
-            aiAction: 'mapFieldsToFillPlan',
-            useProxy,
-            // Pass structured args to the server; it will build the prompt.
-            args: payload,
-          }),
-        { maxRetries: args?.maxRetries ?? maxRetries }
-      );
+      // Parse can fail when the model returns fenced JSON or extra leading text.
+      // Retry once on parse failure.
+      let lastText = '';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const { text } = await withRetry(
+          () =>
+            geminiGenerateContent({
+              apiKey,
+              model: args?.model || model,
+              systemPrompt: '',
+              userPrompt: '',
+              timeoutMs: args?.timeoutMs ?? timeoutMs,
+              responseMimeType: 'application/json',
+              aiAction: 'mapFieldsToFillPlan',
+              useProxy,
+              // Pass structured args to the server; it will build the prompt.
+              args: payload,
+            }),
+          { maxRetries: args?.maxRetries ?? maxRetries }
+        );
 
-      const jsonText = extractFirstJsonObject(text) ?? text;
-      try {
-        return JSON.parse(jsonText);
-      } catch (e) {
-        const err = new Error('Failed to parse FillPlan JSON from Gemini');
-        // @ts-ignore
-        err.cause = e;
-        // @ts-ignore
-        err.rawText = text;
-        throw err;
+        lastText = text;
+        const jsonText = extractFirstJsonValue(text) ?? extractFirstJsonObject(text) ?? text;
+        try {
+          return JSON.parse(jsonText);
+        } catch (e) {
+          if (attempt === 0) {
+            await sleep(120);
+            continue;
+          }
+          const err = new Error('Failed to parse FillPlan JSON from Gemini');
+          // @ts-ignore
+          err.cause = e;
+          // @ts-ignore
+          err.rawText = lastText;
+          throw err;
+        }
       }
+      return { actions: [] };
     },
 
     async generateNarrativeAnswer(args) {
