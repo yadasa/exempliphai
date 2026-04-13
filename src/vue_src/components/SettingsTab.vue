@@ -151,12 +151,19 @@
                     </span>
                 </div>
                 <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
-                    Pure AI mode attempts to map and fill <b>all</b> unresolved fields using the AI FillPlan pipeline.
-                    This consumes more tokens and is billed from your prepaid extokens wallet (server-side markup applies).
+                    <b>Pure AI mode is the “full automation” setting.</b> It will attempt to map and fill <b>all</b> remaining empty (non-sensitive) fields using the AI FillPlan pipeline.
+                    In practice, this can fill custom questions that the normal autofill misses.
                 </p>
 
                 <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
-                    Sends job-form field labels/options + a list of your saved profile key names to the Exempliphai AI proxy (not your profile values).
+                    <b>Cost:</b> This uses more AI calls, so it can cost more.
+                    <b>Accuracy:</b> AI can guess wrong on ambiguous questions.
+                    <b>Safety:</b> Sensitive/consent fields are skipped.
+                    Always review the form before submitting.
+                </p>
+
+                <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+                    Privacy note: We send only job-form field labels/options + your saved profile <i>key names</i> to the Exempliphai AI proxy (never your profile values).
                 </p>
 
                 <button @click="triggerAI" class="action-btn export-btn">AI Answer Last Right-Click Field</button>
