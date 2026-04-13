@@ -13,14 +13,14 @@ export const siteConfig = {
     waitlistUrl: "/download",
   },
   openGraph: {
-    imageUrl: "/opengraph-image.png",
+    imageUrl: "/product-image.png",
     imageWidth: 1200,
     imageHeight: 630,
   },
   twitter: {
     creator: "@exempliphai",
     cardType: "summary_large_image",
-    imageUrl: "/opengraph-image.png",
+    imageUrl: "/product-image.png",
   },
   navItems: [
     { label: "Features", href: "https://exempliph.ai/#features" },
