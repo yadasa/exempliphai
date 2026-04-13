@@ -27,6 +27,7 @@ function usePrefersReducedMotion() {
 
 import BackgroundStars from "@/assets/stars.png";
 import Link from "next/link";
+import type { Route } from "next";
 import { doc, onSnapshot } from "firebase/firestore";
 import { ActionButton } from "@/components/action-button";
 import { RollingNumber } from "@/components/rolling-number";
@@ -157,11 +158,11 @@ export function HeroSection() {
         </div>
 
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-          <Link href={landingContent.hero.ctas.primary.href}>
+          <Link href={landingContent.hero.ctas.primary.href as Route}>
             <ActionButton label={landingContent.hero.ctas.primary.label} />
           </Link>
           <Link
-            href={landingContent.hero.ctas.secondary.href}
+            href={landingContent.hero.ctas.secondary.href as Route}
             className="text-sm text-foreground/80 underline-offset-4 hover:underline"
           >
             {landingContent.hero.ctas.secondary.label}
