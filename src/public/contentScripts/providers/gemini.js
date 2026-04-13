@@ -403,7 +403,7 @@ export function createGeminiProvider(cfg) {
               parsed = JSON.parse(inner);
             }
           }
-          return parsed;
+          return normalizeTier1Result(parsed);
         } catch (e) {
           if (attempt === 0) {
             await sleep(120);
@@ -455,6 +455,37 @@ export function createGeminiProvider(cfg) {
       return String(text).trim();
     },
   };
+}
+
+function normalizeTier1Result(parsed) {
+  // Some proxy/server versions return an array of actions directly.
+  // Convert into a FillPlan-like object.
+  if (Array.isArray(parsed)) {
+    return { actions: parsed.map(normalizeTier1Action) };
+  }
+  if (parsed && typeof parsed === 'object') {
+    const out = { ...parsed };
+    if (Array.isArray(out.actions)) {
+      out.actions = out.actions.map(normalizeTier1Action);
+    }
+    return out;
+  }
+  return { actions: [] };
+}
+
+function normalizeTier1Action(a) {
+  const action = a && typeof a === 'object' ? { ...a } : {};
+  if (action.value && typeof action.value === 'object') {
+    const v = { ...action.value };
+    // Older/alternate schema: { source:'profile', profile_key:'...' }
+    if (v.source === 'profile' && !v.source_key && v.profile_key) {
+      v.source_key = v.profile_key;
+    }
+    // Clean up alternate key name.
+    if (v.profile_key) delete v.profile_key;
+    action.value = v;
+  }
+  return action;
 }
 
 /**
