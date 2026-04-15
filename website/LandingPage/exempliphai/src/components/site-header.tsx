@@ -94,8 +94,13 @@ export default function SiteHeader() {
             ) : null}
 
             <ThemeToggle />
-            <a href={siteConfig.links.waitlistUrl} className="max-md:hidden">
-              <ActionButton label={uiText("Get Started")} />
+            <a
+              href="https://chromewebstore.google.com/detail/exempliphai/aadcbojbcgmpfgegdmojpjmnkeibiemc"
+              target="_blank"
+              rel="noreferrer"
+              className="max-md:hidden"
+            >
+              <ActionButton label={uiText("Add To Chrome")} />
             </a>
             <MobileNav
               open={isOpen}
@@ -205,10 +210,10 @@ function MobileNav({
                   : uiText("Log in")}
               </MobileLink>
               <MobileAnchor
-                href={siteConfig.links.waitlistUrl}
+                href="https://chromewebstore.google.com/detail/exempliphai/aadcbojbcgmpfgegdmojpjmnkeibiemc"
                 onOpenChange={setOpen}
               >
-                {uiText("Get Started")}
+                {uiText("Add To Chrome")}
               </MobileAnchor>
             </div>
           </div>
