@@ -4,11 +4,13 @@ import { HeroSection } from "@/components/hero-section";
 import { FAQ } from "@/components/faq";
 import { HowItWorks } from "@/components/how-it-works";
 import { LogoTicker } from "@/components/logo-ticker";
+import { PageVisitTracker } from "@/components/page-visit-tracker";
 import { Testimonials } from "@/components/testimonials";
 
 export default function Home() {
   return (
     <>
+      <PageVisitTracker />
       <HeroSection />
       <LogoTicker />
       <Features />

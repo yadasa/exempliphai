@@ -10,6 +10,8 @@
 const {setGlobalOptions} = require("firebase-functions");
 const {onRequest} = require("firebase-functions/https");
 const logger = require("firebase-functions/logger");
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const admin = require("firebase-admin");
 
 // For cost control, you can set the maximum number of containers that can be
 // running at the same time. This helps mitigate the impact of unexpected
@@ -22,6 +24,29 @@ const logger = require("firebase-functions/logger");
 // In the v1 API, each function can only serve one request per container, so
 // this will be the maximum concurrent request count.
 setGlobalOptions({ maxInstances: 10 });
+
+if (admin.apps.length === 0) {
+  admin.initializeApp();
+}
+
+// Increment a global counter whenever the landing page logs a visit event.
+// Path: global/pageVisits/{visitId}
+exports.onLandingPageVisit = onDocumentCreated(
+  {
+    document: "global/pageVisits/{visitId}",
+    region: "us-central1",
+    maxInstances: 5,
+  },
+  async () => {
+    const db = admin.firestore();
+    await db
+      .doc("global/metrics")
+      .set(
+        { landingPageVisits: admin.firestore.FieldValue.increment(1) },
+        { merge: true },
+      );
+  },
+);
 
 // Create and deploy your first functions
 // https://firebase.google.com/docs/functions/get-started
