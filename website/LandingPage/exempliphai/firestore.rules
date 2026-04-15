@@ -4,7 +4,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // Public landing-page visit logging.
     // Client may only CREATE a visit event doc. Reading is denied.
-    match /global/pageVisits/{visitId} {
+    match /global/metrics/pageVisits/{visitId} {
       allow create: if true;
       allow read, update, delete: if false;
     }

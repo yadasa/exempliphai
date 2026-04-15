@@ -24,7 +24,7 @@ export function PageVisitTracker() {
 
     // Firestore rules allow CREATE only (no reads).
     // A backend trigger increments the global counter.
-    void addDoc(collection(db, "global", "pageVisits"), {
+    void addDoc(collection(db, "global", "metrics", "pageVisits"), {
       createdAt: serverTimestamp(),
       path: window.location.pathname,
       ref: document.referrer || null,
@@ -36,4 +36,3 @@ export function PageVisitTracker() {
 
   return null;
 }
-

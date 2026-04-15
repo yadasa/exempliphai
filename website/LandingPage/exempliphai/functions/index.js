@@ -30,10 +30,10 @@ if (admin.apps.length === 0) {
 }
 
 // Increment a global counter whenever the landing page logs a visit event.
-// Path: global/pageVisits/{visitId}
+// Path: global/metrics/pageVisits/{visitId}
 exports.onLandingPageVisit = onDocumentCreated(
   {
-    document: "global/pageVisits/{visitId}",
+    document: "global/metrics/pageVisits/{visitId}",
     region: "us-central1",
     maxInstances: 5,
   },
