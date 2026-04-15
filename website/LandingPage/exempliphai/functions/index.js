@@ -7,10 +7,8 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
-const {setGlobalOptions} = require("firebase-functions");
-const {onRequest} = require("firebase-functions/https");
-const logger = require("firebase-functions/logger");
-const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const { setGlobalOptions } = require("firebase-functions");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 
 // For cost control, you can set the maximum number of containers that can be
@@ -32,26 +30,17 @@ if (admin.apps.length === 0) {
 // Increment a global counter whenever the landing page logs a visit event.
 // Path: global/metrics/pageVisits/{visitId}
 exports.onLandingPageVisit = onDocumentCreated(
-  {
-    document: "global/metrics/pageVisits/{visitId}",
-    region: "us-central1",
-    maxInstances: 5,
-  },
-  async () => {
-    const db = admin.firestore();
-    await db
-      .doc("global/metrics")
-      .set(
-        { landingPageVisits: admin.firestore.FieldValue.increment(1) },
-        { merge: true },
+    {
+      document: "global/metrics/pageVisits/{visitId}",
+      region: "us-central1",
+      maxInstances: 5,
+    },
+    async () => {
+      const db = admin.firestore();
+      await db.doc("global/metrics").set(
+          { landingPageVisits: admin.firestore.FieldValue.increment(1) },
+          { merge: true },
       );
-  },
+    },
 );
 
-// Create and deploy your first functions
-// https://firebase.google.com/docs/functions/get-started
-
-// exports.helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
