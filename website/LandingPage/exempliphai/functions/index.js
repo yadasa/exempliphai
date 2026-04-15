@@ -7,8 +7,8 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
-const { setGlobalOptions } = require("firebase-functions");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const {setGlobalOptions} = require("firebase-functions");
+const {onDocumentCreated} = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 
 // For cost control, you can set the maximum number of containers that can be
@@ -21,7 +21,7 @@ const admin = require("firebase-admin");
 // functions should each use functions.runWith({ maxInstances: 10 }) instead.
 // In the v1 API, each function can only serve one request per container, so
 // this will be the maximum concurrent request count.
-setGlobalOptions({ maxInstances: 10 });
+setGlobalOptions({maxInstances: 10});
 
 if (admin.apps.length === 0) {
   admin.initializeApp();
@@ -38,8 +38,8 @@ exports.onLandingPageVisit = onDocumentCreated(
     async () => {
       const db = admin.firestore();
       await db.doc("global/metrics").set(
-          { landingPageVisits: admin.firestore.FieldValue.increment(1) },
-          { merge: true },
+          {landingPageVisits: admin.firestore.FieldValue.increment(1)},
+          {merge: true},
       );
     },
 );
