@@ -9,6 +9,13 @@ service cloud.firestore {
       allow read, update, delete: if false;
     }
 
+    // Public aggregate stats used by the hero pill.
+    // This doc should be written by a privileged backend (Admin SDK).
+    match /publicStats/{docId} {
+      allow read: if docId == "aggregate";
+      allow write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
