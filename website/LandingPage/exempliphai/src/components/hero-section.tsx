@@ -78,7 +78,10 @@ export function HeroSection() {
 
     return (
       <>
-        <RollingNumber value={heroStatParts.A.toLocaleString()} className="font-semibold" /> applications autofilled. {heroStatParts.hoursText} hours saved
+        <RollingNumber value={heroStatParts.A.toLocaleString()} className="font-semibold tabular-nums" />
+        <span className="ml-1">applications autofilled.</span>
+        <span className="ml-2 tabular-nums">{heroStatParts.hoursText}</span>
+        <span className="ml-1">hours saved</span>
       </>
     );
   }, [aggregate, heroStatParts.A, heroStatParts.hoursText]);
