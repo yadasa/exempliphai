@@ -153,6 +153,13 @@ service cloud.firestore {
       allow create, update, delete: if isOrgOwner(orgId);
     }
 
+    // Landing-page visit logging (public create-only)
+    // Collection: /global/metrics/pageVisits/{visitId}
+    match /global/metrics/pageVisits/{visitId} {
+      allow create: if true;
+      allow read, update, delete: if false;
+    }
+
     // Global killswitch config (public read, admin write only)
     // Doc: /global/config
     match /global/{docId} {
