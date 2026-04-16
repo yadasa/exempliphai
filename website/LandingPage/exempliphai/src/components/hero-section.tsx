@@ -77,12 +77,12 @@ export function HeroSection() {
     if (!aggregate) return <>{uiText(landingContent.hero.eyebrow)}</>;
 
     return (
-      <>
+      <span className="inline-flex items-center gap-1">
         <RollingNumber value={heroStatParts.A.toLocaleString()} className="font-semibold tabular-nums" />
-        <span className="ml-1">applications autofilled.</span>
-        <span className="ml-2 tabular-nums">{heroStatParts.hoursText}</span>
-        <span className="ml-1">hours saved</span>
-      </>
+        <span>applications autofilled.</span>
+        <span className="tabular-nums">{heroStatParts.hoursText}</span>
+        <span>hours saved</span>
+      </span>
     );
   }, [aggregate, heroStatParts.A, heroStatParts.hoursText]);
 

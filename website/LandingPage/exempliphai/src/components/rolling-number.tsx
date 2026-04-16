@@ -50,7 +50,14 @@ export function RollingNumber({ value, className }: { value: string; className?:
   const cells = useMemo(() => splitForRoll(value, prev), [value, prev]);
 
   return (
-    <span className={className} style={{ display: "inline-flex", alignItems: "baseline" }}>
+    <span
+      className={className}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        lineHeight: "1em",
+      }}
+    >
       {cells.map((cell, idx) => (
         <DigitCell key={`${cell.key}-${idx}`} char={cell.char} animate={cell.animate} />
       ))}
@@ -72,8 +79,19 @@ function DigitCell({ char, animate }: { char: string; animate: boolean }) {
     return <span style={{ whiteSpace: "pre" }}>{char}</span>;
   }
 
+  const staticCellStyle = {
+    display: "inline-block",
+    width: "0.62em",
+    lineHeight: "1em",
+    textAlign: "center" as const,
+  };
+
   if (!animate || prev == null) {
-    return <span className="tabular-nums">{shown}</span>;
+    return (
+      <span className="tabular-nums" style={staticCellStyle}>
+        {shown}
+      </span>
+    );
   }
 
   return (
