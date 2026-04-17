@@ -62,6 +62,51 @@
             Wait this long after the page loads before starting autofill. Helpful for slower sites.
         </p>
 
+        <!-- DEMO LOOP MODE (easy to remove later) -->
+        <div class="action-card" style="margin: 0.75rem 0 1rem 0; border: 1px dashed rgba(255,255,255,0.18);">
+            <h3 style="margin-top:0;">Demo</h3>
+            <div class="toggle-container" style="margin: 0.25rem 0 0.5rem 0;">
+                <label class="switch">
+                    <input type="checkbox" v-model="demoLoopEnabled" @change="toggleDemoLoop" />
+                    <span class="slider round"></span>
+                </label>
+                <span>Autofill loop mode (fill → clear → fill)</span>
+            </div>
+            <p style="margin-top: 0; color: var(--text-secondary); font-size: 0.85rem; line-height: 1.35;">
+                For demos only. When enabled, Exempliphai will repeatedly autofill a page, clear all fields it filled, then autofill again.
+            </p>
+
+            <div class="range-container" style="margin: 0.6rem 0 0.25rem 0;">
+                <div class="range-row">
+                    <span>Loop interval (ms)</span>
+                    <span class="range-value">{{ demoLoopIntervalMs }} ms</span>
+                </div>
+                <input
+                    class="range"
+                    type="range"
+                    min="800"
+                    max="10000"
+                    step="100"
+                    v-model.number="demoLoopIntervalMs"
+                    @change="saveDemoLoopInterval"
+                    :disabled="!demoLoopEnabled"
+                />
+                <div class="range-row" style="margin-top: 0.35rem;">
+                    <input
+                        class="range-number"
+                        type="number"
+                        min="800"
+                        max="60000"
+                        step="100"
+                        v-model.number="demoLoopIntervalMs"
+                        @change="saveDemoLoopInterval"
+                        :disabled="!demoLoopEnabled"
+                    />
+                    <span class="range-hint">800–60000</span>
+                </div>
+            </div>
+        </div>
+
 
         <h2 class="subheading">List Mode (Batch Apply)</h2>
         <div class="action-card" style="margin-bottom: 1rem;">
@@ -458,7 +503,7 @@ export default {
         const loadSettings = async () => {
             if (!chrome?.storage) return;
             chrome.storage.sync.get(
-                ['aiMappingEnabled', 'pureAiModeEnabled', 'autoSubmitEnabled', 'autoTailorEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs'],
+                ['aiMappingEnabled', 'pureAiModeEnabled', 'autoSubmitEnabled', 'autoTailorEnabled', 'listModeEnabled', 'closePreviousTabs', 'autofillDelayMs', 'demoLoopEnabled', 'demoLoopIntervalMs'],
                 (result) => {
                     aiMappingEnabled.value = !!(result as any).aiMappingEnabled;
                     pureAiModeEnabled.value = !!(result as any).pureAiModeEnabled;
@@ -467,8 +512,16 @@ export default {
                     listModeEnabled.value = !!(result as any).listModeEnabled;
                     closePreviousTabs.value = !!(result as any).closePreviousTabs;
                     autofillDelayMs.value = normalizeAutofillDelayMs((result as any).autofillDelayMs);
+                    demoLoopEnabled.value = !!(result as any).demoLoopEnabled;
+                    demoLoopIntervalMs.value = normalizeDemoLoopIntervalMs((result as any).demoLoopIntervalMs);
                 }
             );
+        };
+
+        const normalizeDemoLoopIntervalMs = (v: any) => {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return 2500;
+            return Math.min(60000, Math.max(800, Math.round(n / 100) * 100));
         };
 
         // Prime paid-plan cache for gating (best-effort).
@@ -496,6 +549,24 @@ export default {
             autofillDelayMs.value = next;
             chrome.storage.sync.set({ autofillDelayMs: next }, () => {
                 console.log('Autofill delay saved:', next);
+            });
+        };
+
+        // DEMO LOOP MODE (easy to remove later)
+        const demoLoopEnabled = ref(false);
+        const demoLoopIntervalMs = ref(2500);
+
+        const toggleDemoLoop = () => {
+            chrome.storage.sync.set({ demoLoopEnabled: demoLoopEnabled.value }, () => {
+                console.log('Demo loop toggled:', demoLoopEnabled.value);
+            });
+        };
+
+        const saveDemoLoopInterval = () => {
+            const next = normalizeDemoLoopIntervalMs(demoLoopIntervalMs.value);
+            demoLoopIntervalMs.value = next;
+            chrome.storage.sync.set({ demoLoopIntervalMs: next }, () => {
+                console.log('Demo loop interval saved:', next);
             });
         };
 
@@ -712,6 +783,12 @@ export default {
 
             autofillDelayMs,
             saveAutofillDelay,
+
+            // Demo loop
+            demoLoopEnabled,
+            demoLoopIntervalMs,
+            toggleDemoLoop,
+            saveDemoLoopInterval,
 
             triggerAI,
             generateAllPending,

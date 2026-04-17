@@ -87,7 +87,131 @@ function _saEstimateGemini15FlashCostCents(tokensIn, tokensOut) {
   } catch (_) {
     return 0;
   }
-}
+} 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DEMO LOOP MODE (easy to remove later)
+// Autofill → clear (undoAll) → autofill in a loop.
+// Guarded behind chrome.storage.sync key: demoLoopEnabled
+// Interval key: demoLoopIntervalMs
+// ─────────────────────────────────────────────────────────────────────────────
+(function initDemoLoopMode() {
+  try {
+    if (!chrome?.storage?.sync) return;
+
+    const state = {
+      wrapped: false,
+      running: false,
+      timer: null,
+      last: null,
+    };
+
+    function getSettings(cb) {
+      chrome.storage.sync.get(['demoLoopEnabled', 'demoLoopIntervalMs'], (r) => {
+        const enabled = !!(r || {}).demoLoopEnabled;
+        let ms = Number((r || {}).demoLoopIntervalMs);
+        if (!Number.isFinite(ms)) ms = 2500;
+        ms = Math.min(60000, Math.max(800, Math.round(ms / 100) * 100));
+        cb({ enabled, ms });
+      });
+    }
+
+    function stop() {
+      state.running = false;
+      if (state.timer) {
+        try { clearTimeout(state.timer); } catch (_) {}
+      }
+      state.timer = null;
+    }
+
+    function scheduleNext(ms) {
+      if (state.timer) {
+        try { clearTimeout(state.timer); } catch (_) {}
+      }
+      state.timer = setTimeout(async () => {
+        getSettings(async ({ enabled, ms: nextMs }) => {
+          if (!enabled) {
+            stop();
+            return;
+          }
+          if (!state.last) {
+            scheduleNext(nextMs);
+            return;
+          }
+
+          const fillExecutor = globalThis.__SmartApply?.fillExecutor;
+          if (!fillExecutor?.undoAll || !fillExecutor?.execute) {
+            scheduleNext(nextMs);
+            return;
+          }
+
+          try {
+            // Clear everything the executor filled last time.
+            fillExecutor.undoAll();
+          } catch (_) {}
+
+          // Small pause so the UI visibly clears before refilling.
+          setTimeout(async () => {
+            try {
+              await fillExecutor.execute(state.last.plan, state.last.opts);
+            } catch (e) {
+              console.warn('exempliphai demo loop: execute failed', e);
+            } finally {
+              scheduleNext(nextMs);
+            }
+          }, 350);
+        });
+      }, ms);
+    }
+
+    function ensureWrapped() {
+      if (state.wrapped) return;
+      const fillExecutor = globalThis.__SmartApply?.fillExecutor;
+      if (!fillExecutor?.execute || !fillExecutor?.undoAll) return;
+      if (fillExecutor.__demoLoopWrapped) {
+        state.wrapped = true;
+        return;
+      }
+      const orig = fillExecutor.execute.bind(fillExecutor);
+      fillExecutor.__demoLoopWrapped = true;
+      fillExecutor.execute = async function (planOrBundle, opts) {
+        const res = await orig(planOrBundle, opts);
+        try {
+          if (res && typeof res === 'object' && (res.applied || 0) > 0) {
+            state.last = { plan: planOrBundle, opts: opts || {} };
+            getSettings(({ enabled, ms }) => {
+              if (enabled && !state.running) {
+                state.running = true;
+                scheduleNext(ms);
+              }
+            });
+          }
+        } catch (_) {}
+        return res;
+      };
+      state.wrapped = true;
+    }
+
+    // Poll until Phase-2 modules load, then wrap.
+    const poll = setInterval(() => {
+      try {
+        ensureWrapped();
+        if (state.wrapped) clearInterval(poll);
+      } catch (_) {}
+    }, 750);
+
+    // Allow turning it off live.
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== 'sync') return;
+        if (changes?.demoLoopEnabled) {
+          const enabled = !!changes.demoLoopEnabled.newValue;
+          if (!enabled) stop();
+        }
+      });
+    } catch (_) {}
+  } catch (_) {}
+})();
 
 function _saAppendAiUsageLog(entry) {
   _saAiUsageLogQueue = _saAiUsageLogQueue
